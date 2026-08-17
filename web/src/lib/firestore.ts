@@ -1,0 +1,109 @@
+// Typed Firestore path helpers and converters. Feature tracks import these
+// instead of building collection paths by hand.
+import {
+  collection,
+  doc,
+  CollectionReference,
+  DocumentReference,
+  FirestoreDataConverter,
+  QueryDocumentSnapshot,
+} from "firebase/firestore";
+import { db } from "./firebase";
+import type {
+  Project,
+  Member,
+  Invite,
+  Sensor,
+  Profile,
+  Rule,
+  AlarmEvent,
+  UserDoc,
+} from "@/types";
+
+// Generic converter: strips `id` on write, injects doc id on read.
+function converter<T extends { id: string }>(): FirestoreDataConverter<T> {
+  return {
+    toFirestore(model) {
+      const { id: _id, ...rest } = model as T;
+      return rest;
+    },
+    fromFirestore(snap: QueryDocumentSnapshot) {
+      return { id: snap.id, ...snap.data() } as T;
+    },
+  };
+}
+
+const projectConverter = converter<Project>();
+const memberConverter = converter<Member>();
+const inviteConverter = converter<Invite>();
+const sensorConverter = converter<Sensor>();
+const profileConverter = converter<Profile>();
+const ruleConverter = converter<Rule>();
+const eventConverter = converter<AlarmEvent>();
+const userConverter = converter<UserDoc>();
+
+export const usersDoc = (email: string) =>
+  doc(db, "users", email.toLowerCase()).withConverter(
+    userConverter
+  ) as DocumentReference<UserDoc>;
+
+export const projectsCol = () =>
+  collection(db, "projects").withConverter(projectConverter) as CollectionReference<Project>;
+
+export const projectDoc = (projectId: string) =>
+  doc(db, "projects", projectId).withConverter(projectConverter) as DocumentReference<Project>;
+
+export const membersCol = (projectId: string) =>
+  collection(db, "projects", projectId, "members").withConverter(
+    memberConverter
+  ) as CollectionReference<Member>;
+
+export const memberDoc = (projectId: string, userId: string) =>
+  doc(db, "projects", projectId, "members", userId).withConverter(
+    memberConverter
+  ) as DocumentReference<Member>;
+
+export const invitesCol = (projectId: string) =>
+  collection(db, "projects", projectId, "invites").withConverter(
+    inviteConverter
+  ) as CollectionReference<Invite>;
+
+export const inviteDoc = (projectId: string, inviteId: string) =>
+  doc(db, "projects", projectId, "invites", inviteId).withConverter(
+    inviteConverter
+  ) as DocumentReference<Invite>;
+
+export const sensorsCol = (projectId: string) =>
+  collection(db, "projects", projectId, "sensors").withConverter(
+    sensorConverter
+  ) as CollectionReference<Sensor>;
+
+export const sensorDoc = (projectId: string, sensorId: string) =>
+  doc(db, "projects", projectId, "sensors", sensorId).withConverter(
+    sensorConverter
+  ) as DocumentReference<Sensor>;
+
+export const profilesCol = (projectId: string) =>
+  collection(db, "projects", projectId, "profiles").withConverter(
+    profileConverter
+  ) as CollectionReference<Profile>;
+
+export const profileDoc = (projectId: string, profileId: string) =>
+  doc(db, "projects", projectId, "profiles", profileId).withConverter(
+    profileConverter
+  ) as DocumentReference<Profile>;
+
+export const rulesCol = (projectId: string, profileId: string) =>
+  collection(db, "projects", projectId, "profiles", profileId, "rules").withConverter(
+    ruleConverter
+  ) as CollectionReference<Rule>;
+
+export const ruleDoc = (projectId: string, profileId: string, ruleId: string) =>
+  doc(db, "projects", projectId, "profiles", profileId, "rules", ruleId).withConverter(
+    ruleConverter
+  ) as DocumentReference<Rule>;
+
+export const eventsCol = (projectId: string) =>
+  collection(db, "projects", projectId, "events").withConverter(
+    eventConverter
+  ) as CollectionReference<AlarmEvent>;

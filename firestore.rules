@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function memberEmail() {
+      return request.auth != null ? request.auth.token.email.lower() : "";
+    }
+
+    function isMember(projectId) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/projects/$(projectId)/members/$(memberEmail()));
+    }
+
+    function isAdmin(projectId) {
+      return isMember(projectId) &&
+        get(/databases/$(database)/documents/projects/$(projectId)/members/$(memberEmail())).data.role == 'admin';
+    }
+
+    function isSystemAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(memberEmail())) &&
+        get(/databases/$(database)/documents/users/$(memberEmail())).data.isSystemAdmin == true;
+    }
+
+    // User profiles + membership index. A user may READ only their own doc.
+    // All writes are owned by Cloud Functions (provisionUser / grantTenantAccess)
+    // via the admin SDK, which bypasses these rules — clients cannot write.
+    match /users/{email} {
+      allow read: if request.auth != null && email == memberEmail();
+      allow write: if false;
+    }
+
+    // Device key hash -> projectId index. Written by a project admin at create
+    // time; read only by the deviceIngest function (admin SDK). The doc id is a
+    // SHA-256 hash, not the raw key. No client reads.
+    match /deviceKeys/{keyHash} {
+      allow read: if false;
+      allow create: if request.auth != null
+        && isSystemAdmin();
+      allow update, delete: if false;
+    }
+
+    match /projects/{projectId} {
+      // Only a system admin may create a project.
+      allow create: if isSystemAdmin()
+        && request.resource.data.ownerId == memberEmail();
+      allow read: if isMember(projectId);
+      // serverArmed toggle allowed for any member; everything else admin-only.
+      allow update: if isAdmin(projectId)
+        || (isMember(projectId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['serverArmed']));
+      allow delete: if isAdmin(projectId) || isSystemAdmin();
+
+      // Membership is written only by grantTenantAccess (admin SDK). Members
+      // may read the roster.
+      match /members/{memberEmailId} {
+        allow read: if isMember(projectId);
+        allow write: if false;
+      }
+
+      match /sensors/{sensorId} {
+        allow read: if isMember(projectId);
+        allow write: if isAdmin(projectId);
+      }
+
+      match /profiles/{profileId} {
+        allow read: if isMember(projectId);
+        allow create, delete: if isAdmin(projectId);
+        // Admin may edit everything; a plain member may only arm/disarm, i.e.
+        // change the activation flags (used by Operations).
+        allow update: if isAdmin(projectId)
+          || (isMember(projectId)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['isActiveOnDevice', 'isActiveOnServer']));
+        match /rules/{ruleId} {
+          allow read: if isMember(projectId);
+          allow write: if isAdmin(projectId);
+        }
+      }
+
+      match /events/{eventId} {
+        allow read: if isMember(projectId);
+        // Events are written only by Cloud Functions (admin SDK bypasses rules).
+        allow write: if false;
+      }
+    }
+  }
+}

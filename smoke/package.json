@@ -1,0 +1,11 @@
+{
+  "name": "alarm-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.1"
+  }
+}

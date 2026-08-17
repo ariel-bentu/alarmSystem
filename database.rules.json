@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "$projectId": {
+      ".read": "auth != null",
+      "state": {
+        ".read": "auth != null",
+        ".write": false
+      },
+      "commands": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "config": {
+        ".read": "auth != null",
+        ".write": false
+      },
+      "events": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+// Typed Realtime Database path helpers. All device-facing paths are namespaced
+// under projectId. Feature tracks (operations, simulator) import these.
+import { ref, DatabaseReference } from "firebase/database";
+import { rtdb } from "./firebase";
+
+export const statePath = (projectId: string) => `${projectId}/state`;
+export const stateArmedPath = (projectId: string) => `${projectId}/state/armed`;
+export const stateSirenPath = (projectId: string) =>
+  `${projectId}/state/siren_active`;
+export const commandsArmedPath = (projectId: string) =>
+  `${projectId}/commands/armed`;
+export const commandsSirenPath = (projectId: string) =>
+  `${projectId}/commands/siren`;
+export const configPath = (projectId: string) => `${projectId}/config`;
+export const eventPath = (
+  projectId: string,
+  sensorRfId: string,
+  timestamp: number
+) => `${projectId}/events/${sensorRfId}/${timestamp}`;
+
+export const stateRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, statePath(projectId));
+export const stateArmedRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, stateArmedPath(projectId));
+export const stateSirenRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, stateSirenPath(projectId));
+export const commandsArmedRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, commandsArmedPath(projectId));
+export const commandsSirenRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, commandsSirenPath(projectId));
+export const configRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, configPath(projectId));
+export const eventRef = (
+  projectId: string,
+  sensorRfId: string,
+  timestamp: number
+): DatabaseReference => ref(rtdb, eventPath(projectId, sensorRfId, timestamp));
