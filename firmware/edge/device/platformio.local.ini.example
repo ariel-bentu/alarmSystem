@@ -1,0 +1,5 @@
+; Copy to platformio.local.ini (gitignored) and fill in the real Web API
+; key from web/.env.local's VITE_FIREBASE_API_KEY (Firebase console:
+; Project settings -> General -> Web API Key).
+[common]
+firebase_web_api_key_flag = -DFIREBASE_WEB_API_KEY=\"YOUR_FIREBASE_WEB_API_KEY\"

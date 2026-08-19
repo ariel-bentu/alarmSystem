@@ -24,7 +24,18 @@ export const onSensorEvent = onValueCreated(
       .get();
 
     if (sensorSnap.empty) {
-      console.log(`Unknown sensor rfId=${rfId} in project=${projectId}. Skipping.`);
+      // Deliberately NOT mirrored to Firestore: an unpaired sensor has no
+      // name, no profile membership and no rules, so there is nothing
+      // meaningful to write to the timeline. The RTDB event itself is left
+      // in place, which is what makes pairing possible — the web UI's
+      // Sensors tab reads /{projectId}/events directly and lists any rfId
+      // with no matching Firestore sensor as "unrecognised", ready to pair
+      // (see web/src/features/configure/unknownSensors.ts). Dropping the
+      // RTDB node here would make new sensors impossible to discover.
+      console.log(
+        `Unpaired sensor rfId=${rfId} in project=${projectId}: kept in RTDB ` +
+          `for pairing, not mirrored to Firestore.`
+      );
       return;
     }
 

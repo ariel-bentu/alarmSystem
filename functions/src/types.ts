@@ -115,23 +115,35 @@ export interface RtdbRawEvent {
   rssi: number;
 }
 
-// Condition as written into the RTDB config. Identical to the Firestore
-// Condition except that multi_sensor `counts` are keyed by **rfId**, because the
-// device only knows rfIds — it never sees Firestore document ids.
-export interface RtdbCondition extends Omit<Condition, "counts"> {
-  counts?: Record<string, number>; // keyed by rfId
+// Condition as written into the RTDB config. Short keys and index-based
+// references keep the payload small — the device only needs to evaluate
+// conditions, not display names, and rfIds are referenced by their position
+// in RtdbConfig.r instead of repeating the string.
+//
+// t: 0=immediate, 1=count_in_window, 2=entry_delay, 3=multi_sensor
+// n: count (count_in_window)
+// w: window_sec (count_in_window, multi_sensor)
+// y: delay_sec (entry_delay)
+// k: counts, keyed by index-into-r (as string) — required trigger count per
+//    participant, always explicit for every participant including self
+export interface RtdbCondition {
+  t: 0 | 1 | 2 | 3;
+  n?: number;
+  w?: number;
+  y?: number;
+  k?: Record<string, number>;
 }
 
-export interface RtdbConfigSensor {
-  name: string;
-  enabled: boolean;
-  conditions: RtdbCondition[];
-}
-
+// Device-facing config written to RTDB /{projectId}/config.
+// r[i] is a sensor's rfId; c[i] is that same sensor's condition list
+// (OR semantics — any one condition firing is enough). r and c are always
+// the same length and index-aligned. A sensor whose rfId never appears in r
+// is unknown to the device and is not evaluated for alarm logic.
 export interface RtdbConfig {
-  armed: boolean;
-  siren_duration_sec: number;
-  sensors: Record<string, RtdbConfigSensor>;
+  a: boolean; // armed
+  d: number; // siren_duration_sec
+  r: string[]; // rfIds, by index
+  c: RtdbCondition[][]; // conditions per sensor, index-aligned with r
 }
 
 export interface AlarmEvent {

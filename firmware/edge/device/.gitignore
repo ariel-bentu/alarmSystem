@@ -1,0 +1,7 @@
+.pio/
+compile_commands.json
+platformio.local.ini
+# LittleFS image source: provision.json holds the WiFi password and the
+# device API key. Never commit it — it is flashed to the board with
+# `pio run -t uploadfs` as a faster alternative to the setup portal.
+data/

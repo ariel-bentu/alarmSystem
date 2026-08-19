@@ -16,7 +16,7 @@
       },
       "events": {
         ".read": "auth != null",
-        ".write": false
+        ".write": "auth != null && auth.token.role === 'device' && auth.token.projectId === $projectId"
       }
     }
   }

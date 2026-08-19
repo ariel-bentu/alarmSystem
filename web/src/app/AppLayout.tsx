@@ -33,6 +33,19 @@ export function AppLayout({ children }: { children: ReactNode }) {
             ))}
           </select>
         )}
+        {/* Every RTDB read is namespaced by this id (/{projectId}/events,
+            /config, /commands), and the device only writes to ONE of them.
+            Showing it makes "am I looking at the project my device talks
+            to?" answerable at a glance instead of by guessing — with it
+            hidden, a wrong selection looks identical to a broken sensor. */}
+        {project?.id && (
+          <code
+            title="Active projectId — RTDB paths are namespaced under this"
+            style={{ fontSize: 11, opacity: 0.6, userSelect: "all" }}
+          >
+            {project.id}
+          </code>
+        )}
         <nav style={{ display: "flex", gap: 12 }}>
           <Link to="/">Operations</Link>
           {role === "admin" && <Link to="/configure">Configure</Link>}

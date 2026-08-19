@@ -151,24 +151,24 @@ export interface RtdbRawEvent {
   rssi: number;
 }
 
-// Condition as written into the RTDB config. Identical to the Firestore
-// Condition except that multi_sensor `counts` are keyed by **rfId**, because the
-// device only knows rfIds — it never sees Firestore document ids.
-export interface RtdbCondition extends Omit<Condition, "counts"> {
-  counts?: Record<string, number>; // keyed by rfId
+// Condition as written into the RTDB config. Mirrors functions/src/types.ts
+// — keep in sync by hand.
+// t: 0=immediate, 1=count_in_window, 2=entry_delay, 3=multi_sensor
+export interface RtdbCondition {
+  t: 0 | 1 | 2 | 3;
+  n?: number;
+  w?: number;
+  y?: number;
+  k?: Record<string, number>; // keyed by index into RtdbConfig.r
 }
 
-// Config object built by onProfileChange and written to RTDB /config.
-export interface RtdbConfigSensor {
-  name: string;
-  enabled: boolean;
-  conditions: RtdbCondition[];
-}
-
+// Device-facing config at RTDB /{projectId}/config. r[i]/c[i] are
+// index-aligned: r[i] is a sensor's rfId, c[i] is its condition list.
 export interface RtdbConfig {
-  armed: boolean;
-  siren_duration_sec: number;
-  sensors: Record<string, RtdbConfigSensor>; // keyed by rfId
+  a: boolean; // armed
+  d: number; // siren_duration_sec
+  r: string[];
+  c: RtdbCondition[][];
 }
 
 // ---- Explore timeline range selector ----

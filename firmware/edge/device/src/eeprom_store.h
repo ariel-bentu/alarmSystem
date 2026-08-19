@@ -1,0 +1,41 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+#include "alarm_state.h"
+
+class EepromStore {
+ public:
+  // Sized to the actual record, not a round number. This was 4096, which
+  // cost ~4KB of heap for EEPROM.begin()'s RAM mirror AND put a 4096-byte
+  // buffer on the stack in load()/save() — the latter overflows loop()'s
+  // 4KB cont stack outright. That heap cost was enough to push the free
+  // heap at mint time below the ~19KB a BearSSL TLS handshake needs,
+  // producing the Soft WDT resets documented in cloud_client.cpp.
+  //
+  // Derived from the layout below so it cannot drift if Config grows:
+  // magic (4) | armed (1) | localWebEnabled (1) | Config.
+  static constexpr size_t kRecordBytes =
+      sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(Config);
+  // Small headroom so a modest Config change doesn't require an EEPROM
+  // layout migration; still an order of magnitude below the old 4096.
+  static constexpr size_t kReservedBytes = kRecordBytes + 64;
+  // Bumped from 0xA1A2B3B4 — this is a breaking format change (added
+  // localWebEnabled byte between armed and Config). Old EEPROM contents
+  // written before this change must be rejected, not misread; a magic
+  // mismatch is decode()'s existing rejection mechanism.
+  static constexpr uint32_t kMagic = 0xA1A2B3B5;
+
+  bool begin();
+  bool load(bool* armed, bool* localWebEnabled, Config* config);
+  bool save(bool armed, bool localWebEnabled, const Config& config);
+
+  // Pure encode/decode, exposed for native unit testing. Layout: magic
+  // (4 bytes) | armed (1 byte) | localWebEnabled (1 byte) | Config (raw
+  // struct bytes, fixed size).
+  static size_t encode(bool armed, bool localWebEnabled, const Config& config,
+                        uint8_t* buffer, size_t bufferLen);
+  static bool decode(const uint8_t* buffer, size_t bufferLen, bool* armed,
+                      bool* localWebEnabled, Config* config);
+};

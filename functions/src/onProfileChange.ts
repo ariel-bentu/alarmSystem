@@ -34,11 +34,14 @@ async function rebuildConfig(projectId: string): Promise<void> {
     .get();
 
   if (profileSnap.empty) {
-    // No active profile — write empty config
+    // No active profile — write the thin config shape with r/c omitted.
+    // RTDB drops empty arrays on .set(), so writing r: [], c: [] here would
+    // round-trip as if the fields were never set at all; the firmware's
+    // parseConfigJson (cloud_client.cpp) is written to treat missing r/c as
+    // "zero sensors" (not a parse failure) specifically to make this work.
     await rtdb.ref(`${projectId}/config`).set({
-      armed: false,
-      siren_duration_sec: 120,
-      sensors: {},
+      a: false,
+      d: 120,
     });
     return;
   }

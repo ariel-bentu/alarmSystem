@@ -33,6 +33,32 @@ const ProjectContext = createContext<ProjectContextValue | undefined>(
   undefined
 );
 
+// The selection used to default to memberships[0] on every load, and the
+// order of that array comes from Object.entries() over the tenants map —
+// i.e. effectively arbitrary. With more than one project that means the app
+// can silently point every RTDB read (/{projectId}/events, /config,
+// /commands) at a different project than the one your device writes to,
+// which looks exactly like "my sensor triggers but nothing shows up".
+// Persisting the choice makes it stable across reloads.
+const SELECTED_PROJECT_KEY = "alarm.selectedProjectId";
+
+function readStoredProjectId(): string | null {
+  try {
+    return localStorage.getItem(SELECTED_PROJECT_KEY);
+  } catch {
+    return null; // private mode / storage disabled
+  }
+}
+
+function storeProjectId(projectId: string | null): void {
+  try {
+    if (projectId) localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
+    else localStorage.removeItem(SELECTED_PROJECT_KEY);
+  } catch {
+    // Non-fatal: selection just won't survive a reload.
+  }
+}
+
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { userDoc, reloadUserDoc } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -48,12 +74,23 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       }))
     : [];
 
-  // Keep a valid selection as tenants change.
+  // Keep a valid selection as tenants change. Preference order: whatever is
+  // already selected, then the persisted choice, then the first membership.
+  // Any candidate that is no longer a membership is discarded.
   useEffect(() => {
     setLoading(true);
     setSelectedId((prev) => {
-      if (prev && memberships.some((m) => m.projectId === prev)) return prev;
-      return memberships[0]?.projectId ?? null;
+      const isMember = (id: string | null): id is string =>
+        !!id && memberships.some((m) => m.projectId === id);
+
+      if (isMember(prev)) return prev;
+
+      const stored = readStoredProjectId();
+      if (isMember(stored)) return stored;
+
+      const fallback = memberships[0]?.projectId ?? null;
+      storeProjectId(fallback);
+      return fallback;
     });
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,6 +121,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setProject(s.exists() ? s.data() : null);
   };
 
+  // Persist on explicit selection so the choice survives a reload.
+  const selectProject = (projectId: string) => {
+    storeProjectId(projectId);
+    setSelectedId(projectId);
+  };
+
   return (
     <ProjectContext.Provider
       value={{
@@ -91,7 +134,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         project,
         role,
         loading,
-        selectProject: setSelectedId,
+        selectProject,
         refresh,
         reloadProject,
       }}

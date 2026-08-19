@@ -56,6 +56,8 @@ export default function SensorsTab() {
     async function load() {
       const snap = await getDocs(sensorsCol(projectId));
       if (!cancelled) {
+        // d.data() already carries `id`: sensorsCol() is bound to a converter
+        // whose fromFirestore() injects the doc id (see lib/firestore.ts).
         setSensors(snap.docs.map((d) => d.data()));
         setLoading(false);
       }
@@ -201,6 +203,27 @@ export default function SensorsTab() {
           ))}
         </tbody>
       </table>
+
+      {/* Explain the empty case instead of rendering nothing. An empty list
+          has two very different causes — no sensor has transmitted yet, or
+          the wrong project is selected — and silence made them
+          indistinguishable. */}
+      {unknownRfIds.length === 0 && (
+        <div style={{ opacity: 0.7, fontSize: 13, marginTop: 16 }}>
+          <h3 style={{ marginBottom: 4 }}>Unrecognised Sensors</h3>
+          <p style={{ margin: 0 }}>
+            None seen. Unpaired sensors appear here as soon as they transmit —
+            they are read live from this project&rsquo;s RTDB events, not from
+            Firestore, so nothing needs to be set up first.
+          </p>
+          <p style={{ margin: "6px 0 0" }}>
+            If a sensor <em>is</em> transmitting, check that the project shown
+            in the header (<code>{projectId || "none"}</code>) is the one your
+            device reports to — each project reads a separate{" "}
+            <code>/&lt;projectId&gt;/events</code> path.
+          </p>
+        </div>
+      )}
 
       {unknownRfIds.length > 0 && (
         <div>

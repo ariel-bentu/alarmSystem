@@ -1,5 +1,5 @@
-// Pure builder: converts Firestore profile+rules+sensors into the RtdbConfig object
-// that gets written to RTDB /{projectId}/config for the device.
+// Pure builder: converts Firestore profile+rules+sensors into the RtdbConfig
+// object that gets written to RTDB /{projectId}/config for the device.
 
 import {
   Rule,
@@ -7,31 +7,50 @@ import {
   Condition,
   RtdbCondition,
   RtdbConfig,
-  RtdbConfigSensor,
 } from "./types";
 
+const CONDITION_TYPE_CODE: Record<Condition["type"], 0 | 1 | 2 | 3> = {
+  immediate: 0,
+  count_in_window: 1,
+  entry_delay: 2,
+  multi_sensor: 3,
+};
+
 /**
- * Translate a Firestore condition into the device-facing form. The device only
- * knows rfIds, so multi_sensor `counts` — keyed by Firestore sensorId — must be
- * re-keyed by rfId. Sensors that cannot be resolved are dropped, and every
- * sensor of the rule is given an explicit count (defaulting to 1) so the device
- * does not have to infer the participants.
+ * Translate a Firestore condition into the device-facing short-key form.
+ * multi_sensor `counts` — keyed by Firestore sensorId in Firestore, by rfId
+ * in the old RTDB shape — are now keyed by **index into `r`**, resolved via
+ * `indexOfRfId`. Sensors that cannot be resolved are dropped, and every
+ * remaining participant is given an explicit count (defaulting to 1) so the
+ * device never has to infer participants.
  */
 function toRtdbCondition(
   condition: Condition,
   ruleSensorIds: string[],
-  rfIdOf: (sensorId: string) => string | undefined
+  rfIdOf: (sensorId: string) => string | undefined,
+  indexOfRfId: (rfId: string) => number
 ): RtdbCondition {
-  if (condition.type !== "multi_sensor") return condition;
+  const t = CONDITION_TYPE_CODE[condition.type];
 
-  const counts: Record<string, number> = {};
-  for (const sensorId of ruleSensorIds) {
-    const rfId = rfIdOf(sensorId);
-    if (!rfId) continue;
-    counts[rfId] = condition.counts?.[sensorId] ?? 1;
+  if (condition.type === "count_in_window") {
+    return { t, n: condition.count, w: condition.window_sec };
   }
-
-  return { ...condition, counts };
+  if (condition.type === "entry_delay") {
+    return { t, y: condition.delay_sec };
+  }
+  if (condition.type === "multi_sensor") {
+    const k: Record<string, number> = {};
+    for (const sensorId of ruleSensorIds) {
+      const rfId = rfIdOf(sensorId);
+      if (!rfId) continue;
+      const idx = indexOfRfId(rfId);
+      if (idx === -1) continue;
+      k[String(idx)] = condition.counts?.[sensorId] ?? 1;
+    }
+    return { t, w: condition.window_sec, k };
+  }
+  // immediate
+  return { t };
 }
 
 /**
@@ -51,38 +70,43 @@ export function buildRtdbConfig(
   for (const s of sensors) {
     sensorMap.set(s.id, s);
   }
-
-  const configSensors: Record<string, RtdbConfigSensor> = {};
-
   const rfIdOf = (sensorId: string) => sensorMap.get(sensorId)?.rfId;
 
-  for (const rule of rules) {
-    // Translate once per rule so every participating sensor gets the same
-    // rfId-keyed condition object.
-    const condition = toRtdbCondition(rule.condition, rule.sensors, rfIdOf);
+  // Pass 1: determine r (stable order = first-seen order across rules).
+  const r: string[] = [];
+  const rIndex = new Map<string, number>(); // rfId -> index into r
 
+  for (const rule of rules) {
     for (const sensorId of rule.sensors) {
       const sensor = sensorMap.get(sensorId);
       if (!sensor) continue;
-
       const rfId = sensor.rfId;
 
-      if (configSensors[rfId]) {
-        // Sensor already present from another rule — add the condition
-        configSensors[rfId].conditions.push(condition);
-      } else {
-        configSensors[rfId] = {
-          name: sensor.name,
-          enabled: true,
-          conditions: [condition],
-        };
+      if (!rIndex.has(rfId)) {
+        rIndex.set(rfId, r.length);
+        r.push(rfId);
       }
     }
   }
 
-  return {
-    armed,
-    siren_duration_sec: sirenDurationSec,
-    sensors: configSensors,
-  };
+  const indexOfRfId = (rfId: string) => rIndex.get(rfId) ?? -1;
+  const conditionsByRfId = new Map<string, RtdbCondition[]>();
+  for (const rfId of r) {
+    conditionsByRfId.set(rfId, []);
+  }
+
+  // Pass 2: translate each rule's condition once, append to every
+  // participating sensor's condition list.
+  for (const rule of rules) {
+    const translated = toRtdbCondition(rule.condition, rule.sensors, rfIdOf, indexOfRfId);
+    for (const sensorId of rule.sensors) {
+      const rfId = rfIdOf(sensorId);
+      if (!rfId) continue;
+      conditionsByRfId.get(rfId)!.push(translated);
+    }
+  }
+
+  const c: RtdbCondition[][] = r.map((rfId) => conditionsByRfId.get(rfId)!);
+
+  return { a: armed, d: sirenDurationSec, r, c };
 }

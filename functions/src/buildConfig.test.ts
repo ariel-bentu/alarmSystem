@@ -10,59 +10,44 @@ const sensors: Sensor[] = [
 ];
 
 describe("buildRtdbConfig", () => {
-  it("builds config with immediate rules", () => {
+  it("builds config with an immediate rule", () => {
     const rules: Rule[] = [
       { id: "r1", name: "Door rule", sensors: ["s1"], condition: { type: "immediate" } },
     ];
     const config = buildRtdbConfig(rules, sensors, true, 120);
 
-    expect(config.armed).toBe(true);
-    expect(config.siren_duration_sec).toBe(120);
-    expect(config.sensors["0xA1B2C3"]).toEqual({
-      name: "Front door",
-      enabled: true,
-      conditions: [{ type: "immediate" }],
-    });
-    expect(Object.keys(config.sensors)).toHaveLength(1);
+    expect(config.a).toBe(true);
+    expect(config.d).toBe(120);
+    expect(config.r).toEqual(["0xA1B2C3"]);
+    expect(config.c).toEqual([[{ t: 0 }]]);
   });
 
-  it("builds config with multiple sensors and conditions", () => {
+  it("builds config with multiple sensors and conditions, index-aligned", () => {
     const rules: Rule[] = [
       { id: "r1", name: "Door", sensors: ["s1", "s2"], condition: { type: "immediate" } },
       { id: "r2", name: "Garage", sensors: ["s3"], condition: { type: "count_in_window", count: 3, window_sec: 60 } },
     ];
     const config = buildRtdbConfig(rules, sensors, false, 90);
 
-    expect(config.armed).toBe(false);
-    expect(config.siren_duration_sec).toBe(90);
-    expect(Object.keys(config.sensors)).toHaveLength(3);
-    expect(config.sensors["0xA1B2C3"]).toEqual({
-      name: "Front door",
-      enabled: true,
-      conditions: [{ type: "immediate" }],
-    });
-    expect(config.sensors["0xD4E5F6"]).toEqual({
-      name: "Back window",
-      enabled: true,
-      conditions: [{ type: "immediate" }],
-    });
-    expect(config.sensors["0x112233"]).toEqual({
-      name: "Garage PIR",
-      enabled: true,
-      conditions: [{ type: "count_in_window", count: 3, window_sec: 60 }],
-    });
+    expect(config.a).toBe(false);
+    expect(config.d).toBe(90);
+    expect(config.r).toEqual(["0xA1B2C3", "0xD4E5F6", "0x112233"]);
+    expect(config.c).toEqual([
+      [{ t: 0 }],
+      [{ t: 0 }],
+      [{ t: 1, n: 3, w: 60 }],
+    ]);
   });
 
-  it("merges conditions when sensor appears in multiple rules", () => {
+  it("merges conditions when a sensor appears in multiple rules", () => {
     const rules: Rule[] = [
       { id: "r1", name: "A", sensors: ["s1"], condition: { type: "immediate" } },
       { id: "r2", name: "B", sensors: ["s1"], condition: { type: "entry_delay", delay_sec: 30 } },
     ];
     const config = buildRtdbConfig(rules, sensors, true, 60);
 
-    expect(config.sensors["0xA1B2C3"].conditions).toHaveLength(2);
-    expect(config.sensors["0xA1B2C3"].conditions[0]).toEqual({ type: "immediate" });
-    expect(config.sensors["0xA1B2C3"].conditions[1]).toEqual({ type: "entry_delay", delay_sec: 30 });
+    expect(config.r).toEqual(["0xA1B2C3"]);
+    expect(config.c).toEqual([[{ t: 0 }, { t: 2, y: 30 }]]);
   });
 
   it("skips sensors not found in the sensors array", () => {
@@ -71,33 +56,28 @@ describe("buildRtdbConfig", () => {
     ];
     const config = buildRtdbConfig(rules, sensors, false, 120);
 
-    expect(Object.keys(config.sensors)).toHaveLength(0);
+    expect(config.r).toEqual([]);
+    expect(config.c).toEqual([]);
   });
 
   describe("multi_sensor translation", () => {
-    it("re-keys per-sensor counts by rfId", () => {
+    it("re-keys per-sensor counts by index into r", () => {
       const rules: Rule[] = [
         {
           id: "r1",
           name: "Break-in",
           sensors: ["s1", "s2"],
-          condition: {
-            type: "multi_sensor",
-            window_sec: 60,
-            counts: { s1: 1, s2: 2 },
-          },
+          condition: { type: "multi_sensor", window_sec: 60, counts: { s1: 1, s2: 2 } },
         },
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      // Both participating sensors carry the same rfId-keyed condition.
-      for (const rfId of ["0xA1B2C3", "0xD4E5F6"]) {
-        expect(config.sensors[rfId].conditions[0]).toEqual({
-          type: "multi_sensor",
-          window_sec: 60,
-          counts: { "0xA1B2C3": 1, "0xD4E5F6": 2 },
-        });
-      }
+      expect(config.r).toEqual(["0xA1B2C3", "0xD4E5F6"]);
+      // index 0 = s1/0xA1B2C3, index 1 = s2/0xD4E5F6
+      expect(config.c).toEqual([
+        [{ t: 3, w: 60, k: { "0": 1, "1": 2 } }],
+        [{ t: 3, w: 60, k: { "0": 1, "1": 2 } }],
+      ]);
     });
 
     it("defaults a missing count to 1 and makes every participant explicit", () => {
@@ -106,19 +86,13 @@ describe("buildRtdbConfig", () => {
           id: "r1",
           name: "Pair",
           sensors: ["s1", "s3"],
-          condition: {
-            type: "multi_sensor",
-            window_sec: 30,
-            counts: { s1: 3 }, // s3 omitted
-          },
+          condition: { type: "multi_sensor", window_sec: 30, counts: { s1: 3 } }, // s3 omitted
         },
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      expect(config.sensors["0xA1B2C3"].conditions[0].counts).toEqual({
-        "0xA1B2C3": 3,
-        "0x112233": 1,
-      });
+      expect(config.r).toEqual(["0xA1B2C3", "0x112233"]);
+      expect(config.c[0][0]).toEqual({ t: 3, w: 30, k: { "0": 3, "1": 1 } });
     });
 
     it("fills in counts when the condition has none at all", () => {
@@ -132,10 +106,7 @@ describe("buildRtdbConfig", () => {
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      expect(config.sensors["0xA1B2C3"].conditions[0].counts).toEqual({
-        "0xA1B2C3": 1,
-        "0xD4E5F6": 1,
-      });
+      expect(config.c[0][0]).toEqual({ t: 3, w: 45, k: { "0": 1, "1": 1 } });
     });
 
     it("drops participants that cannot be resolved to an rfId", () => {
@@ -144,19 +115,13 @@ describe("buildRtdbConfig", () => {
           id: "r1",
           name: "Pair",
           sensors: ["s1", "ghost"],
-          condition: {
-            type: "multi_sensor",
-            window_sec: 60,
-            counts: { s1: 2, ghost: 5 },
-          },
+          condition: { type: "multi_sensor", window_sec: 60, counts: { s1: 2, ghost: 5 } },
         },
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      expect(config.sensors["0xA1B2C3"].conditions[0].counts).toEqual({
-        "0xA1B2C3": 2,
-      });
-      expect(Object.keys(config.sensors)).toEqual(["0xA1B2C3"]);
+      expect(config.r).toEqual(["0xA1B2C3"]);
+      expect(config.c).toEqual([[{ t: 3, w: 60, k: { "0": 2 } }]]);
     });
 
     it("leaves single-sensor conditions untouched", () => {
@@ -170,19 +135,16 @@ describe("buildRtdbConfig", () => {
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      expect(config.sensors["0xA1B2C3"].conditions[0]).toEqual({
-        type: "count_in_window",
-        count: 3,
-        window_sec: 60,
-      });
+      expect(config.c).toEqual([[{ t: 1, n: 3, w: 60 }]]);
     });
   });
 
-  it("returns empty sensors for empty rules", () => {
+  it("returns empty r/c for empty rules", () => {
     const config = buildRtdbConfig([], sensors, false, 120);
 
-    expect(config.armed).toBe(false);
-    expect(config.siren_duration_sec).toBe(120);
-    expect(config.sensors).toEqual({});
+    expect(config.a).toBe(false);
+    expect(config.d).toBe(120);
+    expect(config.r).toEqual([]);
+    expect(config.c).toEqual([]);
   });
 });
