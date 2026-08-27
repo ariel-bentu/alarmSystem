@@ -74,7 +74,9 @@ Firestore holds the structured app data.
 ## Siren Control (phased)
 
 - Phase 1: GPIO pin → relay → siren — built (`RelaySiren`), untested (no siren wired yet)
-- Phase 2: Sniff W184 siren RF packet with CC1101, replay it wirelessly — not started
+- Phase 2: Sniff W184 siren RF packet with CC1101, replay it wirelessly —
+  **RF transmit solved and proven (2026-08-28); not yet in the main firmware.**
+  See "CC1101 transmit" below. Captured siren codes are static and replayable.
 
 ## Project Structure
 
@@ -402,6 +404,80 @@ Keep as a known-good minimal control for future RF debugging.
 
 ---
 
+## CC1101 transmit (2026-08-28) — works, via the FIFO (NOT GDO0)
+
+Board-to-board TX confirmed: `0x622374` transmitted from one ESP32-S3+CC1101
+and decoded correctly by a second one, **5/5 trials**. Not yet integrated into
+the device firmware — that is the next task.
+
+**Captured W184 siren codes** (app-triggered SOS on, then off). Same 20-bit
+identity / 4-bit command split as the door sensors:
+
+| code | identity | nibble | reading |
+|---|---|---|---|
+| `0x622374` | `0x62237` | 4 | activate |
+| `0x3F0108` | `0x3F010` | 8 | activate |
+| `0x622372` | `0x62237` | 2 | deactivate |
+| `0x3F0102` | `0x3F010` | 2 | deactivate |
+
+Static, not rolling — `0x622372` repeated three times byte-identical. Two
+distinct transmitters; which one drives the siren is **still unknown** (there
+is no SOS remote, so both are mains-side). Untested against the real siren.
+
+**Three findings, all measured — do not re-litigate:**
+
+1. **Async serial TX via GDO0 does not work on this wiring.** RX is fine
+   (the chip *drives* GDO0), but the ESP32 driving data *into* it radiates
+   nothing. RSSI settles it: continuous carrier via GDO0 reads **-86dBm** at
+   a receiver 10cm away (the noise floor); FIFO TX reads **-19dBm**. Every
+   register reads back correct (`IOCFG0=0x2D`, `MARCSTATE=0x13`) the whole
+   time — the chip claims to transmit and does not. GDO2, the conventional
+   async-serial input pin, is **not connected** on this module
+   (`docs/hardware-wiring.md`). Use the TX FIFO in normal packet mode.
+
+2. **`FREND0` (0x22) must be `0x11`.** For OOK the PA switches between
+   PATABLE[0] (off) and PATABLE[1] (on); FREND0's PA_POWER field selects the
+   "on" index. Unset, the PA has no off entry and holds continuous carrier —
+   a commanded 50ms pulse arrived as **158ms**. With `FREND0=0x11` and
+   `PATABLE = {0x00, 0xC0}`, 50ms arrives as **50.088ms**.
+
+3. **The received pulse width tracks the GAP, not the pulse.** The OOK
+   demodulator's decay dominates: gap 500us gave uniform ~640us received
+   pulses, gap 1500us gave uniform ~2030us — *independent of the transmitted
+   pulse width*, even at a 12.5x ratio. So encode the bit in the carrier-OFF
+   gap and keep the keying pulse constant. Working frame:
+
+   ```
+   delimiter: 6ms carrier ON, then 1.5ms off
+   per bit:   gap (400us = bit 1, 1200us = bit 0), then a 300us keying pulse
+   ```
+
+   A full 12.4ms delimiter **saturates the AGC** and flattens every following
+   pulse to a uniform width; 6ms still passes the receiver's >5ms delimiter
+   test without saturating.
+
+**Measurement trap:** the 433MHz band here is noisy — with the transmitter
+silent the receiver still logs ~1156 edges of ~53us pulses. Establish that
+baseline BEFORE interpreting a weak capture. Hours were lost tuning registers
+against ambient noise that was mistaken for a weak signal.
+
+**Also learned:** a single CC1101 cannot cleanly receive its own transmission,
+so loopback cannot verify TX framing. Use two boards.
+
+Diagnostic sketches (throwaway, kept as known-good controls):
+- `spike_siren_tx/` — menu-driven transmitter: `g` sends a Kerui packet,
+  `f` FIFO test, `o` continuous carrier, `v` raw pulse-width probe,
+  `d` GPIO drive test, `z` timing self-check, plus register sweeps
+- `spike_rx_monitor/` — independent receiver: per-burst RSSI, pulse-width
+  census, ON-run widths, noise filtering
+- `spike_siren_sniff/` — assumption-free sniffer (framing-agnostic)
+- `txrx_test.py` — drives both boards at once; `python3 txrx_test.py <cmd> <secs>`
+
+Note the boards enumerate as `/dev/cu.usbmodem101` and `/dev/cu.usbmodem1101`;
+macOS reassigns those suffixes per port/session, so check `ls /dev/cu.*`.
+
+---
+
 Done:
 - Web app: auth, project setup, sensor pairing, profiles/rules, operations
   (arm/disarm per profile), event timeline, dev simulator
@@ -420,11 +496,67 @@ Done:
   eeprom_store, config_parser) — all passing
 
 Next (in order):
-1. Wire a relay + siren, verify `RelaySiren` end-to-end
-2. Run in parallel with W184
-3. Register the Telegram webhook so bot commands work (see `todo.txt`)
-4. Sniff siren RF packet → Phase 2 siren
+1. **Port CC1101 transmit into the device firmware** — use the SPEC-SHAPED
+   frame from `spike_clean_tx` (see "Sounding the siren, hub-free" below), NOT
+   the bit-in-the-gap encoding from `spike_siren_tx`, which does not drive the
+   siren. `Cc1101Receiver` needs a TX counterpart and an RX/TX mode switch.
+2. Wire a relay + siren, verify `RelaySiren` end-to-end (optional now that RF
+   siren control works)
+3. Run in parallel with W184
+4. Register the Telegram webhook so bot commands work (see `todo.txt`)
 5. Decommission W184
+
+---
+
+## Sounding the siren, hub-free (2026-08-28) — SOLVED
+
+**The siren sounds and silences from our own CC1101, with the W184 uninvolved.**
+It is paired to BOTH the panel and our transmitter at once — learn mode on this
+unit is additive, so the existing hub pairing survived.
+
+Working implementation: **`firmware/edge/spike_clean_tx`**, written from the
+EV1527 spec alone. `spike_siren_tx` does NOT drive the siren and its
+bit-in-the-gap encoding should not be reused.
+
+**Root cause of the long failure: circular tuning.** `spike_siren_tx`'s bit
+shape had been tuned so that OUR RECEIVER decoded our transmissions the same way
+it decoded the panel's — but that receiver's decode rule came from those same
+captures. The transmitter was optimised to agree with our own decoder's
+interpretation: self-consistent, and wrong about the wire. Re-reading the code
+could never surface this; only a from-spec rewrite did.
+
+**The frame that works:**
+
+```
+sync   : 1T carrier pulse, then 31T silence
+bit 1  : 3T carrier ON + 1T off
+bit 0  : 1T carrier ON + 3T off
+T      = 300us, 4 FIFO chips per T, DRATE solved from the datasheet formula
+polarity: kCarrierBit = 1 (measured — the inverse yields malformed frames)
+```
+
+**Pairing:** short click on the siren's SET button (lights on) with the code
+already looping on air (`L`). Success is **two beeps** — the first
+acknowledgement our transmitter ever drew from the siren.
+
+**Commands** — pair once, then the one-hot nibble family works:
+
+| code | function |
+|---|---|
+| `0xA1B2C8` | **SOS / sound the siren** |
+| `0xA1B2C4` | arm home (short ack beep) |
+| `0xA1B2C1` | arm away |
+| `0xA1B2C2` | **disarm / stop** |
+
+Both directions verified on hardware. Use `s` (SOS, 5s, auto-disarm) for
+testing; a bare `8` leaves the siren sounding until switched off by hand.
+
+**Unexplained:** `spike_clean_tx` measures ~24dB weaker on air than
+`spike_siren_tx` at the same PA, frequency and duty cycle with identical TX
+registers — and the weaker one is the one that works.
+
+**Superseded:** the "RF replay is a dead end" conclusion above, and the
+hub-dependent ghost-sensor path. Both were consequences of the encoding bug.
 
 See `todo.txt` for smaller known gaps (delete-project button, Telegram
 webhook, RTDB events never cleaned up after Firestore mirroring, old-events
