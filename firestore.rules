@@ -84,6 +84,11 @@ service cloud.firestore {
         // Events are written only by Cloud Functions (admin SDK bypasses rules).
         allow write: if false;
       }
+
+      match /sirens/{sirenId} {
+        allow read: if isMember(projectId);
+        allow write: if isAdmin(projectId);
+      }
     }
   }
 }

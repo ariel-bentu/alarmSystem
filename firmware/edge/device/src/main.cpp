@@ -561,7 +561,7 @@ void loop() {
   // firmware. Call it FIRST, before any of the work below, so it sees the
   // most cont-stack headroom available. Everything after this point is
   // cheap or held out-of-line — see handleSensorEvent()'s note.
-  cloudClient.loop();
+  cloudClient.loop(siren.isActive());
 
   pollCc1101(now);
 

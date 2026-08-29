@@ -44,7 +44,8 @@ class CloudClient {
   // Non-blocking; call every loop() iteration to service FirebaseClient's
   // async tasks (auth refresh, stream reconnects). Also retries the mint
   // with backoff if beginInitialConnect() did not succeed.
-  void loop();
+  // sirenActive: true = 1s poll cadence, false = 5s.
+  void loop(bool sirenActive = false);
 
   bool isReady() const;  // true once authenticated and streams attached
 
@@ -126,7 +127,7 @@ class CloudClient {
   // ever in flight on the shared client.
   unsigned long lastPollMs_ = 0;
   bool pollConfigNext_ = false;
-  // 15s (each of /config and /commands therefore seen every ~30s).
+  // 5s normal cadence, 1s when siren is active (each path seen every 2x).
   //
   // This is a HEAP budget, not a latency preference. Steady-state free heap
   // with the long-lived data client is only ~5KB / ~3KB contiguous, and at a
@@ -137,7 +138,8 @@ class CloudClient {
   //
   // LAN arm/disarm via the local web server is unaffected and instant; this
   // only bounds REMOTE command latency.
-  static constexpr unsigned long kPollIntervalMs = 15000;
+  static constexpr unsigned long kPollIntervalMs = 5000;
+  static constexpr unsigned long kPollIntervalAlarmMs = 1000;
 
   // Last-seen polled values. SSE delivered only changes; polling re-reads
   // the same value every few seconds, so these suppress no-op updates that

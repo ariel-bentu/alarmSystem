@@ -372,7 +372,7 @@ bool CloudClient::beginInitialConnect() {
   return true;
 }
 
-void CloudClient::loop() {
+void CloudClient::loop(bool sirenActive) {
   if (!tokenMinted_) {
     // Retry-with-backoff: this is also where the FIRST mint attempt
     // happens (begin() only stores config; see its comment). Retry
@@ -421,7 +421,7 @@ void CloudClient::loop() {
   // exhausted the heap. Polling trades push-latency (up to 2x
   // kPollIntervalMs) for fitting in RAM.
   unsigned long now = millis();
-  if (now - lastPollMs_ < kPollIntervalMs) return;
+  if (now - lastPollMs_ < (sirenActive ? kPollIntervalAlarmMs : kPollIntervalMs)) return;
   lastPollMs_ = now;
 
   // Paths are namespaced per project — see CLAUDE.md's Firebase Data Layout
