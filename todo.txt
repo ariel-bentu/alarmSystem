@@ -1,5 +1,3 @@
-- no need to see sensor on ops
-- ui upgrade
+- when arming on device -> cloud should be updated (as soon as connected)
 - mass jam of rf alert
-V- heart beat
 

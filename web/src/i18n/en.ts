@@ -1,0 +1,293 @@
+/** English strings — the source of truth for the key set.
+ *  he.ts is typed against these keys, so a missing translation fails the
+ *  typecheck rather than showing up as a raw key in the UI.
+ *
+ *  Placeholders use {name} and are filled by t(key, { name: ... }). */
+
+export const en = {
+  // ---- Common ----
+  "common.save": "Save",
+  "common.cancel": "Cancel",
+  "common.delete": "Delete",
+  "common.edit": "Edit",
+  "common.add": "Add",
+  "common.close": "Close",
+  "common.yes": "Yes",
+  "common.no": "No",
+  "common.never": "Never",
+  "common.none": "None",
+  "common.loading": "Loading…",
+  "common.dismiss": "Dismiss",
+  "common.signOut": "Sign out",
+  "common.saved": "Saved.",
+  "common.saving": "Saving…",
+
+  // ---- Relative time ----
+  "time.justNow": "just now",
+  "time.minuteAgo": "a minute ago",
+  "time.minutesAgo": "{count} minutes ago",
+  "time.hourAgo": "an hour ago",
+  "time.hoursAgo": "{count} hours ago",
+  "time.today": "Today",
+
+  // ---- App shell ----
+  "app.title": "Alarm",
+  "app.deviceOnline": "Device online",
+  "app.deviceOffline": "Device offline or no heartbeat yet",
+  "app.account": "Account",
+  "app.projectId": "Active project id — RTDB paths are namespaced under this",
+  "app.switchProject": "Switch project",
+  "app.language": "Language",
+  "app.offline": "Offline — showing last known state",
+  "app.updateAvailable": "A new version is available.",
+  "app.reload": "Reload",
+
+  // ---- Navigation ----
+  "nav.operations": "Operations",
+  "nav.configure": "Configure",
+  "nav.explore": "Events",
+  "nav.members": "Members",
+  "nav.settings": "Settings",
+  "nav.simulator": "Simulator",
+
+  // ---- Auth / gate ----
+  "auth.signInWithGoogle": "Sign in with Google",
+  "auth.checkingAccess": "Checking access…",
+  "auth.accessDenied": "Access denied",
+  "auth.accessDeniedBody":
+    "This account isn’t authorised for the alarm system. Ask an administrator to invite {email}.",
+  "auth.noProjects": "No projects yet",
+  "auth.noProjectsBody":
+    "You don’t have access to any project yet. Ask an administrator to invite you.",
+
+  // ---- Operations ----
+  "ops.title": "Operations",
+  "ops.loadingDeviceState": "Loading device state…",
+  "ops.noProject": "No project selected.",
+  "ops.device": "Device",
+  "ops.server": "Server",
+  "ops.armed": "Armed",
+  "ops.disarmed": "Disarmed",
+  "ops.disarm": "Disarmed",
+  "ops.alarm": "Alarm",
+  "ops.alarmCauseUnknown": "cause unknown",
+  "ops.alarmAt": "at {time}",
+  "ops.sos": "SOS",
+  "ops.sosTitle": "Sound the siren now",
+  "ops.sosDisabled": "Siren is disabled in settings",
+  "ops.siren": "Siren",
+  "ops.sirenDisabled": "Disabled — alarms will not sound the siren",
+  "ops.sirenSounding": "Sounding",
+  "ops.sirenEnabledQuiet": "Enabled — not sounding",
+  "ops.forceSilence": "Force Silence",
+  "ops.offlineCannotArm": "Offline — arming is unavailable",
+
+  // ---- Configure ----
+  "cfg.title": "Configure",
+  "cfg.tab.sensors": "Sensors",
+  "cfg.tab.profiles": "Profiles",
+  "cfg.tab.siren": "Siren",
+
+  // Sensors tab
+  "cfg.sensors.loading": "Loading sensors…",
+  "cfg.sensors.paired": "Paired Sensors",
+  "cfg.sensors.nonePaired": "No paired sensors yet.",
+  "cfg.sensors.name": "Name",
+  "cfg.sensors.rfId": "RF ID",
+  "cfg.sensors.battery": "Battery",
+  "cfg.sensors.pairedAt": "Paired",
+  "cfg.sensors.lastSeen": "Last Seen",
+  "cfg.sensors.firstSeen": "First Seen",
+  "cfg.sensors.events": "Events",
+  "cfg.sensors.alertAfterDays": "Alert after (days)",
+  "cfg.sensors.alertAfterDaysHelp":
+    "Days without a trigger before sending a Telegram alert. -1 = never.",
+  "cfg.sensors.neverAlert": "-1 = never alert",
+  "cfg.sensors.unpair": "Unpair",
+  "cfg.sensors.pair": "Pair",
+  "cfg.sensors.pairTitle": "Pair Sensor: {rfId}",
+  "cfg.sensors.namePlaceholder": "e.g. Front door",
+  "cfg.sensors.unrecognised": "Unrecognised Sensors",
+  "cfg.sensors.unrecognisedHint":
+    "Trigger a physical sensor and watch its “Last Seen” update to identify it.",
+  "cfg.sensors.noneSeen": "None seen.",
+  "cfg.sensors.noneSeenBody":
+    "Unpaired sensors appear here as soon as they transmit — they are read live from this project’s events, so nothing needs to be set up first.",
+  "cfg.sensors.wrongProjectHint":
+    "If a sensor is transmitting, check that the project shown in the header ({projectId}) is the one your device reports to — each project reads a separate events path.",
+  "cfg.sensors.olderSensors": "Older sensors ({count})",
+  "cfg.sensors.unpairConfirm":
+    "Unpair “{name}” ({rfId})?{impact}\n\nPast events stay in the timeline. The sensor will reappear as unrecognised if it keeps transmitting.",
+  "cfg.sensors.unpairImpact":
+    "\n\n{updates} rule(s) will be updated and {deletes} rule(s) deleted.",
+  "cfg.sensors.batteryOk": "ok",
+  "cfg.sensors.batteryLow": "low",
+
+  // Profiles tab
+  "cfg.profiles.loading": "Loading profiles…",
+  "cfg.profiles.namePlaceholder": "Profile name (e.g. Away)",
+  "cfg.profiles.addProfile": "Add profile",
+  "cfg.profiles.enabled": "Enabled",
+  "cfg.profiles.activeOnDevice": "Active on device",
+  "cfg.profiles.activeOnServer": "Active on server",
+  "cfg.profiles.rename": "Rename",
+  "cfg.profiles.renameLabel": "Profile name",
+  "cfg.profiles.rules": "Rules",
+  "cfg.profiles.noRules": "No rules.",
+  "cfg.profiles.addRule": "Add rule",
+  "cfg.profiles.editRule": "Edit Rule",
+  "cfg.profiles.deleteProfileConfirm":
+    "Delete profile “{name}” and all its rules?",
+  "cfg.profiles.createProfile": "Create Profile",
+  "cfg.profiles.disabledSuffix": "(disabled)",
+  "cfg.profiles.enabledHelp": "Enabled (available to arm in Operations)",
+  "cfg.profiles.unnamedRule": "(unnamed)",
+  "cfg.profiles.conditionLabel": "Condition:",
+  "cfg.profiles.addRuleTo": "Add Rule to {profile}",
+  "cfg.profiles.nameRequired": "Name (required)",
+  "cfg.profiles.nameOptional": "Name",
+  "cfg.profiles.requiredForMulti": "Required for multi-sensor rules",
+  "cfg.profiles.optionalLabel": "Optional label",
+  "cfg.profiles.sensorsLabel": "Sensors:",
+  "cfg.profiles.selectSensors": "Select Sensors:",
+
+  // Rule editor
+  "cfg.rule.name": "Rule name",
+  "cfg.rule.namePlaceholder": "e.g. Night watch",
+  "cfg.rule.condition": "Condition",
+  "cfg.rule.type.immediate": "Immediate",
+  "cfg.rule.type.count_in_window": "Count in window",
+  "cfg.rule.type.entry_delay": "Entry delay",
+  "cfg.rule.type.multi_sensor": "Multiple sensors",
+  "cfg.rule.count": "Trigger count",
+  "cfg.rule.windowSec": "Window (seconds)",
+  "cfg.rule.delaySec": "Delay (seconds)",
+  "cfg.rule.triggersPerSensor": "Triggers required per sensor",
+  "cfg.rule.conditionType": "Condition Type",
+  "cfg.rule.multiHint": "Two or more sensors — the rule is a Multi Sensor condition.",
+  "cfg.rule.allMustReach": "All sensors must reach their count within the window.",
+  "cfg.rule.invalid": "Invalid condition parameters.",
+  "cfg.rule.noSensors": "Select at least one sensor.",
+
+  // Siren tab
+  "cfg.siren.enabled": "Siren enabled",
+  "cfg.siren.enabledHelp":
+    "When off, alarms are recorded and notified but the siren never sounds.",
+  "cfg.siren.currentAddress": "Current paired address:",
+  "cfg.siren.notGenerated": "Not generated yet",
+  "cfg.siren.sendPairing": "Send pairing signal",
+  "cfg.siren.pairingSent": "Pairing signal sent.",
+  "cfg.siren.beepTwice": "Did the siren beep twice?",
+  "cfg.siren.pairFailed": "Pairing did not succeed. Likely causes:",
+  "cfg.siren.pairFailOutOfRange":
+    "The siren may be out of range of the alarm device.",
+  "cfg.siren.pairFailNotLearning":
+    "The siren may not have been in learn mode — press its SET button three times, then retry.",
+  "cfg.siren.disabledWarn": "Siren is disabled — the device will evaluate alarm rules but never sound the siren or fire the relay.",
+  "cfg.siren.pressSet": "Press SET on the siren until its lights come on, then click Send pairing signal.",
+  "cfg.siren.deafWhileTx": "The alarm cannot detect sensors while it is transmitting (about 10 seconds).",
+  "cfg.siren.sending": "Sending pairing command to device…",
+  "cfg.siren.transmitting": "Waiting for device (up to 30 s), then transmitting for 10 s — the siren should beep twice.",
+  "cfg.siren.noTryAgain": "No, try again",
+  "cfg.siren.pairedOk": "Siren paired successfully. Address:",
+  "cfg.siren.pairAgain": "Pair again",
+  "cfg.siren.retry": "Retry",
+  "cfg.siren.learnTimedOut": "Learn mode may have timed out — press SET again immediately before retrying.",
+  "cfg.siren.pairInstructions":
+    "Press the SET button on the siren three times, then send the pairing signal within 10 seconds. Two beeps mean success.",
+
+  // ---- Explore ----
+  "explore.title": "Events",
+  "explore.loading": "Loading events…",
+  "explore.noEvents": "No events in this time range.",
+  "explore.timestamp": "Timestamp",
+  "explore.sensor": "Sensor",
+  "explore.event": "Event",
+  "explore.batteryLow": "Battery Low",
+  "explore.rssi": "RSSI",
+  "explore.system": "System",
+  "explore.range.day": "Day",
+  "explore.range.week": "Week",
+  "explore.range.month": "Month",
+  "explore.range.3months": "3 months",
+  "explore.range.year": "Year",
+  "explore.eventType.trigger": "Trigger",
+  "explore.eventType.tamper": "Tamper",
+  "explore.eventType.battery_low": "Battery low",
+  "explore.eventType.alarm": "Alarm",
+  "explore.eventType.armed": "Armed",
+  "explore.eventType.disarmed": "Disarmed",
+
+  // ---- Members ----
+  "members.title": "Members",
+  "members.loading": "Loading members…",
+  "members.email": "Email",
+  "members.role": "Role",
+  "members.role.admin": "Admin",
+  "members.role.user": "User",
+  "members.invite": "Invite",
+  "members.invitePlaceholder": "email@example.com",
+  "members.inviteSent": "Invited {email}.",
+  "members.remove": "Remove",
+  "members.removeConfirm": "Remove {email} from this project?",
+  "members.currentMembers": "Current Members",
+  "members.addMember": "Add a Member",
+  "members.emailPlaceholder": "Email address",
+  "members.adding": "Adding…",
+  "members.addButton": "Add Member",
+  "members.granted": "{email} now has {role} access.",
+  "members.grantFailed": "Failed to grant access.",
+  "auth.signInSubtitle": "Sign in to manage your alarm system.",
+  "members.adminRequired": "Admin access required.",
+
+  // ---- Settings ----
+  "settings.title": "Project Settings",
+  "settings.adminRequired": "Admin access required.",
+  "settings.projectName": "Project Name",
+  "settings.telegramBotToken": "Telegram Bot Token",
+  "settings.telegramChatId": "Telegram Chat ID",
+  "settings.notifyEveryTrigger":
+    "Send Telegram on every sensor trigger (battery-low and tamper always notify)",
+  "settings.sirenAndAlarm": "Siren & Server Alarm",
+  "settings.sirenDuration": "Siren Duration (seconds)",
+  "settings.serverSendsTelegram": "Server sends Telegram alerts on alarm",
+  "settings.serverTriggersSiren": "Server triggers siren on alarm",
+  "settings.telegram": "Telegram",
+  "settings.botTokenHelp":
+    "In Telegram, message @BotFather, send /newbot, follow the prompts, and copy the token it gives you (looks like 123456789:ABCdef...). Leave blank to disable Telegram alerts.",
+  "settings.chatIdHelp":
+    "The chat that receives alerts. For a direct message to you: open @userinfobot and it replies with your numeric ID (a positive number) — use that. For a group: add your bot to the group, send a message there, then open the getUpdates API URL and read chat.id (group IDs are negative, e.g. -1001234567890).",
+  "settings.help": "Help",
+  "settings.saveSettings": "Save Settings",
+  "settings.unsavedWarning": "You have unsaved changes. Leave without saving?",
+  "settings.unsavedBadge": "Unsaved changes",
+  "settings.noChanges": "No changes to save",
+  "settings.saveFailed": "Failed to save settings.",
+
+  // ---- Create project ----
+  "create.title": "Create Project",
+  "create.projectName": "Project name",
+  "create.create": "Create",
+  "create.creating": "Creating…",
+  "create.projectCreated": "Project Created",
+  "create.saveKeyNow": "Save this API key now.",
+  "create.notShownAgain": "It will not be shown again.",
+  "create.copy": "Copy",
+  "create.copied": "Copied ✓",
+  "create.useKeyIn": "Use this key in your edge device firmware configuration.",
+  "create.savedContinue": "I’ve saved it — continue",
+  "create.botTokenOptional": "Telegram Bot Token (optional)",
+  "create.chatIdOptional": "Telegram Chat ID (optional)",
+  "create.failed": "Failed to create project.",
+  "create.apiKeyTitle": "Device API key",
+  "create.apiKeyWarning":
+    "Copy this now — it is shown once and cannot be recovered.",
+
+  // ---- Simulator ----
+  "sim.title": "Simulator",
+  "sim.rfId": "RF ID",
+  "sim.fire": "Fire event",
+  "sim.fired": "Event sent.",
+} as const;
+
+export type TranslationKey = keyof typeof en;

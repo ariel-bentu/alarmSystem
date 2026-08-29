@@ -7,6 +7,7 @@ import { commandsPairRef, stateSirenBaseRef } from "@/lib/rtdb";
 import { buildPairCommand, formatSirenAddress } from "./sirenPairing";
 import { useProject } from "@/app/ProjectProvider";
 import { projectDoc } from "@/lib/firestore";
+import { useT } from "@/i18n/I18nProvider";
 
 type PairingState =
   | "idle"
@@ -22,6 +23,7 @@ type PairingState =
 const TRANSMIT_WAIT_MS = 40_000;
 
 export default function SirenTab() {
+  const t = useT();
   const { project, reloadProject } = useProject();
   const projectId = project?.id ?? "";
 
@@ -96,103 +98,100 @@ export default function SirenTab() {
 
   return (
     <div>
-      <h2>Siren</h2>
-
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+      <section className="card">
+        {/* No heading: the "Siren" sub-tab above already names this. */}
+        <label className="check">
           <input
             type="checkbox"
             checked={sirenEnabled}
             disabled={savingEnabled}
             onChange={() => void handleToggleEnabled()}
           />
-          <span>Siren enabled</span>
+          <span>{t("cfg.siren.enabled")}</span>
         </label>
         {!sirenEnabled && (
-          <p style={{ color: "#b45309", fontSize: 13, margin: "4px 0 0" }}>
-            Siren is disabled — the device will evaluate alarm rules but never
-            sound the siren or fire the relay.
-          </p>
+          <p className="banner banner--warn">{t("cfg.siren.disabledWarn")}</p>
         )}
-      </div>
 
-      <p style={{ opacity: 0.8, fontSize: 13 }}>
-        <strong>Current paired address:</strong>{" "}
-        {formatSirenAddress(pairedAddress)}
-      </p>
-
-      {state === "idle" && (
-        <div>
-          <p>
-            Press SET on the siren until its lights come on, then click{" "}
-            <strong>Send pairing signal</strong>.
-          </p>
-          <p style={{ color: "#b45309", fontSize: 13 }}>
-            The alarm cannot detect sensors while it is transmitting (about 10
-            seconds).
-          </p>
-          {error && <p style={{ color: "red" }}>{error}</p>}
-          <button type="button" onClick={() => void handleStartPairing()}>
-            Send pairing signal
-          </button>
-        </div>
-      )}
-
-      {state === "sending" && (
-        <p>Sending pairing command to device&hellip;</p>
-      )}
-
-      {state === "transmitting" && (
-        <p>
-          Waiting for device (up to 30&nbsp;s), then transmitting for
-          10&nbsp;s&mdash;the siren should beep twice.
+        <p className="muted">
+          <strong>{t("cfg.siren.currentAddress")}</strong>{" "}
+          <span className="ltr">{formatSirenAddress(pairedAddress)}</span>
         </p>
-      )}
+      </section>
 
-      {state === "confirming" && (
-        <div>
-          <p>Did the siren beep twice?</p>
-          <button
-            type="button"
-            style={{ marginRight: 8 }}
-            onClick={() => void handleConfirmYes()}
-          >
-            Yes
-          </button>
-          <button type="button" onClick={() => setState("failed")}>
-            No, try again
-          </button>
-        </div>
-      )}
+      <section className="card">
+        {state === "idle" && (
+          <div className="stack">
+            <p>{t("cfg.siren.pressSet")}</p>
+            <p className="muted">{t("cfg.siren.deafWhileTx")}</p>
+            {error && <p className="badge badge--danger">{error}</p>}
+            <div>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void handleStartPairing()}
+              >
+                {t("cfg.siren.sendPairing")}
+              </button>
+            </div>
+          </div>
+        )}
 
-      {state === "paired" && (
-        <div>
-          <p>
-            Siren paired successfully. Address:{" "}
-            <strong>{formatSirenAddress(pairedAddress)}</strong>
-          </p>
-          <button type="button" onClick={handleRetry}>
-            Pair again
-          </button>
-        </div>
-      )}
+        {state === "sending" && <p>{t("cfg.siren.sending")}</p>}
 
-      {state === "failed" && (
-        <div>
-          <p>Pairing did not succeed. Likely causes:</p>
-          <ul>
-            <li>
-              Learn mode may have timed out&mdash;press SET again immediately
-              before retrying.
-            </li>
-            <li>The siren may be out of range of the alarm device.</li>
-          </ul>
-          <button type="button" onClick={handleRetry}>
-            Retry
-          </button>
-        </div>
-      )}
+        {state === "transmitting" && <p>{t("cfg.siren.transmitting")}</p>}
+
+        {state === "confirming" && (
+          <div className="stack">
+            <p>{t("cfg.siren.beepTwice")}</p>
+            <div className="row">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void handleConfirmYes()}
+              >
+                {t("common.yes")}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setState("failed")}
+              >
+                {t("cfg.siren.noTryAgain")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {state === "paired" && (
+          <div className="stack">
+            <p>
+              {t("cfg.siren.pairedOk")}{" "}
+              <strong className="ltr">{formatSirenAddress(pairedAddress)}</strong>
+            </p>
+            <div>
+              <button type="button" className="btn" onClick={handleRetry}>
+                {t("cfg.siren.pairAgain")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {state === "failed" && (
+          <div className="stack">
+            <p>{t("cfg.siren.pairFailed")}</p>
+            <ul>
+              <li>{t("cfg.siren.learnTimedOut")}</li>
+              <li>{t("cfg.siren.pairFailOutOfRange")}</li>
+            </ul>
+            <div>
+              <button type="button" className="btn btn--primary" onClick={handleRetry}>
+                {t("cfg.siren.retry")}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
-

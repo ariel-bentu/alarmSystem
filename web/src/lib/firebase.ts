@@ -2,7 +2,12 @@
 // When VITE_USE_EMULATORS=true, connects to local emulators.
 import { initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator } from "firebase/auth";
-import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import {
+  initializeFirestore,
+  connectFirestoreEmulator,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 import { getDatabase, connectDatabaseEmulator } from "firebase/database";
 import {
   getFunctions,
@@ -21,7 +26,17 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// IndexedDB-backed cache so sensors, profiles and rules still render with no
+// network. The multi-tab manager keeps two open tabs from fighting over the
+// lease — without it the second tab silently falls back to memory-only.
+// Live alarm state comes from RTDB and is deliberately NOT cached: a stale
+// armed/alarm reading is worse than none, which is why the UI shows an
+// offline banner and disables arming.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+});
 export const rtdb = getDatabase(app);
 // Callable functions live in europe-west1 (same region as the DB).
 export const functions = getFunctions(app, "europe-west1");

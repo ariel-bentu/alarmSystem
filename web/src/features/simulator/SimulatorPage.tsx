@@ -65,24 +65,26 @@ export default function SimulatorPage() {
     return <p>No project selected.</p>;
   }
 
+  // Dev-only tool (gated behind DEV_SIMULATOR), so its strings stay English —
+  // it is never shown to an end user.
   return (
     <div>
-      <h1>Device Simulator</h1>
-      <p>Inject raw events as if the firmware sent them.</p>
+      <h1 className="sr-only">Device Simulator</h1>
+      <p className="muted">Inject raw events as if the firmware sent them.</p>
 
-      {/* Sensor selection */}
-      <fieldset>
-        <legend>Sensor</legend>
-        <label>
+      <section className="card">
+        <h2 className="card__title">Sensor</h2>
+        <label className="check">
           <input
             type="radio"
             checked={!useCustom}
             onChange={() => setUseCustom(false)}
           />
-          Paired sensor
+          <span>Paired sensor</span>
         </label>
         {!useCustom && (
           <select
+            className="input"
             value={selectedSensorId}
             onChange={(e) => setSelectedSensorId(e.target.value)}
           >
@@ -94,30 +96,29 @@ export default function SimulatorPage() {
             {sensors.length === 0 && <option value="">No sensors</option>}
           </select>
         )}
-        <br />
-        <label>
+        <label className="check">
           <input
             type="radio"
             checked={useCustom}
             onChange={() => setUseCustom(true)}
           />
-          Custom rfId
+          <span>Custom rfId</span>
         </label>
         {useCustom && (
           <input
+            className="input ltr"
             type="text"
             placeholder="e.g. 0xDEADBE"
             value={customRfId}
             onChange={(e) => setCustomRfId(e.target.value)}
           />
         )}
-      </fieldset>
+      </section>
 
-      {/* Event type */}
-      <fieldset>
-        <legend>Event Type</legend>
+      <section className="card">
+        <h2 className="card__title">Event Type</h2>
         {EVENT_TYPES.map((et) => (
-          <label key={et}>
+          <label key={et} className="check">
             <input
               type="radio"
               name="eventType"
@@ -125,39 +126,40 @@ export default function SimulatorPage() {
               checked={eventType === et}
               onChange={() => setEventType(et)}
             />
-            {et}
+            <span>{et}</span>
           </label>
         ))}
-      </fieldset>
+      </section>
 
-      {/* Flags */}
-      <fieldset>
-        <legend>Flags</legend>
-        <label>
+      <section className="card">
+        <h2 className="card__title">Flags</h2>
+        <label className="check">
           <input
             type="checkbox"
             checked={batteryLow}
             onChange={(e) => setBatteryLow(e.target.checked)}
           />
-          battery_low
+          <span>battery_low</span>
         </label>
-        <br />
-        <label>
-          RSSI:{" "}
+        <div className="field">
+          <label className="field__label" htmlFor="sim-rssi">
+            RSSI
+          </label>
           <input
+            id="sim-rssi"
+            className="input input--narrow"
             type="number"
             value={rssi}
             onChange={(e) => setRssi(Number(e.target.value))}
-            style={{ width: "80px" }}
           />
-        </label>
-      </fieldset>
+        </div>
+      </section>
 
-      {/* Fire */}
-      <button onClick={handleFire}>Fire Event</button>
+      <button className="btn btn--primary" onClick={handleFire}>
+        Fire Event
+      </button>
 
-      {/* Status */}
-      {status && <p>{status}</p>}
+      {status && <p role="status">{status}</p>}
     </div>
   );
 }

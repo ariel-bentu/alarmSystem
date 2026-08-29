@@ -1,0 +1,587 @@
+/* Reusable component classes. Replaces the ~164 inline style objects the app
+   used to carry. All spacing/alignment uses logical properties so RTL mirrors
+   without a second stylesheet. */
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: var(--tap);
+  padding-inline: var(--sp-4);
+  padding-block: var(--sp-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--accent);
+}
+
+.btn--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-contrast);
+}
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--danger);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn--sm {
+  min-height: 32px;
+  padding-inline: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.btn--block {
+  width: 100%;
+}
+
+/* ---------- Tabs (scrolling strip) ---------- */
+
+/* The nav has to survive a narrow viewport without hiding items. It scrolls
+   horizontally, and .tabs-wrap paints fade masks at the edges so it is
+   visually obvious there is more; the active tab is scrolled into view by
+   ScrollingTabs.tsx. */
+.tabs-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--sp-1);
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-block: var(--sp-1);
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs-wrap[data-overflow-start="true"]::before,
+.tabs-wrap[data-overflow-end="true"]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 1;
+}
+/* Gradients have no logical direction, so the two writing modes are spelled
+   out rather than guessed: the fade must always run inward from the edge. */
+.tabs-wrap[data-overflow-start="true"]::before {
+  inset-inline-start: 0;
+  background: linear-gradient(to right, var(--surface), transparent);
+}
+.tabs-wrap[data-overflow-end="true"]::after {
+  inset-inline-end: 0;
+  background: linear-gradient(to left, var(--surface), transparent);
+}
+[dir="rtl"] .tabs-wrap[data-overflow-start="true"]::before {
+  background: linear-gradient(to left, var(--surface), transparent);
+}
+[dir="rtl"] .tabs-wrap[data-overflow-end="true"]::after {
+  background: linear-gradient(to right, var(--surface), transparent);
+}
+
+.tab {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding-inline: var(--sp-4);
+  padding-block: var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+.tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.tab[aria-selected="true"],
+.tab[aria-current="page"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* ---------- Cards ---------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-4);
+  margin-block-end: var(--sp-4);
+}
+
+.card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-block-end: var(--sp-3);
+}
+
+.card__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+/* ---------- Banners ---------- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  margin-block-end: var(--sp-4);
+}
+
+.banner--danger {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.banner--warn {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.banner__title {
+  font-weight: 700;
+  color: var(--danger);
+}
+.banner--warn .banner__title {
+  color: var(--warn);
+}
+
+/* ---------- Badges & dots ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding-inline: var(--sp-2);
+  padding-block: 2px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.badge--ok {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.badge--danger {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.badge--warn {
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.dot {
+  display: inline-block;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot--online {
+  background: var(--dot-online);
+}
+.dot--offline {
+  background: var(--dot-offline);
+}
+/* "Seen just now" marker in the sensor tables. */
+.dot--fresh {
+  inline-size: 8px;
+  block-size: 8px;
+  background: var(--dot-online);
+  margin-inline-end: var(--sp-2);
+  vertical-align: middle;
+}
+
+/* ---------- Forms ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-block-end: var(--sp-3);
+}
+
+.field__label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.input,
+select.input,
+textarea.input {
+  min-height: var(--tap);
+  padding-inline: var(--sp-3);
+  padding-block: var(--sp-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  inline-size: 100%;
+  max-inline-size: 420px;
+}
+.input--narrow {
+  max-inline-size: 90px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tap);
+  cursor: pointer;
+}
+.check input[type="checkbox"] {
+  inline-size: 18px;
+  block-size: 18px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* ---------- Tables ---------- */
+
+/* Tables are the worst offender on a phone. .table-wrap scrolls them rather
+   than letting them force the whole page wide. */
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-block-end: var(--sp-3);
+}
+
+.table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.table th,
+.table td {
+  text-align: start;
+  padding: var(--sp-2) var(--sp-3);
+  border-block-end: 1px solid var(--border);
+  white-space: nowrap;
+}
+.table th {
+  font-weight: 650;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.table tbody tr:hover {
+  background: var(--surface-2);
+}
+.table tr.is-fresh {
+  font-weight: 700;
+}
+
+/* Day heading separating groups of sensor rows by when each was last seen. */
+.table tr.day-row th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  padding-block: var(--sp-1);
+  border-block-end: 1px solid var(--border);
+}
+.table tr.day-row:hover {
+  background: transparent;
+}
+
+/* ---------- App shell ---------- */
+
+.app-header {
+  background: var(--surface);
+  border-block-end: 1px solid var(--border);
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 10;
+  /* Installed iOS PWAs draw under the notch; without this the identity row
+     sits beneath the status bar. */
+  padding-block-start: env(safe-area-inset-top, 0);
+  padding-inline: env(safe-area-inset-left, 0) env(safe-area-inset-right, 0);
+}
+
+.app-header__top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+.app-header__nav {
+  padding-inline: var(--sp-4);
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+.app-title {
+  font-weight: 700;
+  font-size: var(--fs-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.spacer {
+  margin-inline-start: auto;
+}
+
+/* ---------- Account menu ---------- */
+
+.menu {
+  position: relative;
+}
+.menu__panel {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: calc(100% + var(--sp-2));
+  min-inline-size: 240px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  padding: var(--sp-3);
+  z-index: 20;
+}
+.menu__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-block: var(--sp-2);
+}
+.menu__section + .menu__section {
+  border-block-start: 1px solid var(--border);
+}
+.menu__email {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* ---------- Arm grid ---------- */
+
+.arm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--sp-2);
+}
+
+.arm-btn {
+  min-height: 56px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  text-align: center;
+}
+.arm-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.arm-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.arm-btn.is-active {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--ok-contrast);
+  font-weight: 700;
+}
+/* Panic button. Shares the grid with the arm buttons but is deliberately not
+   one: outlined rather than filled, so it never looks like the currently
+   selected profile, and visually distinct enough to reduce mis-taps. */
+.arm-btn--sos {
+  border: 2px solid var(--danger);
+  color: var(--danger);
+  background: transparent;
+  font-weight: 700;
+}
+.arm-btn--sos:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--danger-contrast);
+}
+
+/* The profile that tripped: red and blinking until acknowledged. */
+.arm-btn.is-alarming {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-contrast);
+  font-weight: 700;
+  animation: alarm-blink 0.8s steps(1, end) infinite;
+}
+
+@keyframes alarm-blink {
+  50% {
+    background: transparent;
+    color: var(--danger);
+  }
+}
+
+/* Motion is decoration here; the red still marks the profile without it. */
+@media (prefers-reduced-motion: reduce) {
+  .arm-btn.is-alarming {
+    animation: none;
+  }
+}
+
+/* ---------- Language switch ---------- */
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 36px;
+  padding-inline: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.lang-switch:hover {
+  background: var(--surface-2);
+}
+
+/* ---------- Inline help ---------- */
+
+.help {
+  position: relative;
+  display: inline-block;
+}
+
+.help__btn {
+  margin-inline-start: var(--sp-1);
+  inline-size: 18px;
+  block-size: 18px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  padding: 0;
+}
+
+.help__panel {
+  position: absolute;
+  inset-block-start: 130%;
+  inset-inline-start: 0;
+  z-index: 10;
+  inline-size: 280px;
+  max-inline-size: 70vw;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+/* ---------- Utilities ---------- */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.muted {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.text-sm {
+  font-size: var(--fs-sm);
+}

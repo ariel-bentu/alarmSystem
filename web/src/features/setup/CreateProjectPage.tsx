@@ -9,6 +9,7 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/app/AuthProvider";
 import { useProject } from "@/app/ProjectProvider";
 import { generateApiKey, hashApiKey } from "./apiKey";
+import { useT } from "@/i18n/I18nProvider";
 import type { Project } from "@/types";
 
 const grantTenantAccess = httpsCallable<
@@ -17,6 +18,7 @@ const grantTenantAccess = httpsCallable<
 >(functions, "grantTenantAccess");
 
 export default function CreateProjectPage() {
+  const t = useT();
   const { user } = useAuth();
   const { refresh } = useProject();
 
@@ -79,7 +81,7 @@ export default function CreateProjectPage() {
       // dismisses the key screen via "Continue", which then refreshes.
       setRawApiKey(apiKey);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create project.");
+      setError(err instanceof Error ? err.message : t("create.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -87,66 +89,99 @@ export default function CreateProjectPage() {
 
   if (rawApiKey) {
     return (
-      <div className="create-project-page">
-        <h1>Project Created</h1>
-        <p>
-          <strong>Save this API key now.</strong> It will not be shown again.
-        </p>
-        <code data-testid="api-key-display">{rawApiKey}</code>
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard.writeText(rawApiKey);
-            setCopied(true);
-          }}
-        >
-          {copied ? "Copied ✓" : "Copy"}
-        </button>
-        <p>Use this key in your edge device firmware configuration.</p>
-        <button type="button" onClick={() => void refresh()}>
-          I've saved it — continue
-        </button>
+      <div className="app-main">
+        <div className="card">
+          <h1>{t("create.projectCreated")}</h1>
+          <p className="banner banner--warn">
+            <strong>{t("create.saveKeyNow")}</strong>{" "}
+            {t("create.notShownAgain")}
+          </p>
+          <p>
+            <code data-testid="api-key-display" className="ltr">
+              {rawApiKey}
+            </code>
+          </p>
+          <div className="row">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                void navigator.clipboard.writeText(rawApiKey);
+                setCopied(true);
+              }}
+            >
+              {copied ? t("create.copied") : t("create.copy")}
+            </button>
+          </div>
+          <p className="muted">{t("create.useKeyIn")}</p>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => void refresh()}
+          >
+            {t("create.savedContinue")}
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="create-project-page">
-      <h1>Create Project</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="project-name">Project Name</label>
-          <input
-            id="project-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="telegram-bot-token">Telegram Bot Token (optional)</label>
-          <input
-            id="telegram-bot-token"
-            type="text"
-            value={telegramBotToken}
-            onChange={(e) => setTelegramBotToken(e.target.value)}
-          />
-        </div>
-        <div>
-          <label htmlFor="telegram-chat-id">Telegram Chat ID (optional)</label>
-          <input
-            id="telegram-chat-id"
-            type="text"
-            value={telegramChatId}
-            onChange={(e) => setTelegramChatId(e.target.value)}
-          />
-        </div>
-        {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? "Creating..." : "Create Project"}
-        </button>
-      </form>
+    <div className="app-main">
+      <div className="card">
+        <h1>{t("create.title")}</h1>
+        <form onSubmit={handleSubmit}>
+          <div className="field">
+            <label className="field__label" htmlFor="project-name">
+              {t("create.projectName")}
+            </label>
+            <input
+              id="project-name"
+              className="input"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="telegram-bot-token">
+              {t("create.botTokenOptional")}
+            </label>
+            <input
+              id="telegram-bot-token"
+              className="input ltr"
+              type="text"
+              value={telegramBotToken}
+              onChange={(e) => setTelegramBotToken(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="telegram-chat-id">
+              {t("create.chatIdOptional")}
+            </label>
+            <input
+              id="telegram-chat-id"
+              className="input ltr"
+              type="text"
+              value={telegramChatId}
+              onChange={(e) => setTelegramChatId(e.target.value)}
+            />
+          </div>
+          {error && (
+            <p className="badge badge--danger" role="alert">
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            className="btn btn--primary"
+            disabled={submitting}
+          >
+            {submitting ? t("create.creating") : t("create.create")}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

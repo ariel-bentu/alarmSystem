@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import type { Condition, ConditionType } from "@/types";
 import { conditionParamsValid } from "./profileRules";
+import { useT } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/en";
 
 // Default params for each condition type.
 function defaultsFor(type: ConditionType): Condition {
@@ -36,6 +38,7 @@ export default function RuleEditor({
   onChange,
   selectedSensors = [],
 }: RuleEditorProps) {
+  const t = useT();
   const [localCondition, setLocalCondition] = useState<Condition>(condition);
 
   const isMulti = selectedSensors.length > 1;
@@ -78,10 +81,14 @@ export default function RuleEditor({
   const isValid = conditionParamsValid(localCondition);
 
   return (
-    <div className="rule-editor">
-      <label>
-        Condition Type:{" "}
+    <div className="stack">
+      <div className="field">
+        <label className="field__label" htmlFor="condition-type">
+          {t("cfg.rule.conditionType")}
+        </label>
         <select
+          id="condition-type"
+          className="input"
           value={localCondition.type}
           disabled={isMulti}
           onChange={(e) => handleTypeChange(e.target.value as ConditionType)}
@@ -90,33 +97,36 @@ export default function RuleEditor({
             isMulti ? ct.value === "multi_sensor" : ct.value !== "multi_sensor"
           ).map((ct) => (
             <option key={ct.value} value={ct.value}>
-              {ct.label}
+              {t(`cfg.rule.type.${ct.value}` as TranslationKey)}
             </option>
           ))}
         </select>
-      </label>
-      {isMulti && (
-        <p style={{ opacity: 0.7, fontSize: 13, margin: "4px 0" }}>
-          Two or more sensors — the rule is a Multi Sensor condition.
-        </p>
-      )}
+      </div>
+
+      {isMulti && <p className="muted">{t("cfg.rule.multiHint")}</p>}
 
       {localCondition.type === "count_in_window" && (
-        <div>
-          <label>
-            Count:{" "}
+        <div className="row">
+          <div className="field">
+            <label className="field__label" htmlFor="cond-count">
+              {t("cfg.rule.count")}
+            </label>
             <input
+              id="cond-count"
+              className="input input--narrow"
               type="number"
               min={1}
               value={localCondition.count ?? ""}
-              onChange={(e) =>
-                handleParamChange("count", Number(e.target.value))
-              }
+              onChange={(e) => handleParamChange("count", Number(e.target.value))}
             />
-          </label>
-          <label>
-            Window (sec):{" "}
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="cond-window">
+              {t("cfg.rule.windowSec")}
+            </label>
             <input
+              id="cond-window"
+              className="input input--narrow"
               type="number"
               min={1}
               value={localCondition.window_sec ?? ""}
@@ -124,31 +134,37 @@ export default function RuleEditor({
                 handleParamChange("window_sec", Number(e.target.value))
               }
             />
-          </label>
+          </div>
         </div>
       )}
 
       {localCondition.type === "entry_delay" && (
-        <div>
-          <label>
-            Delay (sec):{" "}
-            <input
-              type="number"
-              min={1}
-              value={localCondition.delay_sec ?? ""}
-              onChange={(e) =>
-                handleParamChange("delay_sec", Number(e.target.value))
-              }
-            />
+        <div className="field">
+          <label className="field__label" htmlFor="cond-delay">
+            {t("cfg.rule.delaySec")}
           </label>
+          <input
+            id="cond-delay"
+            className="input input--narrow"
+            type="number"
+            min={1}
+            value={localCondition.delay_sec ?? ""}
+            onChange={(e) =>
+              handleParamChange("delay_sec", Number(e.target.value))
+            }
+          />
         </div>
       )}
 
       {localCondition.type === "multi_sensor" && (
         <div>
-          <label>
-            Window (sec):{" "}
+          <div className="field">
+            <label className="field__label" htmlFor="cond-multi-window">
+              {t("cfg.rule.windowSec")}
+            </label>
             <input
+              id="cond-multi-window"
+              className="input input--narrow"
               type="number"
               min={1}
               value={localCondition.window_sec ?? ""}
@@ -156,26 +172,26 @@ export default function RuleEditor({
                 handleParamChange("window_sec", Number(e.target.value))
               }
             />
-          </label>
+          </div>
           {selectedSensors.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <strong>Triggers required per sensor</strong>
-              <p style={{ opacity: 0.7, fontSize: 13, margin: "4px 0" }}>
-                All sensors must reach their count within the window.
-              </p>
+            <div>
+              <strong>{t("cfg.rule.triggersPerSensor")}</strong>
+              <p className="muted">{t("cfg.rule.allMustReach")}</p>
               {selectedSensors.map((s) => (
-                <div key={s.id}>
-                  <label>
-                    {s.name}:{" "}
-                    <input
-                      type="number"
-                      min={1}
-                      value={localCondition.counts?.[s.id] ?? 1}
-                      onChange={(e) =>
-                        handleCountChange(s.id, Number(e.target.value))
-                      }
-                    />
+                <div className="field" key={s.id}>
+                  <label className="field__label" htmlFor={`count-${s.id}`}>
+                    {s.name}
                   </label>
+                  <input
+                    id={`count-${s.id}`}
+                    className="input input--narrow"
+                    type="number"
+                    min={1}
+                    value={localCondition.counts?.[s.id] ?? 1}
+                    onChange={(e) =>
+                      handleCountChange(s.id, Number(e.target.value))
+                    }
+                  />
                 </div>
               ))}
             </div>
@@ -184,7 +200,7 @@ export default function RuleEditor({
       )}
 
       {!isValid && (
-        <p style={{ color: "red" }}>Invalid condition parameters.</p>
+        <p className="badge badge--danger">{t("cfg.rule.invalid")}</p>
       )}
     </div>
   );

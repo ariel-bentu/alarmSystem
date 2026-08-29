@@ -1,72 +1,194 @@
-// Shell layout: project switcher, nav, sign-out. Wraps all authed pages.
-import { ReactNode } from "react";
-import { Link } from "react-router-dom";
+// Shell layout: identity row + scrolling nav row. Wraps all authed pages.
+//
+// The header used to be a single non-wrapping flex row holding the project
+// name, online dot, project switcher, raw project id, six nav links, the
+// user's email and sign-out. On a phone the later items were clipped and
+// unreachable. It is now two rows: identity (which stays put) and navigation
+// (which scrolls, with edge fades so it is obvious more exists).
+import { ReactNode, useEffect, useRef, useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 import { useProject } from "./ProjectProvider";
 import { DEV_SIMULATOR } from "@/lib/firebase";
 import { useDeviceState } from "@/features/operations/useDeviceState";
+import { useOnlineStatus } from "@/lib/useOnlineStatus";
+import { ScrollingTabs } from "@/components/ScrollingTabs";
+import { LanguageSwitch } from "@/components/LanguageSwitch";
+import { useT } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/en";
 
 export function AppLayout({ children }: { children: ReactNode }) {
+  const t = useT();
   const { user, signOut } = useAuth();
   const { project, role, memberships, selectProject } = useProject();
   const { deviceOnline } = useDeviceState(project?.id);
+  const online = useOnlineStatus();
+  const location = useLocation();
+
+  const links: { to: string; key: TranslationKey }[] = [
+    { to: "/", key: "nav.operations" },
+    ...(role === "admin"
+      ? ([{ to: "/configure", key: "nav.configure" }] as const)
+      : []),
+    { to: "/explore", key: "nav.explore" },
+    ...(role === "admin"
+      ? ([
+          { to: "/members", key: "nav.members" },
+          { to: "/settings", key: "nav.settings" },
+        ] as const)
+      : []),
+    ...(DEV_SIMULATOR
+      ? ([{ to: "/simulator", key: "nav.simulator" }] as const)
+      : []),
+  ];
 
   return (
     <div>
-      <header
-        style={{
-          display: "flex",
-          gap: 16,
-          alignItems: "center",
-          padding: 12,
-          borderBottom: "1px solid #ccc",
-        }}
-      >
-        <strong>{project?.name ?? "Alarm"}</strong>
-        <span
-          title={deviceOnline ? "Device online" : "Device offline or no heartbeat yet"}
-          style={{
-            display: "inline-block",
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            background: deviceOnline ? "#22c55e" : "#d1d5db",
-            flexShrink: 0,
-          }}
-        />
-        {memberships.length > 1 && (
-          <select
-            value={project?.id ?? ""}
-            onChange={(e) => selectProject(e.target.value)}
-          >
-            {memberships.map((m) => (
-              <option key={m.projectId} value={m.projectId}>
-                {m.name}
-              </option>
+      <header className="app-header">
+        <div className="app-header__top">
+          <span className="app-title">{project?.name ?? t("app.title")}</span>
+          <span
+            className={`dot ${deviceOnline ? "dot--online" : "dot--offline"}`}
+            title={deviceOnline ? t("app.deviceOnline") : t("app.deviceOffline")}
+            role="img"
+            aria-label={
+              deviceOnline ? t("app.deviceOnline") : t("app.deviceOffline")
+            }
+          />
+          <div className="spacer" />
+          <LanguageSwitch />
+          <AccountMenu
+            email={user?.email ?? ""}
+            projectId={project?.id}
+            memberships={memberships}
+            selectProject={selectProject}
+            signOut={() => void signOut()}
+          />
+        </div>
+
+        <nav className="app-header__nav">
+          <ScrollingTabs activeKey={location.pathname} ariaLabel={t("app.title")}>
+            {links.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                end={l.to === "/"}
+                className="tab"
+                role="tab"
+              >
+                {t(l.key)}
+              </NavLink>
             ))}
-          </select>
-        )}
-        {project?.id && (
-          <code
-            title="Active projectId — RTDB paths are namespaced under this"
-            style={{ fontSize: 11, opacity: 0.6, userSelect: "all" }}
-          >
-            {project.id}
-          </code>
-        )}
-        <nav style={{ display: "flex", gap: 12 }}>
-          <Link to="/">Operations</Link>
-          {role === "admin" && <Link to="/configure">Configure</Link>}
-          <Link to="/explore">Explore</Link>
-          {role === "admin" && <Link to="/members">Members</Link>}
-          {role === "admin" && <Link to="/settings">Settings</Link>}
-          {DEV_SIMULATOR && <Link to="/simulator">Simulator</Link>}
+          </ScrollingTabs>
         </nav>
-        <span style={{ marginLeft: "auto" }}>{user?.email}</span>
-        <button onClick={() => void signOut()}>Sign out</button>
       </header>
-      <main style={{ padding: 16 }}>{children}</main>
+
+      {!online && (
+        <div className="banner banner--warn" role="status">
+          <span>{t("app.offline")}</span>
+        </div>
+      )}
+
+      <main className="app-main">{children}</main>
     </div>
   );
 }
 
+interface AccountMenuProps {
+  email: string;
+  projectId: string | undefined;
+  memberships: { projectId: string; name: string }[];
+  selectProject: (id: string) => void;
+  signOut: () => void;
+}
+
+// Holds everything that used to sit in the header competing for width: the
+// email, the project switcher, the raw project id (a debugging aid, not
+// everyday UI) and sign-out.
+function AccountMenu({
+  email,
+  projectId,
+  memberships,
+  selectProject,
+  signOut,
+}: AccountMenuProps) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Dismiss on outside click and on Escape — a menu that can only be closed
+  // by its own button is a trap on touch devices.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="menu" ref={ref}>
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={t("app.account")}
+      >
+        <span aria-hidden="true">👤</span>
+      </button>
+
+      {open && (
+        <div className="menu__panel" role="menu">
+          <div className="menu__section">
+            <span className="menu__email">{email}</span>
+          </div>
+
+          {memberships.length > 1 && (
+            <div className="menu__section">
+              <label className="field__label" htmlFor="project-switch">
+                {t("app.switchProject")}
+              </label>
+              <select
+                id="project-switch"
+                className="input"
+                value={projectId ?? ""}
+                onChange={(e) => selectProject(e.target.value)}
+              >
+                {memberships.map((m) => (
+                  <option key={m.projectId} value={m.projectId}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {projectId && (
+            <div className="menu__section">
+              <span className="field__label">{t("app.projectId")}</span>
+              <code className="ltr text-sm muted" style={{ userSelect: "all" }}>
+                {projectId}
+              </code>
+            </div>
+          )}
+
+          <div className="menu__section">
+            <button type="button" className="btn btn--sm" onClick={signOut}>
+              {t("common.signOut")}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

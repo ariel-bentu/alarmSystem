@@ -1,5 +1,5 @@
 // Explore page: unified event timeline with time range selector.
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   onSnapshot,
   query,
@@ -11,18 +11,34 @@ import {
 import { useProject } from "@/app/ProjectProvider";
 import { eventsCol } from "@/lib/firestore";
 import { rangeCutoff } from "./timeRange";
+import { ScrollingTabs } from "@/components/ScrollingTabs";
+import { DayHeaderRow } from "@/components/DayHeaderRow";
+import { groupItemsByDay } from "@/features/configure/groupSensorsByDay";
+import {
+  formatRelative,
+  timeOfDay,
+} from "@/features/configure/lastSeenFormat";
+import { useT } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/en";
 import type { AlarmEvent, TimeRange } from "@/types";
 
 const TIME_RANGES: TimeRange[] = ["day", "week", "month", "3months", "year"];
 const MAX_EVENTS = 500;
 
+// Events that came from a physical RF packet, and therefore have a real
+// battery flag and signal strength. Arm/disarm originate in the app.
+const RADIO_EVENTS = new Set(["trigger", "tamper", "battery_low", "alarm"]);
+const isRadioEvent = (eventType: string) => RADIO_EVENTS.has(eventType);
+
 export default function ExplorePage() {
+  const t = useT();
   const { project } = useProject();
   const projectId = project?.id;
 
   const [range, setRange] = useState<TimeRange>("day");
   const [events, setEvents] = useState<AlarmEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!projectId) {
@@ -49,57 +65,120 @@ export default function ExplorePage() {
     return unsub;
   }, [projectId, range]);
 
+  // Keeps the newest event's relative time honest without a reload.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const eventDayGroups = groupItemsByDay(
+    events,
+    (ev) => ev.timestamp.toMillis(),
+    now
+  );
+
   if (!project) {
-    return <p>No project selected.</p>;
+    return <p>{t("ops.noProject")}</p>;
   }
 
   return (
     <div>
-      <h1>Explore</h1>
+      <h1 className="sr-only">{t("explore.title")}</h1>
 
-      {/* Time range selector */}
-      <nav>
+      {/* Time range selector — scrolls rather than wrapping on narrow screens */}
+      <ScrollingTabs activeKey={range} ariaLabel={t("explore.title")}>
         {TIME_RANGES.map((r) => (
           <button
             key={r}
+            type="button"
+            role="tab"
+            className="tab"
+            aria-selected={r === range}
             onClick={() => setRange(r)}
-            disabled={r === range}
-            aria-pressed={r === range}
           >
-            {r}
+            {t(`explore.range.${r}` as TranslationKey)}
           </button>
         ))}
-      </nav>
+      </ScrollingTabs>
 
-      {/* Event feed */}
-      {loading ? (
-        <p>Loading events...</p>
-      ) : events.length === 0 ? (
-        <p>No events in this time range.</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Sensor</th>
-              <th>Event</th>
-              <th>Battery Low</th>
-              <th>RSSI</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((ev) => (
-              <tr key={ev.id}>
-                <td>{ev.timestamp.toDate().toLocaleString()}</td>
-                <td>{ev.sensorName}</td>
-                <td>{ev.eventType}</td>
-                <td>{ev.batteryLow ? "Yes" : "No"}</td>
-                <td>{ev.rssi}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <div className="card" style={{ marginBlockStart: "var(--sp-4)" }}>
+        {loading ? (
+          <p>{t("explore.loading")}</p>
+        ) : events.length === 0 ? (
+          <p className="muted">{t("explore.noEvents")}</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t("explore.timestamp")}</th>
+                  <th>{t("explore.sensor")}</th>
+                  <th>{t("explore.event")}</th>
+                  <th>{t("explore.batteryLow")}</th>
+                  <th>{t("explore.rssi")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {eventDayGroups.map((group) => (
+                  <Fragment key={group.dayKey}>
+                    <DayHeaderRow
+                      date={group.date}
+                      isToday={group.isToday}
+                      isNever={group.isNever}
+                      colSpan={5}
+                    />
+                    {group.items.map((ev, i) => {
+                      const ts = ev.timestamp.toMillis();
+                      return (
+                        <tr key={ev.id}>
+                          {/* The date is already in the heading above, so rows
+                              show only a time. The newest event overall gets
+                              relative phrasing — it is the one being checked. */}
+                          <td>
+                            {group === eventDayGroups[0] && i === 0
+                              ? formatRelative(ts, now, t)
+                              : timeOfDay(ts)}
+                          </td>
+                          {/* Arm/disarm events are about a profile, not a
+                              sensor, so sensorName carries the profile name.
+                              Rows written before that was stored have it
+                              empty, hence the fallback. */}
+                          <td>
+                            {ev.sensorName || (
+                              <span className="muted">{t("explore.system")}</span>
+                            )}
+                          </td>
+                          <td>
+                            {t(`explore.eventType.${ev.eventType}` as TranslationKey)}
+                          </td>
+                          {/* Battery and RSSI describe a radio packet. An
+                              arm/disarm came from the app, so showing "No"
+                              and "0" would invent data that was never
+                              measured. */}
+                          <td>
+                            {isRadioEvent(ev.eventType)
+                              ? ev.batteryLow
+                                ? t("common.yes")
+                                : t("common.no")
+                              : "—"}
+                          </td>
+                          <td>
+                            {isRadioEvent(ev.eventType) ? (
+                              <span className="ltr">{ev.rssi}</span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

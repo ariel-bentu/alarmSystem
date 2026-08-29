@@ -23,11 +23,28 @@ export const onArmStateChange = onValueWritten(
     const projectId = event.params.projectId;
     const armed = after === true;
 
-    // Mirror to Firestore events
+    // Name the profile that is active on the device, when armed. Resolved
+    // BEFORE the event write and regardless of Telegram config: the timeline
+    // needs it too, and an arm/disarm row with no name is unreadable.
+    let profileName: string | undefined;
+    if (armed) {
+      const profSnap = await db
+        .collection(`projects/${projectId}/profiles`)
+        .where("isActiveOnDevice", "==", true)
+        .limit(1)
+        .get();
+      if (!profSnap.empty) {
+        profileName = (profSnap.docs[0].data() as Profile).displayName;
+      }
+    }
+
+    // Mirror to Firestore events. sensorName carries the profile for
+    // arm/disarm rows — the timeline's "sensor" column is really "what this
+    // event is about", and for an arm event that is the profile.
     const alarmEvent: Omit<AlarmEvent, "id"> = {
       sensorId: "",
       rfId: "",
-      sensorName: "",
+      sensorName: profileName ?? "",
       eventType: armed ? "armed" : "disarmed",
       batteryLow: false,
       rssi: 0,
@@ -40,19 +57,6 @@ export const onArmStateChange = onValueWritten(
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
     if (!project.telegramBotToken || !project.telegramChatId) return;
-
-    // Name the profile that is active on the device, when armed.
-    let profileName: string | undefined;
-    if (armed) {
-      const profSnap = await db
-        .collection(`projects/${projectId}/profiles`)
-        .where("isActiveOnDevice", "==", true)
-        .limit(1)
-        .get();
-      if (!profSnap.empty) {
-        profileName = (profSnap.docs[0].data() as Profile).displayName;
-      }
-    }
 
     await sendTelegram(
       project.telegramBotToken,

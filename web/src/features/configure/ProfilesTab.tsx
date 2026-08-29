@@ -6,13 +6,16 @@ import {
   updateDoc,
   Timestamp,
 } from "firebase/firestore";
+import { set } from "firebase/database";
 import {
   sensorsCol,
   profilesCol,
   profileDoc,
+  projectDoc,
   rulesCol,
   ruleDoc,
 } from "@/lib/firestore";
+import { commandsArmedRef } from "@/lib/rtdb";
 import { useProject } from "@/app/ProjectProvider";
 import type { Sensor, Profile, Rule, Condition } from "@/types";
 import {
@@ -23,8 +26,11 @@ import {
   sensorCountValidForType,
 } from "./profileRules";
 import RuleEditor from "./RuleEditor";
+import { useT } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/en";
 
 export default function ProfilesTab() {
+  const t = useT();
   const { project } = useProject();
   const projectId = project?.id ?? "";
 
@@ -32,6 +38,10 @@ export default function ProfilesTab() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [rulesMap, setRulesMap] = useState<Record<string, Rule[]>>({});
   const [newProfileName, setNewProfileName] = useState("");
+  // Inline rename: which profile is being renamed, and the pending name.
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
 
   // Editing state
@@ -198,17 +208,76 @@ export default function ProfilesTab() {
     await loadData();
   };
 
+  // Renaming changes displayName only. The doc id is derived from the name at
+  // creation but is referenced by rules and by the arm-state flags, so it is
+  // deliberately left alone — a rename must not orphan them.
+  const handleRenameProfile = async () => {
+    if (!renaming || !projectId) return;
+    const name = renaming.name.trim();
+    if (!name) return;
+    await updateDoc(profileDoc(projectId, renaming.id), { displayName: name });
+    setRenaming(null);
+    await loadData();
+  };
+
+  const handleDeleteProfile = async (profile: Profile) => {
+    if (!projectId) return;
+    if (
+      !window.confirm(
+        t("cfg.profiles.deleteProfileConfirm", { name: profile.displayName })
+      )
+    ) {
+      return;
+    }
+
+    // Disarm first, for the same reason disabling does: arm state lives on the
+    // profile AND on serverArmed / commands.armed. Deleting the profile alone
+    // would leave the system claiming armed with nothing to evaluate.
+    if (profile.isActiveOnServer) {
+      await updateDoc(projectDoc(projectId), { serverArmed: false });
+    }
+    if (profile.isActiveOnDevice) {
+      await set(commandsArmedRef(projectId), false);
+    }
+
+    // Firestore does not cascade: deleting the profile doc would orphan its
+    // rules subcollection, which then counts against nothing and is invisible
+    // in the UI but still billed and still returned by collection queries.
+    const rulesSnap = await getDocs(rulesCol(projectId, profile.id));
+    await Promise.all(rulesSnap.docs.map((d) => deleteDoc(d.ref)));
+
+    await deleteDoc(profileDoc(projectId, profile.id));
+    await loadData();
+  };
+
   // Enable/disable a profile. A disabled profile is hidden in Operations; if it
   // was armed anywhere, disabling also clears that activation.
   const handleToggleEnabled = async (profile: Profile) => {
     if (!projectId) return;
     const nextEnabled = !(profile.enabled !== false);
     const update: Partial<Profile> = { enabled: nextEnabled };
+    const wasArmedSomewhere =
+      Boolean(profile.isActiveOnDevice) || Boolean(profile.isActiveOnServer);
     if (!nextEnabled) {
       update.isActiveOnDevice = false;
       update.isActiveOnServer = false;
     }
     await updateDoc(profileDoc(projectId, profile.id), update);
+
+    // Arm state lives in two places — the profile's isActiveOn* flags and the
+    // project's serverArmed / RTDB commands.armed. Clearing only the flags
+    // left the system claiming "armed" with no active profile: the badge said
+    // armed while the grid highlighted Disarmed. Disabling an armed profile
+    // must disarm that side too.
+    if (!nextEnabled && wasArmedSomewhere) {
+      if (profile.isActiveOnServer) {
+        await updateDoc(projectDoc(projectId), { serverArmed: false });
+      }
+      if (profile.isActiveOnDevice) {
+        await set(commandsArmedRef(projectId), false);
+      }
+    }
+
     await loadData();
   };
 
@@ -220,89 +289,193 @@ export default function ProfilesTab() {
     );
   };
 
-  if (loading) return <p>Loading profiles...</p>;
+  if (loading) return <p>{t("cfg.profiles.loading")}</p>;
+
+  // Checkbox list of sensors, shared by the add and edit rule forms.
+  const SensorPicker = ({
+    selected,
+    onToggle,
+  }: {
+    selected: string[];
+    onToggle: (id: string) => void;
+  }) => (
+    <div className="field">
+      <span className="field__label">{t("cfg.profiles.selectSensors")}</span>
+      {sensors.map((s) => (
+        <label key={s.id} className="check">
+          <input
+            type="checkbox"
+            checked={selected.includes(s.id)}
+            onChange={() => onToggle(s.id)}
+          />
+          <span>
+            {s.name} <span className="ltr muted">({s.rfId})</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
 
   return (
     <div>
-      <h2>Profiles</h2>
-
-      {/* Create new profile */}
-      <div>
-        <input
-          type="text"
-          value={newProfileName}
-          onChange={(e) => setNewProfileName(e.target.value)}
-          placeholder="Profile name (e.g. Away)"
-        />
-        <button onClick={handleCreateProfile} disabled={!newProfileName.trim()}>
-          Create Profile
-        </button>
-      </div>
-
-      {/* List profiles */}
-      {profiles.map((profile) => (
-        <div key={profile.id} style={{ marginTop: "1rem", border: "1px solid #ccc", padding: "1rem" }}>
-          <h3>
-            {profile.displayName}
-            {profile.enabled === false && (
-              <span style={{ opacity: 0.6, fontWeight: 400 }}> (disabled)</span>
-            )}
-          </h3>
-          <div>
-            <label>
-              <input
-                type="checkbox"
-                checked={profile.enabled !== false}
-                onChange={() => handleToggleEnabled(profile)}
-              />
-              Enabled (available to arm in Operations)
-            </label>
-          </div>
-
-          {/* Rules list */}
-          <h4>Rules</h4>
-          {(rulesMap[profile.id] ?? []).length === 0 && <p>No rules.</p>}
-          <ul>
-            {(rulesMap[profile.id] ?? []).map((rule) => (
-              <li key={rule.id}>
-                <strong>{rule.name || "(unnamed)"}</strong>
-                {" — Sensors: "}
-                {rule.sensors
-                  .map(
-                    (sid) =>
-                      sensors.find((s) => s.id === sid)?.name ?? sid
-                  )
-                  .join(", ")}
-                {" — Condition: "}
-                {rule.condition.type}
-                {" "}
-                <button
-                  onClick={() =>
-                    setEditingRule({ profileId: profile.id, rule: { ...rule } })
-                  }
-                >
-                  Edit
-                </button>
-                <button onClick={() => handleDeleteRule(profile.id, rule.id)}>
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-
-          <button onClick={() => setAddingRuleProfile(profile.id)}>
-            Add Rule
+      <section className="card">
+        {/* No heading: the "Profiles" sub-tab above already names this. */}
+        <div className="row">
+          <input
+            className="input"
+            type="text"
+            value={newProfileName}
+            onChange={(e) => setNewProfileName(e.target.value)}
+            placeholder={t("cfg.profiles.namePlaceholder")}
+            aria-label={t("cfg.profiles.namePlaceholder")}
+          />
+          <button
+            className="btn btn--primary"
+            onClick={handleCreateProfile}
+            disabled={!newProfileName.trim()}
+          >
+            {t("cfg.profiles.createProfile")}
           </button>
         </div>
+      </section>
+
+      {profiles.map((profile) => (
+        <section className="card" key={profile.id}>
+          <div className="card__header">
+            {renaming?.id === profile.id ? (
+              <>
+                <input
+                  className="input"
+                  type="text"
+                  value={renaming.name}
+                  autoFocus
+                  aria-label={t("cfg.profiles.renameLabel")}
+                  onChange={(e) =>
+                    setRenaming({ id: profile.id, name: e.target.value })
+                  }
+                  // Enter saves, Escape abandons — expected of an inline edit,
+                  // and avoids trapping someone who opened it by accident.
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleRenameProfile();
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn--sm btn--primary"
+                  onClick={() => void handleRenameProfile()}
+                  disabled={!renaming.name.trim()}
+                >
+                  {t("common.save")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={() => setRenaming(null)}
+                >
+                  {t("common.cancel")}
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="card__title">
+                  {profile.displayName}
+                  {profile.enabled === false && (
+                    <span className="muted">
+                      {" "}
+                      {t("cfg.profiles.disabledSuffix")}
+                    </span>
+                  )}
+                </h3>
+                <button
+                  type="button"
+                  className="btn btn--sm spacer"
+                  onClick={() =>
+                    setRenaming({ id: profile.id, name: profile.displayName })
+                  }
+                >
+                  {t("cfg.profiles.rename")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm btn--danger"
+                  onClick={() => void handleDeleteProfile(profile)}
+                >
+                  {t("common.delete")}
+                </button>
+              </>
+            )}
+          </div>
+
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={profile.enabled !== false}
+              onChange={() => handleToggleEnabled(profile)}
+            />
+            <span>{t("cfg.profiles.enabledHelp")}</span>
+          </label>
+
+          <h4>{t("cfg.profiles.rules")}</h4>
+          {(rulesMap[profile.id] ?? []).length === 0 ? (
+            <p className="muted">{t("cfg.profiles.noRules")}</p>
+          ) : (
+            <ul className="stack" style={{ paddingInlineStart: "var(--sp-4)" }}>
+              {(rulesMap[profile.id] ?? []).map((rule) => (
+                <li key={rule.id}>
+                  <strong>{rule.name || t("cfg.profiles.unnamedRule")}</strong>
+                  <div className="muted">
+                    {t("cfg.profiles.sensorsLabel")}{" "}
+                    {rule.sensors
+                      .map((sid) => sensors.find((s) => s.id === sid)?.name ?? sid)
+                      .join(", ")}
+                  </div>
+                  <div className="muted">
+                    {t("cfg.profiles.conditionLabel")}{" "}
+                    {t(`cfg.rule.type.${rule.condition.type}` as TranslationKey)}
+                  </div>
+                  <div className="row">
+                    <button
+                      className="btn btn--sm"
+                      onClick={() =>
+                        setEditingRule({ profileId: profile.id, rule: { ...rule } })
+                      }
+                    >
+                      {t("common.edit")}
+                    </button>
+                    <button
+                      className="btn btn--sm btn--danger"
+                      onClick={() => handleDeleteRule(profile.id, rule.id)}
+                    >
+                      {t("common.delete")}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <button
+            className="btn btn--sm"
+            onClick={() => setAddingRuleProfile(profile.id)}
+          >
+            {t("cfg.profiles.addRule")}
+          </button>
+        </section>
       ))}
 
-      {/* Edit rule modal */}
       {editingRule && (
-        <div style={{ marginTop: "1rem", border: "2px solid blue", padding: "1rem" }}>
-          <h3>Edit Rule</h3>
-          <label>
-            Name:{" "}
+        <section className="card">
+          <div className="card__header">
+            <h3 className="card__title">{t("cfg.profiles.editRule")}</h3>
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="edit-rule-name">
+              {t("cfg.rule.name")}
+            </label>
             <input
+              id="edit-rule-name"
+              className="input"
               type="text"
               value={editingRule.rule.name}
               onChange={(e) =>
@@ -312,29 +485,20 @@ export default function ProfilesTab() {
                 })
               }
             />
-          </label>
-          <div>
-            <strong>Sensors:</strong>
-            {sensors.map((s) => (
-              <label key={s.id} style={{ display: "block" }}>
-                <input
-                  type="checkbox"
-                  checked={editingRule.rule.sensors.includes(s.id)}
-                  onChange={() => {
-                    const current = editingRule.rule.sensors;
-                    const next = current.includes(s.id)
-                      ? current.filter((id) => id !== s.id)
-                      : [...current, s.id];
-                    setEditingRule({
-                      ...editingRule,
-                      rule: { ...editingRule.rule, sensors: next },
-                    });
-                  }}
-                />
-                {s.name} ({s.rfId})
-              </label>
-            ))}
           </div>
+          <SensorPicker
+            selected={editingRule.rule.sensors}
+            onToggle={(id) => {
+              const current = editingRule.rule.sensors;
+              const next = current.includes(id)
+                ? current.filter((x) => x !== id)
+                : [...current, id];
+              setEditingRule({
+                ...editingRule,
+                rule: { ...editingRule.rule, sensors: next },
+              });
+            }}
+          />
           <RuleEditor
             condition={editingRule.rule.condition}
             selectedSensors={sensors
@@ -347,45 +511,52 @@ export default function ProfilesTab() {
               })
             }
           />
-          <button onClick={handleSaveEditedRule}>Save</button>
-          <button onClick={() => setEditingRule(null)}>Cancel</button>
-        </div>
+          <div className="row">
+            <button className="btn btn--primary" onClick={handleSaveEditedRule}>
+              {t("common.save")}
+            </button>
+            <button className="btn" onClick={() => setEditingRule(null)}>
+              {t("common.cancel")}
+            </button>
+          </div>
+        </section>
       )}
 
-      {/* Add rule form */}
       {addingRuleProfile && (
-        <div style={{ marginTop: "1rem", border: "2px solid green", padding: "1rem" }}>
-          <h3>
-            Add Rule to{" "}
-            {profiles.find((p) => p.id === addingRuleProfile)?.displayName}
-          </h3>
-          <label>
-            Name{ruleNameRequired(newRuleSensors) ? " (required)" : ""}:{" "}
+        <section className="card">
+          <div className="card__header">
+            <h3 className="card__title">
+              {t("cfg.profiles.addRuleTo", {
+                profile:
+                  profiles.find((p) => p.id === addingRuleProfile)?.displayName ??
+                  "",
+              })}
+            </h3>
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="new-rule-name">
+              {ruleNameRequired(newRuleSensors)
+                ? t("cfg.profiles.nameRequired")
+                : t("cfg.profiles.nameOptional")}
+            </label>
             <input
+              id="new-rule-name"
+              className="input"
               type="text"
               value={newRuleName}
               onChange={(e) => setNewRuleName(e.target.value)}
               placeholder={
                 ruleNameRequired(newRuleSensors)
-                  ? "Required for multi-sensor rules"
-                  : "Optional label"
+                  ? t("cfg.profiles.requiredForMulti")
+                  : t("cfg.profiles.optionalLabel")
               }
               required={ruleNameRequired(newRuleSensors)}
             />
-          </label>
-          <div>
-            <strong>Select Sensors:</strong>
-            {sensors.map((s) => (
-              <label key={s.id} style={{ display: "block" }}>
-                <input
-                  type="checkbox"
-                  checked={newRuleSensors.includes(s.id)}
-                  onChange={() => toggleSensorInNewRule(s.id)}
-                />
-                {s.name} ({s.rfId})
-              </label>
-            ))}
           </div>
+          <SensorPicker
+            selected={newRuleSensors}
+            onToggle={toggleSensorInNewRule}
+          />
           <RuleEditor
             condition={newRuleCondition}
             selectedSensors={sensors
@@ -393,18 +564,23 @@ export default function ProfilesTab() {
               .map((s) => ({ id: s.id, name: s.name }))}
             onChange={(c) => setNewRuleCondition(c)}
           />
-          <button onClick={handleAddRule}>Add</button>
-          <button
-            onClick={() => {
-              setAddingRuleProfile(null);
-              setNewRuleSensors([]);
-              setNewRuleCondition({ type: "immediate" });
-              setNewRuleName("");
-            }}
-          >
-            Cancel
-          </button>
-        </div>
+          <div className="row">
+            <button className="btn btn--primary" onClick={handleAddRule}>
+              {t("common.add")}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setAddingRuleProfile(null);
+                setNewRuleSensors([]);
+                setNewRuleCondition({ type: "immediate" });
+                setNewRuleName("");
+              }}
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </section>
       )}
     </div>
   );

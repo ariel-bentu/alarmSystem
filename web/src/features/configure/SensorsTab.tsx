@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import {
   ref,
   onValue,
@@ -29,6 +29,10 @@ import {
   type EventTiming,
 } from "./sensorRecency";
 import { reconcileRulesForRemovedSensor } from "./profileRules";
+import { formatRelative, timeOfDay } from "./lastSeenFormat";
+import { groupItemsByDay } from "./groupSensorsByDay";
+import { DayHeaderRow } from "@/components/DayHeaderRow";
+import { useT } from "@/i18n/I18nProvider";
 
 interface PairFormState {
   rfId: string;
@@ -37,24 +41,8 @@ interface PairFormState {
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-// Green dot marking a sensor heard from within the last minute.
-function JustSeenDot() {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: 8,
-        height: 8,
-        borderRadius: "50%",
-        background: "#22c55e",
-        marginRight: 6,
-        verticalAlign: "middle",
-      }}
-    />
-  );
-}
-
 export default function SensorsTab() {
+  const t = useT();
   const { project } = useProject();
   const projectId = project?.id ?? "";
 
@@ -120,7 +108,9 @@ export default function SensorsTab() {
   // Firestore field, so the table updates as events arrive.
   const pairedLastSeen = (s: Sensor) =>
     effectiveLastSeen(s.rfId, eventTiming, s.lastSeen?.toMillis() ?? null);
-  const sortedSensors = sortByLastSeenDesc(sensors, pairedLastSeen);
+  // Rows are grouped under day headings by when each sensor was last seen;
+  // groupItemsByDay sorts both the days and the rows within them.
+  const sensorDayGroups = groupItemsByDay(sensors, pairedLastSeen, now);
 
   // Sort unknown sensors by last seen descending (most recent first).
   const sortedUnknownRfIds = sortByLastSeenDesc(
@@ -174,11 +164,15 @@ export default function SensorsTab() {
     const updates = plans.reduce((n, p) => n + p.recon.toUpdate.length, 0);
     const impact =
       deletes || updates
-        ? `\n\n${updates} rule(s) will be updated and ${deletes} rule(s) deleted.`
+        ? t("cfg.sensors.unpairImpact", { updates, deletes })
         : "";
     if (
       !window.confirm(
-        `Unpair "${sensor.name}" (${sensor.rfId})?${impact}\n\nPast events stay in the timeline. The sensor will reappear as unrecognised if it keeps transmitting.`
+        t("cfg.sensors.unpairConfirm", {
+          name: sensor.name,
+          rfId: sensor.rfId,
+          impact,
+        })
       )
     ) {
       return;
@@ -209,196 +203,276 @@ export default function SensorsTab() {
     );
   };
 
-  if (loading) return <p>Loading sensors...</p>;
+  if (loading) return <p>{t("cfg.sensors.loading")}</p>;
+
+  // One row of the unrecognised-sensor tables. Shared so the "recent" and
+  // "older" tables cannot drift apart.
+  const UnknownRow = ({
+    rfId,
+    fresh,
+    relative,
+  }: {
+    rfId: string;
+    fresh: boolean;
+    relative: boolean;
+  }) => {
+    const timing = eventTiming[rfId];
+    const justSeen = fresh && isJustSeen(timing?.lastSeen ?? null, now);
+    return (
+      <tr className={justSeen ? "is-fresh" : undefined}>
+        <td>
+          {justSeen && <span className="dot dot--fresh" />}
+          <span className="ltr">{rfId}</span>
+        </td>
+        <td>
+          {!timing
+            ? "—"
+            : relative
+              ? formatRelative(timing.lastSeen, now, t)
+              : timeOfDay(timing.lastSeen)}
+        </td>
+        <td>{timing?.count ?? 0}</td>
+        <td>
+          <button
+            className="btn btn--sm btn--primary"
+            onClick={() => {
+              setPairForm({ rfId, name: "" });
+              setPairName("");
+            }}
+          >
+            {t("cfg.sensors.pair")}
+          </button>
+        </td>
+      </tr>
+    );
+  };
+
+  const UNKNOWN_COLS = 4;
+
+  const UnknownHead = () => (
+    <thead>
+      <tr>
+        <th>{t("cfg.sensors.rfId")}</th>
+        <th>{t("cfg.sensors.lastSeen")}</th>
+        <th>{t("cfg.sensors.events")}</th>
+        <th />
+      </tr>
+    </thead>
+  );
+
+  // Day-grouped body, shared by the recent and older unrecognised tables.
+  const UnknownBody = ({ rfIds, fresh }: { rfIds: string[]; fresh: boolean }) => {
+    const groups = groupItemsByDay(
+      rfIds,
+      (rfId) => eventTiming[rfId]?.lastSeen ?? null,
+      now
+    );
+    return (
+      <tbody>
+        {groups.map((group) => (
+          <Fragment key={group.dayKey}>
+            <DayHeaderRow
+              date={group.date}
+              isToday={group.isToday}
+              isNever={group.isNever}
+              colSpan={UNKNOWN_COLS}
+            />
+            {group.items.map((rfId) => (
+              <UnknownRow
+                key={rfId}
+                rfId={rfId}
+                fresh={fresh}
+                // Only today's rows need relative phrasing; on an earlier day
+                // the heading already carries the date, so a bare clock time
+                // is enough and avoids repeating "28.08" on every row.
+                relative={group.isToday}
+              />
+            ))}
+          </Fragment>
+        ))}
+      </tbody>
+    );
+  };
 
   return (
     <div>
-      <h2>Paired Sensors</h2>
-      {sensors.length === 0 && <p>No paired sensors yet.</p>}
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>RF ID</th>
-            <th>Battery</th>
-            <th>Paired</th>
-            <th>Last Seen</th>
-            <th title="Days without a trigger before sending a Telegram alert. -1 = never.">Alert after (days)</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {sortedSensors.map((s) => {
-            const lastSeen = pairedLastSeen(s);
-            const justSeen = isJustSeen(lastSeen, now);
-            return (
-            <tr key={s.id} style={justSeen ? { fontWeight: "bold" } : undefined}>
-              <td>
-                {justSeen && <JustSeenDot />}
-                {s.name}
-              </td>
-              <td>{s.rfId}</td>
-              <td>{s.batteryStatus}</td>
-              <td>{s.pairedAt ? s.pairedAt.toDate().toLocaleString() : "—"}</td>
-              <td>
-                {lastSeen !== null
-                  ? new Date(lastSeen).toLocaleString()
-                  : "Never"}
-              </td>
-              <td>
-                <input
-                  type="number"
-                  min={-1}
-                  style={{ width: 60 }}
-                  value={s.deadSensorAlertDays ?? -1}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    if (!Number.isNaN(v)) void handleDeadAlertDaysChange(s, v);
-                  }}
-                  title="-1 = never alert"
-                />
-              </td>
-              <td>
-                <button type="button" onClick={() => void handleUnpair(s)}>
-                  Unpair
-                </button>
-              </td>
-            </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      {unknownRfIds.length === 0 && (
-        <div style={{ opacity: 0.7, fontSize: 13, marginTop: 16 }}>
-          <h3 style={{ marginBottom: 4 }}>Unrecognised Sensors</h3>
-          <p style={{ margin: 0 }}>
-            None seen. Unpaired sensors appear here as soon as they transmit &mdash;
-            they are read live from this project&rsquo;s RTDB events, not from
-            Firestore, so nothing needs to be set up first.
-          </p>
-          <p style={{ margin: "6px 0 0" }}>
-            If a sensor <em>is</em> transmitting, check that the project shown
-            in the header (<code>{projectId || "none"}</code>) is the one your
-            device reports to &mdash; each project reads a separate{" "}
-            <code>/&lt;projectId&gt;/events</code> path.
-          </p>
+      <section className="card">
+        <div className="card__header">
+          <h2 className="card__title">{t("cfg.sensors.paired")}</h2>
         </div>
-      )}
-
-      {unknownRfIds.length > 0 && (
-        <div>
-          <h3>Unrecognised Sensors</h3>
-          <p style={{ opacity: 0.7, fontSize: 13 }}>
-            Trigger a physical sensor and watch its &quot;Last Seen&quot; update to
-            identify it.
-          </p>
-          <table>
-            <thead>
-              <tr>
-                <th>RF ID</th>
-                <th>First Seen</th>
-                <th>Last Seen</th>
-                <th>Events</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentUnknown.map((rfId) => {
-                const t = eventTiming[rfId];
-                const justSeen = isJustSeen(t?.lastSeen ?? null, now);
-                return (
-                  <tr key={rfId} style={justSeen ? { fontWeight: "bold" } : undefined}>
-                    <td>
-                      {justSeen && <JustSeenDot />}
-                      {rfId}
-                    </td>
-                    <td>{t ? new Date(t.firstSeen).toLocaleString() : "—"}</td>
-                    <td>{t ? new Date(t.lastSeen).toLocaleString() : "—"}</td>
-                    <td>{t?.count ?? 0}</td>
-                    <td>
-                      <button
-                        onClick={() => {
-                          setPairForm({ rfId, name: "" });
-                          setPairName("");
-                        }}
-                      >
-                        Pair
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          {olderUnknown.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <button
-                type="button"
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, opacity: 0.7, fontSize: 13 }}
-                onClick={() => setOlderExpanded((v) => !v)}
-              >
-                {olderExpanded ? "▾" : "▸"} Older sensors ({olderUnknown.length})
-              </button>
-              {olderExpanded && (
-                <table style={{ marginTop: 4 }}>
-                  <thead>
-                    <tr>
-                      <th>RF ID</th>
-                      <th>First Seen</th>
-                      <th>Last Seen</th>
-                      <th>Events</th>
-                      <th></th>
+        {sensors.length === 0 ? (
+          <p className="muted">{t("cfg.sensors.nonePaired")}</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t("cfg.sensors.name")}</th>
+                  <th>{t("cfg.sensors.lastSeen")}</th>
+                  <th>{t("cfg.sensors.battery")}</th>
+                  <th title={t("cfg.sensors.alertAfterDaysHelp")}>
+                    {t("cfg.sensors.alertAfterDays")}
+                  </th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {sensorDayGroups.map((group) => (
+                  <Fragment key={group.dayKey}>
+                    {/* Sensors appear once, under the day they were last seen. */}
+                    <DayHeaderRow
+                      date={group.date}
+                      isToday={group.isToday}
+                      isNever={group.isNever}
+                      colSpan={5}
+                    />
+                    {group.items.map((s) => {
+                  const lastSeen = pairedLastSeen(s);
+                  const justSeen = isJustSeen(lastSeen, now);
+                  return (
+                    <tr key={s.id} className={justSeen ? "is-fresh" : undefined}>
+                      <td>
+                        {justSeen && <span className="dot dot--fresh" />}
+                        {s.name}
+                      </td>
+                      <td>
+                        {lastSeen === null ? (
+                          <span className="muted">{t("common.never")}</span>
+                        ) : group.isToday ? (
+                          formatRelative(lastSeen, now, t)
+                        ) : (
+                          timeOfDay(lastSeen)
+                        )}
+                      </td>
+                      <td>
+                        {s.batteryStatus === "low" ? (
+                          <span className="badge badge--danger">
+                            {t("cfg.sensors.batteryLow")}
+                          </span>
+                        ) : (
+                          <span className="badge">
+                            {t("cfg.sensors.batteryOk")}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={-1}
+                          className="input input--narrow"
+                          value={s.deadSensorAlertDays ?? -1}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!Number.isNaN(v))
+                              void handleDeadAlertDaysChange(s, v);
+                          }}
+                          title={t("cfg.sensors.neverAlert")}
+                          aria-label={t("cfg.sensors.alertAfterDays")}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          onClick={() => void handleUnpair(s)}
+                        >
+                          {t("cfg.sensors.unpair")}
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {olderUnknown.map((rfId) => {
-                      const t = eventTiming[rfId];
-                      return (
-                        <tr key={rfId}>
-                          <td>{rfId}</td>
-                          <td>{t ? new Date(t.firstSeen).toLocaleString() : "—"}</td>
-                          <td>{t ? new Date(t.lastSeen).toLocaleString() : "—"}</td>
-                          <td>{t?.count ?? 0}</td>
-                          <td>
-                            <button
-                              onClick={() => {
-                                setPairForm({ rfId, name: "" });
-                                setPairName("");
-                              }}
-                            >
-                              Pair
-                            </button>
-                          </td>
-                        </tr>
                       );
                     })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="card__header">
+          <h2 className="card__title">{t("cfg.sensors.unrecognised")}</h2>
         </div>
-      )}
+
+        {unknownRfIds.length === 0 ? (
+          <div className="muted">
+            <p>{t("cfg.sensors.noneSeen")}</p>
+            <p>{t("cfg.sensors.noneSeenBody")}</p>
+            <p>
+              {t("cfg.sensors.wrongProjectHint", {
+                projectId: projectId || t("common.none"),
+              })}
+            </p>
+          </div>
+        ) : (
+          <>
+            <p className="muted">{t("cfg.sensors.unrecognisedHint")}</p>
+            <div className="table-wrap">
+              <table className="table">
+                <UnknownHead />
+                <UnknownBody rfIds={recentUnknown} fresh />
+              </table>
+            </div>
+
+            {olderUnknown.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => setOlderExpanded((v) => !v)}
+                  aria-expanded={olderExpanded}
+                >
+                  {olderExpanded ? "▾" : "▸"}{" "}
+                  {t("cfg.sensors.olderSensors", { count: olderUnknown.length })}
+                </button>
+                {olderExpanded && (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <UnknownHead />
+                      <UnknownBody rfIds={olderUnknown} fresh={false} />
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       {pairForm && (
-        <div>
-          <h3>Pair Sensor: {pairForm.rfId}</h3>
-          <label>
-            Name:{" "}
+        <section className="card">
+          <div className="card__header">
+            <h3 className="card__title">
+              {t("cfg.sensors.pairTitle", { rfId: pairForm.rfId })}
+            </h3>
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="pair-name">
+              {t("cfg.sensors.name")}
+            </label>
             <input
+              id="pair-name"
+              className="input"
               type="text"
               value={pairName}
               onChange={(e) => setPairName(e.target.value)}
-              placeholder="e.g. Front door"
+              placeholder={t("cfg.sensors.namePlaceholder")}
             />
-          </label>
-          <button onClick={handlePair} disabled={!pairName.trim()}>
-            Save
-          </button>
-          <button onClick={() => setPairForm(null)}>Cancel</button>
-        </div>
+          </div>
+          <div className="row">
+            <button
+              className="btn btn--primary"
+              onClick={handlePair}
+              disabled={!pairName.trim()}
+            >
+              {t("common.save")}
+            </button>
+            <button className="btn" onClick={() => setPairForm(null)}>
+              {t("common.cancel")}
+            </button>
+          </div>
+        </section>
       )}
     </div>
   );

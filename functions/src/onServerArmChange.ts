@@ -23,19 +23,8 @@ export const onServerArmChange = onDocumentUpdated(
     const projectId = event.params.projectId;
     const armed = after.serverArmed === true;
 
-    const alarmEvent: Omit<AlarmEvent, "id"> = {
-      sensorId: "",
-      rfId: "",
-      sensorName: "",
-      eventType: armed ? "armed" : "disarmed",
-      batteryLow: false,
-      rssi: 0,
-      timestamp: Timestamp.now(),
-    };
-    await db.collection(`projects/${projectId}/events`).add(alarmEvent);
-
-    if (!after.telegramBotToken || !after.telegramChatId) return;
-
+    // Resolved BEFORE the event write and regardless of Telegram config: the
+    // timeline needs it too, and an arm/disarm row with no name is unreadable.
     let profileName: string | undefined;
     if (armed) {
       const profSnap = await db
@@ -47,6 +36,21 @@ export const onServerArmChange = onDocumentUpdated(
         profileName = (profSnap.docs[0].data() as Profile).displayName;
       }
     }
+
+    // sensorName carries the profile for arm/disarm rows — see
+    // onArmStateChange.ts for the reasoning.
+    const alarmEvent: Omit<AlarmEvent, "id"> = {
+      sensorId: "",
+      rfId: "",
+      sensorName: profileName ?? "",
+      eventType: armed ? "armed" : "disarmed",
+      batteryLow: false,
+      rssi: 0,
+      timestamp: Timestamp.now(),
+    };
+    await db.collection(`projects/${projectId}/events`).add(alarmEvent);
+
+    if (!after.telegramBotToken || !after.telegramChatId) return;
 
     await sendTelegram(
       after.telegramBotToken,

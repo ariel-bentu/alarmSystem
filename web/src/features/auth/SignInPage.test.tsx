@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { renderWithProviders as render, screen } from "@/test/renderWithProviders";
 import SignInPage from "./SignInPage";
 
 // Mock the AuthProvider
@@ -31,6 +31,6 @@ describe("SignInPage", () => {
 
   it("renders a heading", () => {
     render(<SignInPage />);
-    expect(screen.getByRole("heading", { name: /alarm system/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /alarm/i })).toBeInTheDocument();
   });
 });

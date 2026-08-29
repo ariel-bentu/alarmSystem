@@ -1,0 +1,62 @@
+/* Design tokens. Single source of truth for colour, spacing and type.
+   Values adapt to the OS light/dark preference via light-dark(), which the
+   app already opts into with color-scheme on :root. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces, from furthest back to nearest front. */
+  --bg: light-dark(#f6f7f9, #0f1115);
+  --surface: light-dark(#ffffff, #171a21);
+  --surface-2: light-dark(#f0f2f5, #1e222b);
+  --border: light-dark(#d8dce3, #2b303b);
+  --border-strong: light-dark(#b6bcc7, #3a4150);
+
+  /* Text. */
+  --text: light-dark(#151922, #e8eaee);
+  --text-muted: light-dark(#5b6472, #9aa3b2);
+  --text-inverse: #ffffff;
+
+  /* Accents. Armed/alarm colours are load-bearing, not decorative:
+     green = safe/armed-ok, red = alarm. Both keep >=4.5:1 on white text. */
+  --accent: light-dark(#1f6feb, #4c8dff);
+  --accent-contrast: #ffffff;
+  --ok: light-dark(#2e7d32, #3ea043);
+  --ok-contrast: #ffffff;
+  --danger: light-dark(#b71c1c, #e5484d);
+  --danger-contrast: #ffffff;
+  --warn: light-dark(#a15c07, #d29922);
+
+  /* Live-status dots. */
+  --dot-online: #22c55e;
+  --dot-offline: light-dark(#d1d5db, #4b5563);
+
+  /* Spacing scale (4px base). */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* Radii. */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  /* Elevation. */
+  --shadow-1: 0 1px 2px light-dark(rgba(16, 24, 40, 0.06), rgba(0, 0, 0, 0.4));
+  --shadow-2: 0 4px 12px light-dark(rgba(16, 24, 40, 0.1), rgba(0, 0, 0, 0.5));
+
+  /* Type scale. */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+
+  /* Smallest comfortable touch target. Interactive controls honour this. */
+  --tap: 44px;
+}

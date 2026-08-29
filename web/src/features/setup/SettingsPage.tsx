@@ -5,55 +5,31 @@ import { useEffect, useState } from "react";
 import { updateDoc } from "firebase/firestore";
 import { useProject } from "@/app/ProjectProvider";
 import { projectDoc } from "@/lib/firestore";
+import { useT } from "@/i18n/I18nProvider";
+import { useUnsavedChangesWarning } from "@/lib/useUnsavedChangesWarning";
+import {
+  type SettingsForm,
+  formFromProject,
+  isDirty,
+} from "./settingsForm";
 
 // Inline help marker: a "?" button that toggles a visible instruction panel on
 // click (native title tooltips are unreliable, so we render our own).
-function Help({ text }: { text: string }) {
+function Help({ text, label }: { text: string; label: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <span style={{ position: "relative", display: "inline-block" }}>
+    <span className="help">
       <button
         type="button"
-        aria-label="Help"
+        className="help__btn"
+        aria-label={label}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        style={{
-          marginLeft: 6,
-          width: 18,
-          height: 18,
-          lineHeight: "16px",
-          textAlign: "center",
-          borderRadius: "50%",
-          border: "1px solid currentColor",
-          background: "transparent",
-          color: "inherit",
-          fontSize: 12,
-          cursor: "pointer",
-          padding: 0,
-        }}
       >
         ?
       </button>
       {open && (
-        <span
-          role="tooltip"
-          style={{
-            position: "absolute",
-            top: "120%",
-            left: 0,
-            zIndex: 10,
-            width: 280,
-            padding: "8px 10px",
-            background: "#1e1e1e",
-            color: "#fff",
-            border: "1px solid #444",
-            borderRadius: 6,
-            fontSize: 13,
-            lineHeight: 1.4,
-            fontWeight: "normal",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-          }}
-        >
+        <span role="tooltip" className="help__panel">
           {text}
         </span>
       )}
@@ -62,198 +38,212 @@ function Help({ text }: { text: string }) {
 }
 
 export default function SettingsPage() {
+  const t = useT();
   const { project, role, reloadProject } = useProject();
 
-  const [name, setName] = useState("");
-  const [botToken, setBotToken] = useState("");
-  const [chatId, setChatId] = useState("");
-  const [sirenDurationSec, setSirenDurationSec] = useState(120);
-  const [sendTelegram, setSendTelegram] = useState(true);
-  const [triggerSiren, setTriggerSiren] = useState(false);
-  const [notifyEverySensorTrigger, setNotifyEverySensorTrigger] = useState(true);
+  // Two copies: `saved` is what Firestore last confirmed, `form` is what the
+  // user is editing. Comparing them is what makes "unsaved changes" knowable —
+  // which is the whole point of having a Save button.
+  const [saved, setSaved] = useState<SettingsForm | null>(null);
+  const [form, setForm] = useState<SettingsForm | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Toggles write immediately rather than waiting for Save: a switch that
-  // silently reverts when you navigate away reads as a broken setting, not as
-  // an unsaved edit. Text fields still batch behind the Save button, so a
-  // half-typed bot token never reaches Firestore.
-  const saveToggle = async (
-    field: string,
-    value: unknown,
-    apply: () => void,
-    revert: () => void
-  ) => {
-    if (!project) return;
-    apply();
-    setNotice(null);
-    setError(null);
-    try {
-      await updateDoc(projectDoc(project.id), { [field]: value });
-      await reloadProject();
-      setNotice("Saved.");
-    } catch (err) {
-      revert();
-      setError(err instanceof Error ? err.message : "Failed to save setting.");
-    }
-  };
-
-  // Populate the form from the loaded project.
+  // Populate from the loaded project. Deliberately does NOT depend on `form`:
+  // re-seeding mid-edit would discard what the user is typing.
   useEffect(() => {
     if (!project) return;
-    setName(project.name);
-    setBotToken(project.telegramBotToken);
-    setChatId(project.telegramChatId);
-    setSirenDurationSec(project.sirenDurationSec);
-    setSendTelegram(project.serverActions.sendTelegram);
-    setTriggerSiren(project.serverActions.triggerSiren);
-    setNotifyEverySensorTrigger(project.notifyEverySensorTrigger !== false);
+    const next = formFromProject(project);
+    setSaved(next);
+    setForm(next);
   }, [project]);
 
-  if (!project) return <div>Loading…</div>;
-  if (role !== "admin") return <div>Admin access required.</div>;
+  const dirty = saved !== null && form !== null && isDirty(saved, form);
+
+  // Covers both tab close and in-app navigation.
+  useUnsavedChangesWarning(dirty, t("settings.unsavedWarning"));
+
+  if (!project || !form) return <div>{t("common.loading")}</div>;
+  if (role !== "admin") return <div>{t("settings.adminRequired")}</div>;
+
+  // Typed field setter so each control stays a one-liner.
+  const setField = <K extends keyof SettingsForm>(
+    key: K,
+    value: SettingsForm[K]
+  ) => {
+    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+    setNotice(null);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!dirty) return;
     setSaving(true);
     setNotice(null);
     setError(null);
     try {
-      // Toggles are not included: they save on change via saveToggle(), and
-      // re-writing them here would clobber a concurrent change with whatever
-      // this form last rendered.
-      await updateDoc(projectDoc(project.id), {
-        name: name.trim(),
-        telegramBotToken: botToken.trim(),
-        telegramChatId: chatId.trim(),
-        sirenDurationSec,
-      });
+      const payload = {
+        name: form.name.trim(),
+        telegramBotToken: form.botToken.trim(),
+        telegramChatId: form.chatId.trim(),
+        sirenDurationSec: form.sirenDurationSec,
+        notifyEverySensorTrigger: form.notifyEverySensorTrigger,
+        serverActions: {
+          sendTelegram: form.sendTelegram,
+          triggerSiren: form.triggerSiren,
+        },
+      };
+      await updateDoc(projectDoc(project.id), payload);
       await reloadProject();
-      setNotice("Settings saved.");
+      // Baseline moves to the trimmed values actually written, so the form is
+      // clean immediately rather than waiting for the project doc to round-trip.
+      const persisted: SettingsForm = {
+        ...form,
+        name: payload.name,
+        botToken: payload.telegramBotToken,
+        chatId: payload.telegramChatId,
+      };
+      setSaved(persisted);
+      setForm(persisted);
+      setNotice(t("common.saved"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save settings.");
+      setError(err instanceof Error ? err.message : t("settings.saveFailed"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="settings-page">
-      <h1>Project Settings</h1>
+    <div>
+      <h1 className="sr-only">{t("settings.title")}</h1>
       <form onSubmit={handleSave}>
-        <div>
-          <label htmlFor="project-name">Project Name</label>
-          <input
-            id="project-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </div>
+        <section className="card">
+          <div className="field">
+            <label className="field__label" htmlFor="project-name">
+              {t("settings.projectName")}
+            </label>
+            <input
+              id="project-name"
+              className="input"
+              type="text"
+              value={form.name}
+              onChange={(e) => setField("name", e.target.value)}
+              required
+            />
+          </div>
+        </section>
 
-        <h2>Telegram</h2>
-        <div>
-          <label htmlFor="bot-token">
-            Bot Token
-            <Help text="In Telegram, message @BotFather, send /newbot, follow the prompts, and copy the token it gives you (looks like 123456789:ABCdef...). Leave blank to disable Telegram alerts." />
-          </label>
-          <input
-            id="bot-token"
-            type="text"
-            value={botToken}
-            onChange={(e) => setBotToken(e.target.value)}
-            placeholder="123456:ABC-DEF..."
-          />
-        </div>
-        <div>
-          <label htmlFor="chat-id">
-            Chat ID
-            <Help text="The chat that receives alerts. For a direct message to you: open @userinfobot and it replies with your numeric ID (a positive number) — use that. For a group: add your bot to the group, send a message there, then open https://api.telegram.org/bot<TOKEN>/getUpdates and read chat.id (group IDs are negative, e.g. -1001234567890)." />
-          </label>
-          <input
-            id="chat-id"
-            type="text"
-            value={chatId}
-            onChange={(e) => setChatId(e.target.value)}
-            placeholder="-1001234567890"
-          />
-        </div>
+        <section className="card">
+          <div className="card__header">
+            <h2 className="card__title">{t("settings.telegram")}</h2>
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="bot-token">
+              {t("settings.telegramBotToken")}
+              <Help text={t("settings.botTokenHelp")} label={t("settings.help")} />
+            </label>
+            <input
+              id="bot-token"
+              className="input ltr"
+              type="text"
+              value={form.botToken}
+              onChange={(e) => setField("botToken", e.target.value)}
+              placeholder="123456:ABC-DEF..."
+            />
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="chat-id">
+              {t("settings.telegramChatId")}
+              <Help text={t("settings.chatIdHelp")} label={t("settings.help")} />
+            </label>
+            <input
+              id="chat-id"
+              className="input ltr"
+              type="text"
+              value={form.chatId}
+              onChange={(e) => setField("chatId", e.target.value)}
+              placeholder="-1001234567890"
+            />
+          </div>
 
-        <div>
-          <label>
+          <label className="check">
             <input
               type="checkbox"
-              checked={notifyEverySensorTrigger}
-              onChange={(e) => {
-                const next = e.target.checked;
-                void saveToggle(
-                  "notifyEverySensorTrigger",
-                  next,
-                  () => setNotifyEverySensorTrigger(next),
-                  () => setNotifyEverySensorTrigger(!next)
-                );
-              }}
+              checked={form.notifyEverySensorTrigger}
+              onChange={(e) =>
+                setField("notifyEverySensorTrigger", e.target.checked)
+              }
             />
-            Send Telegram on every sensor trigger (battery-low and tamper always notify)
+            <span>{t("settings.notifyEveryTrigger")}</span>
           </label>
-        </div>
+        </section>
 
-        <h2>Siren &amp; Server Alarm</h2>
-        <div>
-          <label htmlFor="siren-duration">Siren Duration (seconds)</label>
-          <input
-            id="siren-duration"
-            type="number"
-            min={0}
-            value={sirenDurationSec}
-            onChange={(e) => setSirenDurationSec(Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label>
+        <section className="card">
+          <div className="card__header">
+            <h2 className="card__title">{t("settings.sirenAndAlarm")}</h2>
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="siren-duration">
+              {t("settings.sirenDuration")}
+            </label>
+            <input
+              id="siren-duration"
+              className="input input--narrow"
+              type="number"
+              min={0}
+              value={form.sirenDurationSec}
+              onChange={(e) =>
+                setField("sirenDurationSec", Number(e.target.value))
+              }
+            />
+          </div>
+
+          <label className="check">
             <input
               type="checkbox"
-              checked={sendTelegram}
-              onChange={(e) => {
-                const next = e.target.checked;
-                void saveToggle(
-                  "serverActions",
-                  { sendTelegram: next, triggerSiren },
-                  () => setSendTelegram(next),
-                  () => setSendTelegram(!next)
-                );
-              }}
+              checked={form.sendTelegram}
+              onChange={(e) => setField("sendTelegram", e.target.checked)}
             />
-            Server sends Telegram alerts on alarm
+            <span>{t("settings.serverSendsTelegram")}</span>
           </label>
-        </div>
-        <div>
-          <label>
+
+          <label className="check">
             <input
               type="checkbox"
-              checked={triggerSiren}
-              onChange={(e) => {
-                const next = e.target.checked;
-                void saveToggle(
-                  "serverActions",
-                  { sendTelegram, triggerSiren: next },
-                  () => setTriggerSiren(next),
-                  () => setTriggerSiren(!next)
-                );
-              }}
+              checked={form.triggerSiren}
+              onChange={(e) => setField("triggerSiren", e.target.checked)}
             />
-            Server triggers siren on alarm
+            <span>{t("settings.serverTriggersSiren")}</span>
           </label>
-        </div>
+        </section>
 
-        {notice && <p className="notice">{notice}</p>}
-        {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={saving}>
-          {saving ? "Saving…" : "Save Settings"}
-        </button>
+        {notice && (
+          <p className="badge badge--ok" role="status">
+            {notice}
+          </p>
+        )}
+        {error && (
+          <p className="badge badge--danger" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="row">
+          <button
+            type="submit"
+            className="btn btn--primary"
+            disabled={saving || !dirty}
+            title={!dirty ? t("settings.noChanges") : undefined}
+          >
+            {saving ? t("common.saving") : t("settings.saveSettings")}
+          </button>
+          {dirty && !saving && (
+            <span className="badge badge--warn">
+              {t("settings.unsavedBadge")}
+            </span>
+          )}
+        </div>
       </form>
     </div>
   );

@@ -45,11 +45,10 @@ service cloud.firestore {
       allow create: if isSystemAdmin()
         && request.resource.data.ownerId == memberEmail();
       allow read: if isMember(projectId);
-      // serverArmed toggle allowed for any member; everything else admin-only.
-      allow update: if isAdmin(projectId)
-        || (isMember(projectId)
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['serverArmed']));
+      // Admin-only. serverArmed used to be writable by any member, but
+      // server-side arming is an admin concern (see the profiles rule below),
+      // and no non-admin path writes this field any more.
+      allow update: if isAdmin(projectId);
       allow delete: if isAdmin(projectId) || isSystemAdmin();
 
       // Membership is written only by grantTenantAccess (admin SDK). Members
@@ -67,12 +66,15 @@ service cloud.firestore {
       match /profiles/{profileId} {
         allow read: if isMember(projectId);
         allow create, delete: if isAdmin(projectId);
-        // Admin may edit everything; a plain member may only arm/disarm, i.e.
-        // change the activation flags (used by Operations).
+        // Admin may edit everything; a plain member may only arm/disarm the
+        // DEVICE. Server-side arming changes what the cloud evaluates for the
+        // whole project, so it is admin-only — matching Operations, which
+        // hides the Server card from non-admins. Enforced here too, since
+        // hiding UI is not access control.
         allow update: if isAdmin(projectId)
           || (isMember(projectId)
               && request.resource.data.diff(resource.data).affectedKeys()
-                   .hasOnly(['isActiveOnDevice', 'isActiveOnServer']));
+                   .hasOnly(['isActiveOnDevice']));
         match /rules/{ruleId} {
           allow read: if isMember(projectId);
           allow write: if isAdmin(projectId);
