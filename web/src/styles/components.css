@@ -115,6 +115,11 @@
   padding: 0;
   width: min(420px, calc(100vw - 2 * var(--sp-4)));
   margin: auto;
+  /* The rule forms carry a sensor checklist that grows with the install, so
+     cap the height and scroll the body rather than letting the dialog run off
+     the viewport with its buttons out of reach. */
+  max-height: calc(100vh - 2 * var(--sp-4));
+  overflow: auto;
 }
 .modal::backdrop {
   background: rgb(0 0 0 / 0.5);
@@ -129,6 +134,49 @@
    also carry the card heading's bottom margin. */
 .modal__body .card__title {
   margin: 0;
+}
+
+/* ---------- Rule list ---------- */
+
+/* One row per rule: name, condition, then actions pushed to the end. Replaces
+   a four-line block per rule, which made a profile with a handful of rules
+   read as an undifferentiated wall. */
+.rule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-block: var(--sp-2);
+  border-block-end: 1px solid var(--border);
+}
+.rule-row:last-child {
+  border-block-end: none;
+}
+/* Takes the slack so the buttons sit at the end, and truncates rather than
+   wrapping — a long rule name must not push the actions onto a second line. */
+.rule-row__name {
+  flex: 1;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rule-row__cond {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+/* Narrow screens: the condition is the first thing to go, since the name and
+   the actions are what the row is for. */
+@media (max-width: 30rem) {
+  .rule-row__cond {
+    display: none;
+  }
 }
 
 /* ---------- Tabs (scrolling strip) ---------- */

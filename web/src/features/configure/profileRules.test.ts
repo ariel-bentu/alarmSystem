@@ -6,6 +6,7 @@ import {
   ruleNameValid,
   sensorCountValidForType,
   reconcileRulesForRemovedSensor,
+  ruleDisplayName,
 } from "./profileRules";
 import type { Rule } from "@/types";
 import type { Condition } from "@/types";
@@ -256,5 +257,51 @@ describe("reconcileRulesForRemovedSensor", () => {
     const res = reconcileRulesForRemovedSensor(rules, "gone");
     expect(res.toDelete.map((r) => r.id)).toEqual(["r1"]);
     expect(res.toUpdate.map((r) => r.id)).toEqual(["r2"]);
+  });
+});
+
+describe("ruleDisplayName", () => {
+  const names = { s1: "Front door", s2: "Kitchen window" };
+  const lookup = (id: string) => names[id as keyof typeof names];
+
+  it("uses the rule's own name when it has one", () => {
+    expect(ruleDisplayName({ name: "Perimeter", sensors: ["s1"] }, lookup)).toBe(
+      "Perimeter"
+    );
+  });
+
+  it("falls back to the sensor name for an unnamed single-sensor rule", () => {
+    // buildInitialRules creates exactly this shape, so it is the common case.
+    expect(ruleDisplayName({ name: "", sensors: ["s1"] }, lookup)).toBe(
+      "Front door"
+    );
+  });
+
+  it("treats a whitespace-only name as unnamed", () => {
+    expect(ruleDisplayName({ name: "   ", sensors: ["s1"] }, lookup)).toBe(
+      "Front door"
+    );
+  });
+
+  it("handles a missing name field", () => {
+    expect(ruleDisplayName({ sensors: ["s1"] }, lookup)).toBe("Front door");
+  });
+
+  it("joins sensor names for an unnamed multi-sensor rule", () => {
+    expect(ruleDisplayName({ name: "", sensors: ["s1", "s2"] }, lookup)).toBe(
+      "Front door + Kitchen window"
+    );
+  });
+
+  it("falls back to the raw id when the sensor is unknown", () => {
+    // An unpaired sensor still referenced by a rule must not render blank.
+    expect(ruleDisplayName({ name: "", sensors: ["ghost"] }, lookup)).toBe(
+      "ghost"
+    );
+  });
+
+  it("returns null when there is nothing to name it with", () => {
+    // Caller substitutes its own translated placeholder.
+    expect(ruleDisplayName({ name: "", sensors: [] }, lookup)).toBeNull();
   });
 });

@@ -143,13 +143,11 @@ export const he: Record<TranslationKey, string> = {
   "cfg.profiles.disabledSuffix": "(מושבת)",
   "cfg.profiles.enabledHelp": "מופעל (זמין לדריכה במסך התפעול)",
   "cfg.profiles.unnamedRule": "(ללא שם)",
-  "cfg.profiles.conditionLabel": "תנאי:",
   "cfg.profiles.addRuleTo": "הוספת חוק ל{profile}",
   "cfg.profiles.nameRequired": "שם (חובה)",
   "cfg.profiles.nameOptional": "שם",
   "cfg.profiles.requiredForMulti": "חובה עבור חוקים מרובי גלאים",
   "cfg.profiles.optionalLabel": "תווית אופציונלית",
-  "cfg.profiles.sensorsLabel": "גלאים:",
   "cfg.profiles.selectSensors": "בחירת גלאים:",
 
   // Rule editor

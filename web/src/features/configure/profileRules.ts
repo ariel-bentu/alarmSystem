@@ -127,3 +127,28 @@ export function reconcileRulesForRemovedSensor(
 
   return { toDelete, toUpdate };
 }
+
+/**
+ * What to call a rule in a list.
+ *
+ * Most rules are unnamed by construction — `buildInitialRules` creates one
+ * `{ name: "" }` rule per sensor — so showing a literal "(unnamed)" made the
+ * common case unreadable: a list of identical placeholders where the sensor
+ * name was the only thing that distinguished the rows. The sensor a rule
+ * covers is the natural name for it, so fall back to that.
+ *
+ * Returns null only when there is nothing at all to name it with (no name and
+ * no sensors); the caller supplies its own translated placeholder, since this
+ * module is deliberately free of i18n.
+ */
+export function ruleDisplayName(
+  rule: { name?: string; sensors: string[] },
+  sensorNameById: (id: string) => string | undefined
+): string | null {
+  const own = rule.name?.trim();
+  if (own) return own;
+  if (rule.sensors.length === 0) return null;
+  // An unpaired sensor still referenced by a rule has no name; the raw id is
+  // ugly but identifies the row, which a blank cell would not.
+  return rule.sensors.map((id) => sensorNameById(id) ?? id).join(" + ");
+}

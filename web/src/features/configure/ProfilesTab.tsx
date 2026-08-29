@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   getDocs,
   addDoc,
@@ -21,6 +21,7 @@ import type { Sensor, Profile, Rule, Condition } from "@/types";
 import {
   buildInitialRules,
   conditionParamsValid,
+  ruleDisplayName,
   ruleNameRequired,
   ruleNameValid,
   sensorCountValidForType,
@@ -59,6 +60,36 @@ export default function ProfilesTab() {
     type: "immediate",
   });
   const [newRuleName, setNewRuleName] = useState("");
+
+  const editDialogRef = useRef<HTMLDialogElement>(null);
+  const addDialogRef = useRef<HTMLDialogElement>(null);
+
+  // Adding a rule discards several fields, so closing has to go through one
+  // place — otherwise Esc and the backdrop would leave half-filled state
+  // behind for the next open.
+  const closeAddRule = () => {
+    setAddingRuleProfile(null);
+    setNewRuleSensors([]);
+    setNewRuleCondition({ type: "immediate" });
+    setNewRuleName("");
+  };
+
+  // showModal() is what puts the dialog in the top layer and gives it the
+  // ::backdrop, focus trap and Esc handling; rendering with `open` does none
+  // of that. See the same pattern in SensorsTab's pair dialog.
+  useEffect(() => {
+    const el = editDialogRef.current;
+    if (!el) return;
+    if (editingRule && !el.open) el.showModal();
+    if (!editingRule && el.open) el.close();
+  }, [editingRule]);
+
+  useEffect(() => {
+    const el = addDialogRef.current;
+    if (!el) return;
+    if (addingRuleProfile && !el.open) el.showModal();
+    if (!addingRuleProfile && el.open) el.close();
+  }, [addingRuleProfile]);
 
   const loadData = async () => {
     if (!projectId) return;
@@ -420,36 +451,35 @@ export default function ProfilesTab() {
           {(rulesMap[profile.id] ?? []).length === 0 ? (
             <p className="muted">{t("cfg.profiles.noRules")}</p>
           ) : (
-            <ul className="stack" style={{ paddingInlineStart: "var(--sp-4)" }}>
+            <ul className="rule-list">
               {(rulesMap[profile.id] ?? []).map((rule) => (
-                <li key={rule.id}>
-                  <strong>{rule.name || t("cfg.profiles.unnamedRule")}</strong>
-                  <div className="muted">
-                    {t("cfg.profiles.sensorsLabel")}{" "}
-                    {rule.sensors
-                      .map((sid) => sensors.find((s) => s.id === sid)?.name ?? sid)
-                      .join(", ")}
-                  </div>
-                  <div className="muted">
-                    {t("cfg.profiles.conditionLabel")}{" "}
+                <li className="rule-row" key={rule.id}>
+                  {/* One line per rule. The name and the condition sit inline
+                      and the actions are pushed to the end, so a profile's
+                      rules can be scanned vertically instead of read as a
+                      stack of four-line blocks. */}
+                  <span className="rule-row__name">
+                    {ruleDisplayName(rule, (id) =>
+                      sensors.find((s) => s.id === id)?.name
+                    ) ?? t("cfg.profiles.unnamedRule")}
+                  </span>
+                  <span className="rule-row__cond muted">
                     {t(`cfg.rule.type.${rule.condition.type}` as TranslationKey)}
-                  </div>
-                  <div className="row">
-                    <button
-                      className="btn btn--sm"
-                      onClick={() =>
-                        setEditingRule({ profileId: profile.id, rule: { ...rule } })
-                      }
-                    >
-                      {t("common.edit")}
-                    </button>
-                    <button
-                      className="btn btn--sm btn--danger"
-                      onClick={() => handleDeleteRule(profile.id, rule.id)}
-                    >
-                      {t("common.delete")}
-                    </button>
-                  </div>
+                  </span>
+                  <button
+                    className="btn btn--sm"
+                    onClick={() =>
+                      setEditingRule({ profileId: profile.id, rule: { ...rule } })
+                    }
+                  >
+                    {t("common.edit")}
+                  </button>
+                  <button
+                    className="btn btn--sm btn--danger"
+                    onClick={() => handleDeleteRule(profile.id, rule.id)}
+                  >
+                    {t("common.delete")}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -464,11 +494,18 @@ export default function ProfilesTab() {
         </section>
       ))}
 
-      {editingRule && (
-        <section className="card">
-          <div className="card__header">
-            <h3 className="card__title">{t("cfg.profiles.editRule")}</h3>
-          </div>
+      {/* Both rule forms are modals rather than cards appended to the page.
+          Inline they rendered after every profile card, so on a page with a
+          few profiles the form opened off-screen and the click looked inert. */}
+      <dialog
+        ref={editDialogRef}
+        className="modal"
+        onCancel={() => setEditingRule(null)}
+        onClose={() => setEditingRule(null)}
+      >
+        {editingRule && (
+        <div className="modal__body">
+          <h3 className="card__title">{t("cfg.profiles.editRule")}</h3>
           <div className="field">
             <label className="field__label" htmlFor="edit-rule-name">
               {t("cfg.rule.name")}
@@ -519,20 +556,25 @@ export default function ProfilesTab() {
               {t("common.cancel")}
             </button>
           </div>
-        </section>
-      )}
+        </div>
+        )}
+      </dialog>
 
-      {addingRuleProfile && (
-        <section className="card">
-          <div className="card__header">
-            <h3 className="card__title">
-              {t("cfg.profiles.addRuleTo", {
-                profile:
-                  profiles.find((p) => p.id === addingRuleProfile)?.displayName ??
-                  "",
-              })}
-            </h3>
-          </div>
+      <dialog
+        ref={addDialogRef}
+        className="modal"
+        onCancel={closeAddRule}
+        onClose={closeAddRule}
+      >
+        {addingRuleProfile && (
+        <div className="modal__body">
+          <h3 className="card__title">
+            {t("cfg.profiles.addRuleTo", {
+              profile:
+                profiles.find((p) => p.id === addingRuleProfile)?.displayName ??
+                "",
+            })}
+          </h3>
           <div className="field">
             <label className="field__label" htmlFor="new-rule-name">
               {ruleNameRequired(newRuleSensors)
@@ -568,20 +610,13 @@ export default function ProfilesTab() {
             <button className="btn btn--primary" onClick={handleAddRule}>
               {t("common.add")}
             </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setAddingRuleProfile(null);
-                setNewRuleSensors([]);
-                setNewRuleCondition({ type: "immediate" });
-                setNewRuleName("");
-              }}
-            >
+            <button className="btn" onClick={closeAddRule}>
               {t("common.cancel")}
             </button>
           </div>
-        </section>
-      )}
+        </div>
+        )}
+      </dialog>
     </div>
   );
 }

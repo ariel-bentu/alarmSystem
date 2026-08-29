@@ -144,13 +144,11 @@ export const en = {
   "cfg.profiles.disabledSuffix": "(disabled)",
   "cfg.profiles.enabledHelp": "Enabled (available to arm in Operations)",
   "cfg.profiles.unnamedRule": "(unnamed)",
-  "cfg.profiles.conditionLabel": "Condition:",
   "cfg.profiles.addRuleTo": "Add Rule to {profile}",
   "cfg.profiles.nameRequired": "Name (required)",
   "cfg.profiles.nameOptional": "Name",
   "cfg.profiles.requiredForMulti": "Required for multi-sensor rules",
   "cfg.profiles.optionalLabel": "Optional label",
-  "cfg.profiles.sensorsLabel": "Sensors:",
   "cfg.profiles.selectSensors": "Select Sensors:",
 
   // Rule editor
