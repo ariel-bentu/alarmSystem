@@ -29,7 +29,17 @@ export default function OperationsPage() {
 
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [busy, setBusy] = useState(false);
+  // Which control has a write in flight, not merely THAT one does: the write
+  // takes a visible round-trip, so the pressed button has to say so itself.
+  // A bare boolean could only disable everything, which reads as a dead UI.
+  // Shape: `${side}:${profileId ?? "off"}` for the grid, "sos" for the panic
+  // button; null when idle.
+  const [pending, setPending] = useState<string | null>(null);
+  const busy = pending !== null;
+  // SOS is armed by a first press and only fires on a second. It sits near the
+  // Disarm button that gets tapped at bedtime, and an accidental siren at
+  // 2am is a genuinely costly mistake, so a single stray tap must not sound it.
+  const [sosArmed, setSosArmed] = useState(false);
 
   // Sensors are still loaded — not to list them, but to resolve the alarm
   // cause's rfId to a human name.
@@ -48,6 +58,15 @@ export default function OperationsPage() {
     });
     return unsub;
   }, [projectId]);
+
+  // Disarm the SOS confirmation if the second press never comes. Without this
+  // the button stays primed indefinitely, so a tap now and an unrelated tap
+  // tomorrow would sound the siren — the opposite of a safety.
+  useEffect(() => {
+    if (!sosArmed) return;
+    const id = setTimeout(() => setSosArmed(false), 5000);
+    return () => clearTimeout(id);
+  }, [sosArmed]);
 
   const sensorNamesByRfId = Object.fromEntries(
     sensors.map((s) => [s.rfId, s.name])
@@ -78,7 +97,7 @@ export default function OperationsPage() {
 
   const armSide = async (side: Side, profileId: string | null) => {
     if (!projectId || !canArm || busy) return;
-    setBusy(true);
+    setPending(`${side}:${profileId ?? "off"}`);
     try {
       const field = side === "device" ? "isActiveOnDevice" : "isActiveOnServer";
       const batch = writeBatch(db);
@@ -114,7 +133,7 @@ export default function OperationsPage() {
         });
       }
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   };
 
@@ -130,13 +149,24 @@ export default function OperationsPage() {
   // The device firmware acts on commands/siren WITHOUT checking sirenEnabled
   // (unlike the alarm path, which does), so the gate has to be here.
   const handleSos = async () => {
-    if (!projectId || !canArm || sirenEnabled === false) return;
-    // Write false first so the device always sees a false->true edge: it acts
-    // on commands/siren only when the value CHANGES, so a bare `true` after a
-    // previous SOS (or after the siren's own timer expired, which does not
-    // reset the command) would be a silent no-op.
-    await set(commandsSirenRef(projectId), false);
-    await set(commandsSirenRef(projectId), true);
+    if (!projectId || !canArm || busy || sirenEnabled === false) return;
+    // First press only primes the button; nothing is written until the second.
+    if (!sosArmed) {
+      setSosArmed(true);
+      return;
+    }
+    setSosArmed(false);
+    setPending("sos");
+    try {
+      // Write false first so the device always sees a false->true edge: it acts
+      // on commands/siren only when the value CHANGES, so a bare `true` after a
+      // previous SOS (or after the siren's own timer expired, which does not
+      // reset the command) would be a silent no-op.
+      await set(commandsSirenRef(projectId), false);
+      await set(commandsSirenRef(projectId), true);
+    } finally {
+      setPending(null);
+    }
   };
 
   if (!project) return <p>{t("ops.noProject")}</p>;
@@ -144,23 +174,28 @@ export default function OperationsPage() {
   const ArmGrid = ({
     side,
     activeId,
-    withSos = false,
   }: {
     side: Side;
     activeId: string | null;
-    withSos?: boolean;
   }) => (
     <div className="arm-grid">
       <button
         className={`arm-btn${activeId === null ? " is-active" : ""}`}
         onClick={() => void armSide(side, null)}
         disabled={!canArm || busy}
+        aria-pressed={activeId === null}
       >
-        <span aria-hidden="true">🔓</span> {t("ops.disarmed")}
+        {pending === `${side}:off` ? (
+          <span className="spinner" aria-hidden="true" />
+        ) : (
+          <span aria-hidden="true">🔓</span>
+        )}{" "}
+        {t("ops.disarmed")}
       </button>
       {availableProfiles.map((p) => {
         const isAlarming =
           alarm.active && alarm.side === side && activeId === p.id;
+        const isPending = pending === `${side}:${p.id}`;
         return (
           <button
             key={p.id}
@@ -171,24 +206,57 @@ export default function OperationsPage() {
             }
             onClick={() => void armSide(side, p.id)}
             disabled={!canArm || busy}
+            aria-pressed={activeId === p.id}
           >
-            <span aria-hidden="true">{isAlarming ? "🚨" : "🛡"}</span>{" "}
+            {isPending ? (
+              <span className="spinner" aria-hidden="true" />
+            ) : (
+              <span aria-hidden="true">{isAlarming ? "🚨" : "🛡"}</span>
+            )}{" "}
             {p.displayName}
           </button>
         );
       })}
-      {/* Sounds the siren now, regardless of arm state. Styled apart from the
-          arm buttons so a mis-tap is less likely despite sharing the grid. */}
-      {withSos && (
+    </div>
+  );
+
+  // Deliberately NOT part of ArmGrid. The grid is a state selector — a filled
+  // button there means "this is the current arm state" — whereas SOS performs
+  // an action and has no selected/unselected state at all. Rendering it inside
+  // the grid made one visual language carry two unrelated meanings, so a red
+  // button read as either "armed to something" or "tap to sound", depending on
+  // which neighbour you compared it against.
+  // Small and right-aligned, not full-width: it sits just below the Disarm
+  // button that gets tapped on the way to bed, so it is deliberately the least
+  // prominent control here and offset away from the grid's tap targets.
+  // Prominence would be wrong even though the action is urgent — the two-press
+  // confirm is what makes it reachable in a hurry without being reachable by
+  // accident.
+  const SosButton = () => (
+    <div className="action-row">
+      {sosArmed && (
         <button
-          className="arm-btn arm-btn--sos"
-          onClick={() => void handleSos()}
-          disabled={!canArm || busy || !sirenEnabled}
-          title={sirenEnabled ? t("ops.sosTitle") : t("ops.sosDisabled")}
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() => setSosArmed(false)}
         >
-          <span aria-hidden="true">🆘</span> {t("ops.sos")}
+          {t("ops.sosCancel")}
         </button>
       )}
+      <button
+        type="button"
+        className={`btn btn--sm sos-btn${sosArmed ? " is-armed" : ""}`}
+        onClick={() => void handleSos()}
+        disabled={!canArm || busy || !sirenEnabled}
+        title={sirenEnabled ? t("ops.sosTitle") : t("ops.sosDisabled")}
+      >
+        {pending === "sos" ? (
+          <span className="spinner" aria-hidden="true" />
+        ) : (
+          <span aria-hidden="true">🆘</span>
+        )}{" "}
+        {sosArmed ? t("ops.sosConfirm") : t("ops.sos")}
+      </button>
     </div>
   );
 
@@ -241,7 +309,8 @@ export default function OperationsPage() {
               )}
               <StateBadge armed={Boolean(deviceArmed)} />
             </div>
-            <ArmGrid side="device" activeId={activeDeviceId} withSos />
+            <ArmGrid side="device" activeId={activeDeviceId} />
+            <SosButton />
           </section>
 
           {/* Server-side arming is an admin concern: it changes what the

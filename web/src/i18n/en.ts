@@ -73,6 +73,8 @@ export const en = {
   "ops.alarmCauseUnknown": "cause unknown",
   "ops.alarmAt": "at {time}",
   "ops.sos": "SOS",
+  "ops.sosConfirm": "Press again to sound",
+  "ops.sosCancel": "Cancel",
   "ops.sosTitle": "Sound the siren now",
   "ops.sosDisabled": "Siren is disabled in settings",
   "ops.siren": "Siren",

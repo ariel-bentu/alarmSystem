@@ -21,8 +21,25 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
 }
-.btn:hover:not(:disabled) {
-  background: var(--surface-2);
+/* All :hover styling is gated to pointer devices. Touch browsers emulate
+   hover as sticky — the style persists after a tap until something else is
+   tapped — so on a phone these read as a stuck "selected" state on whatever
+   was touched last. :active still gives touch users press feedback. */
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .btn--primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+    background: var(--accent);
+  }
+  .btn--danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+    background: var(--danger);
+  }
+  .btn--ghost:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
 }
 .btn:active:not(:disabled) {
   transform: translateY(1px);
@@ -37,27 +54,14 @@
   border-color: var(--accent);
   color: var(--accent-contrast);
 }
-.btn--primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-  background: var(--accent);
-}
-
 .btn--danger {
   background: var(--danger);
   border-color: var(--danger);
   color: var(--danger-contrast);
 }
-.btn--danger:hover:not(:disabled) {
-  filter: brightness(1.08);
-  background: var(--danger);
-}
-
 .btn--ghost {
   background: transparent;
   border-color: transparent;
-}
-.btn--ghost:hover:not(:disabled) {
-  background: var(--surface-2);
 }
 
 .btn--sm {
@@ -68,6 +72,34 @@
 
 .btn--block {
   width: 100%;
+}
+
+/* Inline busy indicator. Sized in `em` and drawn in currentColor so it works
+   on any button — filled green, filled red, or plain — and occupies the same
+   box as the emoji it replaces, so the label does not shift when it appears. */
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Without motion the ring is still visibly not the normal icon, and the
+   button is disabled meanwhile, so the state remains legible. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 
 /* ---------- Tabs (scrolling strip) ---------- */
@@ -140,10 +172,12 @@
   cursor: pointer;
   text-decoration: none;
 }
-.tab:hover {
-  background: var(--surface-2);
-  color: var(--text);
-  text-decoration: none;
+@media (hover: hover) {
+  .tab:hover {
+    background: var(--surface-2);
+    color: var(--text);
+    text-decoration: none;
+  }
 }
 .tab[aria-selected="true"],
 .tab[aria-current="page"] {
@@ -335,8 +369,14 @@ textarea.input {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.table tbody tr:hover {
-  background: var(--surface-2);
+@media (hover: hover) {
+  .table tbody tr:hover {
+    background: var(--surface-2);
+  }
+  /* Day separators are not rows you can act on, so they must not light up. */
+  .table tr.day-row:hover {
+    background: transparent;
+  }
 }
 .table tr.is-fresh {
   font-weight: 700;
@@ -352,9 +392,6 @@ textarea.input {
   letter-spacing: 0;
   padding-block: var(--sp-1);
   border-block-end: 1px solid var(--border);
-}
-.table tr.day-row:hover {
-  background: transparent;
 }
 
 /* ---------- App shell ---------- */
@@ -455,31 +492,53 @@ textarea.input {
   gap: var(--sp-2);
   text-align: center;
 }
-.arm-btn:hover:not(:disabled) {
-  background: var(--surface-2);
-}
+/* No :hover rule, deliberately — same reasoning as .sos-btn below. These are
+   state buttons: shading a just-tapped one competes with the green fill that
+   means "this is the active profile", and on touch that shading sticks. */
 .arm-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+/* Selected state is carried by FILL alone. The border deliberately stays
+   --border-strong: colouring it too encoded one fact (is this the active
+   profile?) twice, which read as a third button style rather than as
+   emphasis. Transient "write in flight" is a spinner on the pressed button,
+   not another colour. */
 .arm-btn.is-active {
   background: var(--ok);
-  border-color: var(--ok);
   color: var(--ok-contrast);
   font-weight: 700;
 }
-/* Panic button. Shares the grid with the arm buttons but is deliberately not
-   one: outlined rather than filled, so it never looks like the currently
-   selected profile, and visually distinct enough to reduce mis-taps. */
-.arm-btn--sos {
-  border: 2px solid var(--danger);
+
+/* Actions live below the state grid, never inside it. Right-aligned (end) so
+   the tap target does not sit directly under the Disarm button above it. */
+.action-row {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* At rest SOS is an outline, not a filled red slab: it must be findable but
+   not shout, since the common reason to look at this page is arming for the
+   night. It only turns solid red once primed, where the loud colour is
+   earned — that state is one press from sounding a 100dB siren.
+   No :hover rule, deliberately: mobile browsers emulate hover as STICKY, and
+   a hover that fills the button red is exactly the primed appearance, so
+   cancelling would leave SOS looking armed when it is not. */
+.sos-btn {
+  border-color: var(--danger);
   color: var(--danger);
   background: transparent;
-  font-weight: 700;
 }
-.arm-btn--sos:hover:not(:disabled) {
+.sos-btn.is-armed {
   background: var(--danger);
+  border-color: var(--danger);
   color: var(--danger-contrast);
+  font-weight: 700;
 }
 
 /* The profile that tripped: red and blinking until acknowledged. */
@@ -521,8 +580,10 @@ textarea.input {
   font-size: var(--fs-sm);
   cursor: pointer;
 }
-.lang-switch:hover {
-  background: var(--surface-2);
+@media (hover: hover) {
+  .lang-switch:hover {
+    background: var(--surface-2);
+  }
 }
 
 /* ---------- Inline help ---------- */

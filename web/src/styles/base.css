@@ -48,8 +48,10 @@ a {
   color: var(--accent);
   text-decoration: none;
 }
-a:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  a:hover {
+    text-decoration: underline;
+  }
 }
 
 /* Visible focus for keyboard users only — a permanent ring on click is noise,

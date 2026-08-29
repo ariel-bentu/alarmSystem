@@ -72,6 +72,8 @@ export const he: Record<TranslationKey, string> = {
   "ops.alarmCauseUnknown": "סיבה לא ידועה",
   "ops.alarmAt": "בשעה {time}",
   "ops.sos": "מצוקה",
+  "ops.sosConfirm": "לחצו שוב להפעלה",
+  "ops.sosCancel": "ביטול",
   "ops.sosTitle": "הפעלת הצופר עכשיו",
   "ops.sosDisabled": "הצופר מושבת בהגדרות",
   "ops.siren": "צופר",
