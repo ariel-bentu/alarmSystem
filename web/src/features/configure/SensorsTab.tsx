@@ -20,7 +20,7 @@ import {
   ruleDoc,
 } from "@/lib/firestore";
 import { useProject } from "@/app/ProjectProvider";
-import type { Sensor } from "@/types";
+import type { Sensor, Profile, Rule } from "@/types";
 import { getUnknownRfIds } from "./unknownSensors";
 import {
   effectiveLastSeen,
@@ -28,7 +28,10 @@ import {
   sortByLastSeenDesc,
   type EventTiming,
 } from "./sensorRecency";
-import { reconcileRulesForRemovedSensor } from "./profileRules";
+import {
+  buildInitialRules,
+  reconcileRulesForRemovedSensor,
+} from "./profileRules";
 import { formatRelative, timeOfDay } from "./lastSeenFormat";
 import { groupItemsByDay } from "./groupSensorsByDay";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
@@ -53,7 +56,22 @@ export default function SensorsTab() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [olderExpanded, setOlderExpanded] = useState(false);
+  // Profiles are loaded only to offer "add a rule to every profile" when
+  // pairing, and to say how many that is.
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  // Defaults ON: a freshly paired sensor that triggers nothing is the
+  // surprising outcome, and the alternative is hunting through every profile
+  // to add the same immediate rule by hand.
+  const [addToProfiles, setAddToProfiles] = useState(true);
   const pairDialogRef = useRef<HTMLDialogElement>(null);
+
+  // Every close path goes through here, so Esc and the backdrop cannot leave
+  // a stale name or a flipped checkbox behind for the next sensor.
+  const closePairForm = () => {
+    setPairForm(null);
+    setPairName("");
+    setAddToProfiles(true);
+  };
 
   // Driven imperatively because showModal() is the only way to get the top
   // layer, the ::backdrop, focus trapping and Esc-to-close — none of which
@@ -81,6 +99,18 @@ export default function SensorsTab() {
         setSensors(snap.docs.map((d) => d.data()));
         setLoading(false);
       }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Profiles, for the pair dialog's "add a rule to every profile" option.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    async function load() {
+      const snap = await getDocs(profilesCol(projectId));
+      if (!cancelled) setProfiles(snap.docs.map((d) => d.data()));
     }
     void load();
     return () => { cancelled = true; };
@@ -147,11 +177,28 @@ export default function SensorsTab() {
       deadSensorAlertDays: -1,
       deadAlertSentAt: null,
     };
-    await addDoc(sensorsCol(projectId), newSensor as Sensor);
+    // NOT named `ref`: that is the firebase/database import used by the events
+    // subscription above, and shadowing it here is a trap for the next edit.
+    const sensorRef = await addDoc(sensorsCol(projectId), newSensor as Sensor);
+
+    // Give the sensor an immediate rule in every profile. Without one a paired
+    // sensor is inert: it appears in the list and logs events, but no profile
+    // references it, so arming does nothing with it. This mirrors what
+    // buildInitialRules does when a profile is created — same shape, opposite
+    // direction — so the two paths cannot drift.
+    //
+    // Rules are OR'd and a sensor may appear in several, so adding one here
+    // never conflicts with a rule the user writes later.
+    if (addToProfiles && profiles.length > 0) {
+      const [rule] = buildInitialRules([sensorRef.id]);
+      await Promise.all(
+        profiles.map((p) => addDoc(rulesCol(projectId, p.id), rule as Rule))
+      );
+    }
+
     const snap = await getDocs(sensorsCol(projectId));
     setSensors(snap.docs.map((d) => d.data()));
-    setPairForm(null);
-    setPairName("");
+    closePairForm();
   };
 
   const handleUnpair = async (sensor: Sensor) => {
@@ -460,8 +507,8 @@ export default function SensorsTab() {
       <dialog
         ref={pairDialogRef}
         className="modal"
-        onCancel={() => setPairForm(null)}
-        onClose={() => setPairForm(null)}
+        onCancel={closePairForm}
+        onClose={closePairForm}
       >
         {pairForm && (
           <form
@@ -491,6 +538,29 @@ export default function SensorsTab() {
                 placeholder={t("cfg.sensors.namePlaceholder")}
               />
             </div>
+
+            {/* Hidden entirely when there are no profiles: an unticked box
+                with nothing to apply to is a puzzle, so say why instead. */}
+            {profiles.length > 0 ? (
+              <div className="field">
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={addToProfiles}
+                    onChange={(e) => setAddToProfiles(e.target.checked)}
+                  />
+                  <span>{t("cfg.sensors.addToProfiles")}</span>
+                </label>
+                <p className="muted">
+                  {t("cfg.sensors.addToProfilesHelp", {
+                    count: profiles.length,
+                  })}
+                </p>
+              </div>
+            ) : (
+              <p className="muted">{t("cfg.sensors.addToProfilesNone")}</p>
+            )}
+
             <div className="row">
               <button
                 type="submit"
@@ -502,7 +572,7 @@ export default function SensorsTab() {
               <button
                 type="button"
                 className="btn"
-                onClick={() => setPairForm(null)}
+                onClick={closePairForm}
               >
                 {t("common.cancel")}
               </button>

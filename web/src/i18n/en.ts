@@ -109,6 +109,11 @@ export const en = {
   "cfg.sensors.pair": "Pair",
   "cfg.sensors.pairTitle": "Pair Sensor: {rfId}",
   "cfg.sensors.namePlaceholder": "e.g. Front door",
+  "cfg.sensors.addToProfiles": "Add an immediate rule to every profile",
+  "cfg.sensors.addToProfilesHelp":
+    "Creates one rule per profile ({count}) so the sensor is active as soon as it is paired. Without this it triggers nothing until you add a rule yourself.",
+  "cfg.sensors.addToProfilesNone":
+    "No profiles yet — create one in the Profiles tab to give this sensor a rule.",
   "cfg.sensors.unrecognised": "Unrecognised Sensors",
   "cfg.sensors.unrecognisedHint":
     "Trigger a physical sensor and watch its “Last Seen” update to identify it.",

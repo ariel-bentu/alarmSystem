@@ -108,6 +108,11 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.pair": "שיוך",
   "cfg.sensors.pairTitle": "שיוך גלאי: {rfId}",
   "cfg.sensors.namePlaceholder": "לדוגמה: דלת כניסה",
+  "cfg.sensors.addToProfiles": "הוספת חוק מיידי לכל הפרופילים",
+  "cfg.sensors.addToProfilesHelp":
+    "יוצר חוק אחד בכל פרופיל ({count}) כך שהגלאי פעיל מיד עם השיוך. בלי זה הוא לא יפעיל דבר עד שתוסיפו חוק בעצמכם.",
+  "cfg.sensors.addToProfilesNone":
+    "אין עדיין פרופילים — צרו פרופיל בלשונית הפרופילים כדי להגדיר חוק לגלאי הזה.",
   "cfg.sensors.unrecognised": "גלאים לא מזוהים",
   "cfg.sensors.unrecognisedHint":
     "הפעילו גלאי פיזי ועקבו אחרי עדכון ״נראה לאחרונה״ כדי לזהות אותו.",
