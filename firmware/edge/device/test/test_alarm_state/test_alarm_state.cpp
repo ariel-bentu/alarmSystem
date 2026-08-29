@@ -140,6 +140,101 @@ void test_multi_sensor_requires_all_participants_within_window() {
   TEST_ASSERT_TRUE(state.onSensorEvent("AA11BB", 3000));  // AA11BB: 2/2, CC22DD: 1/1 -> fires
 }
 
+// --- Trigger cause reporting ---
+// The cause travels to the cloud as /{projectId}/state/alarm_cause so the
+// Telegram alert can name what fired. See functions/src/alarmCause.ts.
+
+void test_cause_reports_rfid_and_condition_type_on_immediate() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0; // immediate
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TriggerCause cause;
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 1000, &cause));
+  TEST_ASSERT_EQUAL_STRING("A1B2C3", cause.rfId);
+  TEST_ASSERT_EQUAL_UINT8(0, cause.conditionType);
+}
+
+void test_cause_untouched_when_nothing_fires() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1; // count_in_window
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 60;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TriggerCause cause;
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000, &cause));
+  TEST_ASSERT_EQUAL_STRING("", cause.rfId);
+}
+
+void test_cause_reports_count_in_window_on_the_firing_event() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "AA11BB");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1; // count_in_window
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 60;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TriggerCause cause;
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA11BB", 1000, &cause));
+  TEST_ASSERT_TRUE(state.onSensorEvent("AA11BB", 2000, &cause));
+  TEST_ASSERT_EQUAL_STRING("AA11BB", cause.rfId);
+  TEST_ASSERT_EQUAL_UINT8(1, cause.conditionType);
+}
+
+void test_cause_reported_by_entry_delay_tick() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 2; // entry_delay
+  config.sensors[0].conditions[0].y = 30;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TriggerCause cause;
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000, &cause));
+  TEST_ASSERT_FALSE(state.tickEntryDelay(20000, &cause));
+  TEST_ASSERT_TRUE(state.tickEntryDelay(31000, &cause));
+  TEST_ASSERT_EQUAL_STRING("A1B2C3", cause.rfId);
+  TEST_ASSERT_EQUAL_UINT8(2, cause.conditionType);
+}
+
+void test_null_cause_pointer_is_safe() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  // Existing callers pass no cause at all; that must keep working.
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 1000, nullptr));
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 2000));
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_immediate_condition_fires_on_first_event);
@@ -150,6 +245,11 @@ void setup() {
   RUN_TEST(test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay);
   RUN_TEST(test_entry_delay_disarm_cancels_pending_fire);
   RUN_TEST(test_multi_sensor_requires_all_participants_within_window);
+  RUN_TEST(test_cause_reports_rfid_and_condition_type_on_immediate);
+  RUN_TEST(test_cause_untouched_when_nothing_fires);
+  RUN_TEST(test_cause_reports_count_in_window_on_the_firing_event);
+  RUN_TEST(test_cause_reported_by_entry_delay_tick);
+  RUN_TEST(test_null_cause_pointer_is_safe);
   UNITY_END();
 }
 

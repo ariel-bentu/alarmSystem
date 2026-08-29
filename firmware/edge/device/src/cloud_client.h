@@ -60,6 +60,18 @@ class CloudClient {
   // No-op if not yet authenticated.
   void reportArmedState(bool armed);
 
+  // Report a device-side alarm: writes /{projectId}/state/alarm_cause
+  // ({rfId, ct, at}) and then sets /state/siren_active true. The cause goes
+  // first so onAlarm, which triggers on siren_active, always finds it.
+  // rfId/conditionType come from AlarmState's TriggerCause.
+  // No-op if not yet authenticated.
+  void reportAlarm(const char* rfId, uint8_t conditionType);
+
+  // Clear /{projectId}/state/siren_active. REQUIRED after every reportAlarm:
+  // onAlarm triggers on the false->true edge, so a flag left true swallows
+  // every later alarm silently. No-op if not yet authenticated.
+  void clearAlarm();
+
   // Write current epoch seconds to /{projectId}/state/last_seen.
   // Call every ~10s from loop() to drive the web UI's online indicator.
   // No-op if not yet authenticated.

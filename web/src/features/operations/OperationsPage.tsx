@@ -8,6 +8,8 @@ import { useProject } from "@/app/ProjectProvider";
 import { sensorsCol, profilesCol, projectDoc, profileDoc } from "@/lib/firestore";
 import { commandsArmedRef, commandsSirenRef } from "@/lib/rtdb";
 import { useDeviceState } from "./useDeviceState";
+import { useAlarmState } from "./useAlarmState";
+import { causeLabel } from "./alarmState";
 import type { Sensor, Profile } from "@/types";
 
 type Side = "device" | "server";
@@ -16,6 +18,7 @@ export default function OperationsPage() {
   const { project, role } = useProject();
   const projectId = project?.id;
   const { armed: deviceArmed, sirenActive, loading: rtdbLoading } = useDeviceState(projectId);
+  const alarm = useAlarmState(projectId);
 
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -46,6 +49,10 @@ export default function OperationsPage() {
     setServerArmed(project.serverArmed);
   }, [project]);
 
+  const sensorNamesByRfId = Object.fromEntries(
+    sensors.map((s) => [s.rfId, s.name])
+  );
+
   const canArm = role === "user" || role === "admin";
   // Only enabled profiles are available to arm.
   const availableProfiles = profiles.filter((p) => p.enabled !== false);
@@ -66,6 +73,12 @@ export default function OperationsPage() {
         }
       }
       await batch.commit();
+
+      // Disarming is how the user acknowledges an alarm — "if it yells I can
+      // disarm". Only the side that actually tripped clears the indicator.
+      if (profileId === null && alarm.active && alarm.side === side) {
+        alarm.acknowledge();
+      }
 
       // Reflect arm state on the side's boolean channel.
       if (side === "device") {
@@ -105,9 +118,14 @@ export default function OperationsPage() {
           key={p.id}
           onClick={() => void armSide(side, p.id)}
           disabled={!canArm || busy}
-          style={armBtnStyle(activeId === p.id)}
+          // Blinks when this is the armed profile on the side that tripped.
+          style={armBtnStyle(
+            activeId === p.id,
+            alarm.active && alarm.side === side && activeId === p.id
+          )}
         >
-          🛡 {p.displayName}
+          {alarm.active && alarm.side === side && activeId === p.id ? "🚨" : "🛡"}{" "}
+          {p.displayName}
         </button>
       ))}
     </div>
@@ -116,6 +134,35 @@ export default function OperationsPage() {
   return (
     <div>
       <h1>Operations</h1>
+
+      {alarm.active && (
+        <div
+          role="alert"
+          style={{
+            padding: "12px 16px",
+            marginBottom: 16,
+            borderRadius: 8,
+            border: "2px solid #b71c1c",
+            background: "rgba(183, 28, 28, 0.12)",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <strong style={{ color: "#b71c1c" }}>🚨 Alarm</strong>
+          <span>
+            {causeLabel(alarm.cause, sensorNamesByRfId) ?? "cause unknown"}
+            {alarm.side ? ` — ${alarm.side}` : ""}
+            {typeof alarm.cause?.at === "number"
+              ? ` at ${new Date(alarm.cause.at).toLocaleTimeString()}`
+              : ""}
+          </span>
+          <button type="button" onClick={alarm.acknowledge}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {rtdbLoading ? (
         <p>Loading device state…</p>
@@ -133,12 +180,19 @@ export default function OperationsPage() {
 
           <section>
             <h2>Siren</h2>
-            <p>
-              {sirenActive ? "🚨 ACTIVE" : "Inactive"}{" "}
-              {role === "admin" && sirenActive && (
-                <button onClick={handleSilenceSiren}>Force Silence</button>
-              )}
-            </p>
+            {/* Reports configuration, not a phantom control: with the siren
+                disabled an alarm is deliberately silent, and saying "ACTIVE"
+                with a Force Silence button that silences nothing is wrong. */}
+            {project.sirenEnabled === false ? (
+              <p>🔕 Disabled — alarms will not sound the siren</p>
+            ) : (
+              <p>
+                {sirenActive ? "🚨 Sounding" : "Enabled — not sounding"}{" "}
+                {role === "admin" && sirenActive && (
+                  <button onClick={handleSilenceSiren}>Force Silence</button>
+                )}
+              </p>
+            )}
           </section>
         </>
       )}
@@ -179,8 +233,8 @@ export default function OperationsPage() {
   );
 }
 
-function armBtnStyle(active: boolean): React.CSSProperties {
-  return {
+function armBtnStyle(active: boolean, alarming = false): React.CSSProperties {
+  const base: React.CSSProperties = {
     padding: "12px 20px",
     borderRadius: 8,
     border: active ? "2px solid #2e7d32" : "1px solid #bbb",
@@ -189,5 +243,15 @@ function armBtnStyle(active: boolean): React.CSSProperties {
     fontWeight: active ? 700 : 400,
     cursor: "pointer",
     minWidth: 110,
+  };
+  if (!alarming) return base;
+  // The profile that tripped: red and blinking until the user disarms.
+  return {
+    ...base,
+    border: "2px solid #b71c1c",
+    background: "#b71c1c",
+    color: "#fff",
+    fontWeight: 700,
+    animation: "alarm-blink 0.8s steps(1, end) infinite",
   };
 }

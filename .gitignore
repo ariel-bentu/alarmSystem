@@ -15,3 +15,4 @@ functions/lib
 firmware/edge/spike_mint/src/local_secrets.h
 firmware/edge/device/platformio.local.ini
 firmware/edge/**/.pio
+.claude

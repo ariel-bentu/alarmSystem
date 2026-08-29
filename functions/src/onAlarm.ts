@@ -1,11 +1,17 @@
 // Cloud Function: onAlarm
 // Trigger: RTDB onValueWritten on /{projectId}/state/siren_active
-// When value becomes true → send urgent Telegram alert.
+// When value becomes true → send urgent Telegram alert naming the cause.
+//
+// This is the alarm notifier for every alarm that sounds the siren, whether
+// the server evaluated it (onSensorEvent) or the device did. Both writers
+// record /{projectId}/state/alarm_cause first; see alarmCause.ts for the two
+// shapes and why the device's differs.
 
 import { onValueWritten } from "firebase-functions/v2/database";
-import { db } from "./admin";
-import { Project } from "./types";
-import { sendTelegram } from "./telegram";
+import { db, rtdb } from "./admin";
+import { Project, Rule, Sensor } from "./types";
+import { sendTelegram, formatAlarm } from "./telegram";
+import { isCauseFresh, parseCause, resolveCauseLabel } from "./alarmCause";
 
 export const onAlarm = onValueWritten(
   { ref: "/{projectId}/state/siren_active", region: "europe-west1" },
@@ -22,12 +28,54 @@ export const onAlarm = onValueWritten(
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
 
-    if (project.telegramBotToken && project.telegramChatId) {
-      await sendTelegram(
-        project.telegramBotToken,
-        project.telegramChatId,
-        "🚨 Alarm triggered!"
-      );
-    }
+    if (!project.telegramBotToken || !project.telegramChatId) return;
+
+    const label = await resolveLabel(projectId);
+    const message = label ? formatAlarm(label) : "🚨 Alarm triggered!";
+
+    await sendTelegram(project.telegramBotToken, project.telegramChatId, message);
   }
 );
+
+/**
+ * Read the recorded cause and turn it into a display label, or null if there
+ * is no usable one (caller then sends the generic message). A server-written
+ * cause already carries its label; a device-written one needs the sensor and
+ * rule names looked up here.
+ */
+async function resolveLabel(projectId: string): Promise<string | null> {
+  const causeSnap = await rtdb.ref(`${projectId}/state/alarm_cause`).get();
+  const cause = parseCause(causeSnap.val());
+  if (!cause || !isCauseFresh(cause, Date.now())) return null;
+
+  // A server-written label needs no lookups.
+  if (cause.label?.trim()) return cause.label.trim();
+  if (!cause.rfId?.trim()) return null;
+
+  // Device-written: map rfId → sensor, then find a rule covering that sensor.
+  const sensorsSnap = await db.collection(`projects/${projectId}/sensors`).get();
+  const sensorNamesByRfId: Record<string, string> = {};
+  const sensorIdsByRfId: Record<string, string> = {};
+  for (const doc of sensorsSnap.docs) {
+    const sensor = { id: doc.id, ...doc.data() } as Sensor;
+    sensorNamesByRfId[sensor.rfId] = sensor.name;
+    sensorIdsByRfId[sensor.rfId] = sensor.id;
+  }
+
+  // Rules come from the profile the DEVICE is running, which is the one that
+  // evaluated this alarm — not the server's active profile.
+  let rules: Rule[] = [];
+  const profileSnap = await db
+    .collection(`projects/${projectId}/profiles`)
+    .where("isActiveOnDevice", "==", true)
+    .limit(1)
+    .get();
+  if (!profileSnap.empty) {
+    const rulesSnap = await db
+      .collection(`projects/${projectId}/profiles/${profileSnap.docs[0].id}/rules`)
+      .get();
+    rules = rulesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Rule));
+  }
+
+  return resolveCauseLabel(cause, rules, sensorNamesByRfId, sensorIdsByRfId);
+}

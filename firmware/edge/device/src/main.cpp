@@ -84,6 +84,9 @@ constexpr unsigned long kDnsUsersStartFallbackMs = 60000UL;  // start anyway if 
 // iterations per boot — see handleSensorEvent()'s note on why frame size
 // in loop() matters on this hardware.
 bool sirenAddressReported = false;
+// True between reporting an alarm to the cloud and clearing state/siren_active
+// again. See the falling-edge clear in loop().
+bool alarmReportedToCloud = false;
 unsigned long lastHeartbeatMs = 0;
 static constexpr unsigned long kHeartbeatIntervalMs = 10000UL;
 
@@ -144,11 +147,39 @@ void startNtpSyncIfNeeded() {
 // Measured: inlined 992 bytes -> crash; out-of-line 3504 bytes -> connects.
 __attribute__((noinline))
 void handleSensorEvent(const char* rfId, unsigned long now, bool batteryLow = false, int rssi = 0) {
-  bool shouldFire = alarmState.onSensorEvent(rfId, now);
+  TriggerCause cause;
+  bool shouldFire = alarmState.onSensorEvent(rfId, now, &cause);
+  // "armed but nothing happened" is otherwise silent and indistinguishable
+  // from a broken decode; one line per trigger makes the decision visible.
+  Serial.printf("[alarm] %s armed=%d fire=%d sirenEnabled=%d\n", rfId,
+                config.armed, shouldFire, config.sirenEnabled);
   if (shouldFire && config.sirenEnabled) {
     siren.turnOn(config.sirenDurationSec, now);
   }
   cloudClient.reportEvent(rfId, "trigger", batteryLow, rssi);
+  // Reported whenever the alarm fires, NOT gated on sirenEnabled: turning the
+  // siren off is a noise preference, not a "stop telling me about intrusions"
+  // one. Gating both on it produced a silent alarm — no siren AND no Telegram
+  // — which is precisely when the notification matters most.
+  // Written after the event so the timeline entry exists before the alert.
+  if (shouldFire) {
+    cloudClient.reportAlarm(cause.rfId, cause.conditionType);
+    alarmReportedToCloud = true;
+  }
+}
+
+// Entry-delay expiry. Out-of-line and called from loop() so its TriggerCause
+// never joins loop()'s single merged frame — see handleSensorEvent()'s note.
+__attribute__((noinline))
+void pollEntryDelay(unsigned long now) {
+  TriggerCause cause;
+  if (!alarmState.tickEntryDelay(now, &cause)) return;
+  if (config.sirenEnabled) {
+    siren.turnOn(config.sirenDurationSec, now);
+  }
+  // Not gated on sirenEnabled — see handleSensorEvent()'s note.
+  cloudClient.reportAlarm(cause.rfId, cause.conditionType);
+  alarmReportedToCloud = true;
 }
 
 // Shared by the cloud arm/disarm command path and LocalWebServer's
@@ -568,10 +599,17 @@ void loop() {
 
   pollCc1101(now);
 
-  if (alarmState.tickEntryDelay(now) && config.sirenEnabled) {
-    siren.turnOn(config.sirenDurationSec, now);
-  }
+  pollEntryDelay(now);
   siren.tick(now);
+
+  // Clear state/siren_active once the alarm is over. onAlarm triggers on the
+  // false->true edge, so a flag left true makes every LATER alarm a silent
+  // no-op — the feature would work exactly once. Edge-triggered so this
+  // costs one write per alarm, not one per loop.
+  if (alarmReportedToCloud && !siren.isActive()) {
+    alarmReportedToCloud = false;
+    cloudClient.clearAlarm();
+  }
 
   bool cloudSettled = cloudClient.isReady() ||
                        millis() - normalOperationStartMs > kDnsUsersStartFallbackMs;

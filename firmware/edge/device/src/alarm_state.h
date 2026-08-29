@@ -37,11 +37,21 @@ struct Config {
   uint8_t sensorCount = 0;
 };
 
+// What tripped the alarm, reported to the cloud as state/alarm_cause so the
+// Telegram alert can name it. The device knows rfIds, not sensor or rule
+// *names* — onAlarm resolves those (see functions/src/alarmCause.ts).
+struct TriggerCause {
+  char rfId[11] = {};      // sensor that fired; empty when nothing fired
+  uint8_t conditionType = 0;  // Condition::t of the condition that tripped
+};
+
 class AlarmState {
  public:
   void setConfig(const Config& config);
-  bool onSensorEvent(const char* rfId, unsigned long nowMs);
-  bool tickEntryDelay(unsigned long nowMs);
+  // cause: optional out-param, written only when the call returns true.
+  bool onSensorEvent(const char* rfId, unsigned long nowMs,
+                     TriggerCause* cause = nullptr);
+  bool tickEntryDelay(unsigned long nowMs, TriggerCause* cause = nullptr);
   void disarm();
 
  private:

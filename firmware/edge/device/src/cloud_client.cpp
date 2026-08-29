@@ -584,6 +584,18 @@ void CloudClient::applyConfigJson(const String& json) {
   hasPendingConfig_ = true;
   Serial.printf("cloud: config updated (%u bytes, %u sensors)\n", json.length(),
                 parsed.sensorCount);
+  // Which rfIds are actually armed is otherwise invisible from the device
+  // side, and "armed but nothing fires" is indistinguishable from a broken
+  // alarm path without it. Small and only printed on change.
+  for (uint8_t i = 0; i < parsed.sensorCount; i++) {
+    Serial.printf("cloud:   sensor[%u] rfId=%s conditions=%u\n", i,
+                  parsed.sensors[i].rfId, parsed.sensors[i].conditionCount);
+    for (uint8_t c = 0; c < parsed.sensors[i].conditionCount; c++) {
+      const Condition& cond = parsed.sensors[i].conditions[c];
+      Serial.printf("cloud:     cond[%u] t=%u n=%u w=%u y=%u kLen=%u\n", c,
+                    cond.t, cond.n, cond.w, cond.y, cond.kLen);
+    }
+  }
 }
 
 bool CloudClient::consumeArmedCommand(bool* armed) {
@@ -698,6 +710,58 @@ void CloudClient::reportArmedState(bool armed) {
   bool ok = database_.set<object_t>(*dataClient_, path, payload);
   Serial.printf("cloud: reportArmedState %s %s (code %d)\n", armed ? "true" : "false",
                 ok ? "ok" : "FAILED", dataClient_->lastError().code());
+}
+
+void CloudClient::reportAlarm(const char* rfId, uint8_t conditionType) {
+  if (!isReady()) return;
+  if (!openDataClient()) {
+    Serial.printf("cloud: reportAlarm %s DROPPED — no data client (%u "
+                  "contiguous bytes free)\n",
+                  rfId, platformMaxAllocHeap());
+    return;
+  }
+
+  // Same wall-clock source as reportEvent — onAlarm compares `at` against
+  // Date.now() and ignores a cause older than CAUSE_MAX_AGE_MS, so an
+  // uptime value here would make every cause look stale.
+  uint64_t nowMs = (uint64_t)time(nullptr) * 1000ULL;
+
+  JsonDocument doc;
+  doc["rfId"] = rfId;
+  doc["ct"] = conditionType;
+  doc["at"] = nowMs;
+  String json;
+  serializeJson(doc, json);
+
+  String causePath = String("/") + projectId_ + "/state/alarm_cause";
+  object_t causePayload(json.c_str());
+  bool causeOk = database_.set<object_t>(*dataClient_, causePath, causePayload);
+  if (!causeOk) {
+    // Non-fatal: onAlarm falls back to a generic "Alarm triggered!" message.
+    // Sounding the alarm matters more than naming it, so we still continue.
+    Serial.printf("cloud: reportAlarm cause FAILED (code %d) — siren_active "
+                  "still being set\n",
+                  dataClient_->lastError().code());
+  }
+
+  // Written second: onAlarm triggers on this edge and reads the cause above.
+  String sirenPath = String("/") + projectId_ + "/state/siren_active";
+  object_t sirenPayload("true");
+  bool sirenOk = database_.set<object_t>(*dataClient_, sirenPath, sirenPayload);
+  Serial.printf("cloud: reportAlarm %s ct=%u %s (code %d)\n", rfId,
+                (unsigned)conditionType, sirenOk ? "ok" : "FAILED",
+                dataClient_->lastError().code());
+  closeDataClient();
+}
+
+void CloudClient::clearAlarm() {
+  if (!isReady()) return;
+  if (!openDataClient()) return;
+  String path = String("/") + projectId_ + "/state/siren_active";
+  object_t payload("false");
+  bool ok = database_.set<object_t>(*dataClient_, path, payload);
+  Serial.printf("cloud: clearAlarm %s (code %d)\n", ok ? "ok" : "FAILED",
+                dataClient_->lastError().code());
 }
 
 void CloudClient::reportHeartbeat() {

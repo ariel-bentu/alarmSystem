@@ -76,6 +76,30 @@ export default function SettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Toggles write immediately rather than waiting for Save: a switch that
+  // silently reverts when you navigate away reads as a broken setting, not as
+  // an unsaved edit. Text fields still batch behind the Save button, so a
+  // half-typed bot token never reaches Firestore.
+  const saveToggle = async (
+    field: string,
+    value: unknown,
+    apply: () => void,
+    revert: () => void
+  ) => {
+    if (!project) return;
+    apply();
+    setNotice(null);
+    setError(null);
+    try {
+      await updateDoc(projectDoc(project.id), { [field]: value });
+      await reloadProject();
+      setNotice("Saved.");
+    } catch (err) {
+      revert();
+      setError(err instanceof Error ? err.message : "Failed to save setting.");
+    }
+  };
+
   // Populate the form from the loaded project.
   useEffect(() => {
     if (!project) return;
@@ -97,13 +121,14 @@ export default function SettingsPage() {
     setNotice(null);
     setError(null);
     try {
+      // Toggles are not included: they save on change via saveToggle(), and
+      // re-writing them here would clobber a concurrent change with whatever
+      // this form last rendered.
       await updateDoc(projectDoc(project.id), {
         name: name.trim(),
         telegramBotToken: botToken.trim(),
         telegramChatId: chatId.trim(),
         sirenDurationSec,
-        notifyEverySensorTrigger,
-        serverActions: { sendTelegram, triggerSiren },
       });
       await reloadProject();
       setNotice("Settings saved.");
@@ -162,7 +187,15 @@ export default function SettingsPage() {
             <input
               type="checkbox"
               checked={notifyEverySensorTrigger}
-              onChange={(e) => setNotifyEverySensorTrigger(e.target.checked)}
+              onChange={(e) => {
+                const next = e.target.checked;
+                void saveToggle(
+                  "notifyEverySensorTrigger",
+                  next,
+                  () => setNotifyEverySensorTrigger(next),
+                  () => setNotifyEverySensorTrigger(!next)
+                );
+              }}
             />
             Send Telegram on every sensor trigger (battery-low and tamper always notify)
           </label>
@@ -184,7 +217,15 @@ export default function SettingsPage() {
             <input
               type="checkbox"
               checked={sendTelegram}
-              onChange={(e) => setSendTelegram(e.target.checked)}
+              onChange={(e) => {
+                const next = e.target.checked;
+                void saveToggle(
+                  "serverActions",
+                  { sendTelegram: next, triggerSiren },
+                  () => setSendTelegram(next),
+                  () => setSendTelegram(!next)
+                );
+              }}
             />
             Server sends Telegram alerts on alarm
           </label>
@@ -194,7 +235,15 @@ export default function SettingsPage() {
             <input
               type="checkbox"
               checked={triggerSiren}
-              onChange={(e) => setTriggerSiren(e.target.checked)}
+              onChange={(e) => {
+                const next = e.target.checked;
+                void saveToggle(
+                  "serverActions",
+                  { sendTelegram, triggerSiren: next },
+                  () => setTriggerSiren(next),
+                  () => setTriggerSiren(!next)
+                );
+              }}
             />
             Server triggers siren on alarm
           </label>

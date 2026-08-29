@@ -93,7 +93,8 @@ bool AlarmState::evaluateCondition(uint8_t sensorIndex, uint8_t conditionIndex, 
   }
 }
 
-bool AlarmState::onSensorEvent(const char* rfId, unsigned long nowMs) {
+bool AlarmState::onSensorEvent(const char* rfId, unsigned long nowMs,
+                               TriggerCause* cause) {
   if (!config_.armed) return false;
 
   int sensorIndex = findSensorIndex(rfId);
@@ -102,13 +103,18 @@ bool AlarmState::onSensorEvent(const char* rfId, unsigned long nowMs) {
   const SensorConfig& sensor = config_.sensors[sensorIndex];
   for (uint8_t c = 0; c < sensor.conditionCount; c++) {
     if (evaluateCondition((uint8_t)sensorIndex, c, nowMs)) {
+      if (cause) {
+        strncpy(cause->rfId, sensor.rfId, sizeof(cause->rfId) - 1);
+        cause->rfId[sizeof(cause->rfId) - 1] = '\0';
+        cause->conditionType = sensor.conditions[c].t;
+      }
       return true;
     }
   }
   return false;
 }
 
-bool AlarmState::tickEntryDelay(unsigned long nowMs) {
+bool AlarmState::tickEntryDelay(unsigned long nowMs, TriggerCause* cause) {
   for (uint8_t s = 0; s < config_.sensorCount; s++) {
     for (uint8_t c = 0; c < config_.sensors[s].conditionCount; c++) {
       if (config_.sensors[s].conditions[c].t != 2) continue;
@@ -116,6 +122,11 @@ bool AlarmState::tickEntryDelay(unsigned long nowMs) {
       if (rt.entryDelayPending && !rt.entryDelayFired && nowMs >= rt.entryDelayDeadlineMs) {
         rt.entryDelayFired = true;
         rt.entryDelayPending = false;
+        if (cause) {
+          strncpy(cause->rfId, config_.sensors[s].rfId, sizeof(cause->rfId) - 1);
+          cause->rfId[sizeof(cause->rfId) - 1] = '\0';
+          cause->conditionType = 2;
+        }
         return true;
       }
     }

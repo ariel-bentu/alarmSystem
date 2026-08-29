@@ -125,16 +125,34 @@ export const onSensorEvent = onValueCreated(
         const result = evaluateRules(rules, fullEvent, recentEvents, timestamp);
 
         if (result.triggered) {
+          // Use the rule/condition name; fall back to the sensor name when
+          // the rule is unnamed.
+          const label = result.ruleName || sensor.name;
+
+          // Record what caused the alarm BEFORE flipping siren_active, so
+          // onAlarm can name it. onAlarm is the notifier whenever the siren
+          // fires — for device-side alarms too — so we do not also send here
+          // and duplicate the message.
+          await rtdb
+            .ref(`${projectId}/state/alarm_cause`)
+            .set({ label, at: Date.now() });
+
           // If entry_delay, we note it but still fire (server doesn't implement delay timer in v1)
           if (project.serverActions.triggerSiren) {
             await rtdb.ref(`${projectId}/state/siren_active`).set(true);
-          }
-          if (project.serverActions.sendTelegram && project.telegramBotToken && project.telegramChatId) {
-            // Use the rule/condition name; fall back to the sensor name when
-            // the rule is unnamed.
-            const label = result.ruleName || sensor.name;
-            const alarmMsg = formatAlarm(label);
-            await sendTelegram(project.telegramBotToken, project.telegramChatId, alarmMsg);
+          } else if (
+            // Siren suppressed, so onAlarm never runs — send the alarm
+            // notification directly instead. These two toggles are
+            // independent, so Telegram-without-siren must still notify.
+            project.serverActions.sendTelegram &&
+            project.telegramBotToken &&
+            project.telegramChatId
+          ) {
+            await sendTelegram(
+              project.telegramBotToken,
+              project.telegramChatId,
+              formatAlarm(label)
+            );
           }
         }
       }

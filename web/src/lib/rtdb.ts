@@ -41,6 +41,13 @@ export const stateLastSeenPath = (projectId: string) =>
 export const stateLastSeenRef = (projectId: string): DatabaseReference =>
   ref(rtdb, stateLastSeenPath(projectId));
 
+// What tripped the alarm. Written by the device ({rfId, ct, at}) and by the
+// server ({label, at}) — see features/operations/alarmState.ts.
+export const stateAlarmCausePath = (projectId: string) =>
+  `${projectId}/state/alarm_cause`;
+export const stateAlarmCauseRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, stateAlarmCausePath(projectId));
+
 export const commandsPairPath = (projectId: string) =>
   `${projectId}/commands/pair`;
 export const stateSirenBasePath = (projectId: string) =>

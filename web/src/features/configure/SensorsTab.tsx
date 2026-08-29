@@ -22,6 +22,12 @@ import {
 import { useProject } from "@/app/ProjectProvider";
 import type { Sensor } from "@/types";
 import { getUnknownRfIds } from "./unknownSensors";
+import {
+  effectiveLastSeen,
+  isJustSeen,
+  sortByLastSeenDesc,
+  type EventTiming,
+} from "./sensorRecency";
 import { reconcileRulesForRemovedSensor } from "./profileRules";
 
 interface PairFormState {
@@ -29,15 +35,24 @@ interface PairFormState {
   name: string;
 }
 
-// Timing summary for an rfId seen in RTDB events (used for unknown sensors).
-interface EventTiming {
-  firstSeen: number; // epoch ms
-  lastSeen: number; // epoch ms
-  count: number;
-}
-
-const ONE_MINUTE_MS = 60_000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+// Green dot marking a sensor heard from within the last minute.
+function JustSeenDot() {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        background: "#22c55e",
+        marginRight: 6,
+        verticalAlign: "middle",
+      }}
+    />
+  );
+}
 
 export default function SensorsTab() {
   const { project } = useProject();
@@ -101,12 +116,17 @@ export default function SensorsTab() {
   const knownRfIds = sensors.map((s) => s.rfId);
   const unknownRfIds = getUnknownRfIds(eventRfIds, knownRfIds);
 
+  // Paired sensors: last seen is the newer of the live RTDB event and the
+  // Firestore field, so the table updates as events arrive.
+  const pairedLastSeen = (s: Sensor) =>
+    effectiveLastSeen(s.rfId, eventTiming, s.lastSeen?.toMillis() ?? null);
+  const sortedSensors = sortByLastSeenDesc(sensors, pairedLastSeen);
+
   // Sort unknown sensors by last seen descending (most recent first).
-  const sortedUnknownRfIds = [...unknownRfIds].sort((a, b) => {
-    const la = eventTiming[a]?.lastSeen ?? 0;
-    const lb = eventTiming[b]?.lastSeen ?? 0;
-    return lb - la;
-  });
+  const sortedUnknownRfIds = sortByLastSeenDesc(
+    unknownRfIds,
+    (rfId) => eventTiming[rfId]?.lastSeen ?? null
+  );
 
   const recentUnknown = sortedUnknownRfIds.filter(
     (id) => now - (eventTiming[id]?.lastSeen ?? 0) <= ONE_DAY_MS
@@ -208,14 +228,22 @@ export default function SensorsTab() {
           </tr>
         </thead>
         <tbody>
-          {sensors.map((s) => (
-            <tr key={s.id}>
-              <td>{s.name}</td>
+          {sortedSensors.map((s) => {
+            const lastSeen = pairedLastSeen(s);
+            const justSeen = isJustSeen(lastSeen, now);
+            return (
+            <tr key={s.id} style={justSeen ? { fontWeight: "bold" } : undefined}>
+              <td>
+                {justSeen && <JustSeenDot />}
+                {s.name}
+              </td>
               <td>{s.rfId}</td>
               <td>{s.batteryStatus}</td>
               <td>{s.pairedAt ? s.pairedAt.toDate().toLocaleString() : "—"}</td>
               <td>
-                {s.lastSeen ? s.lastSeen.toDate().toLocaleString() : "Never"}
+                {lastSeen !== null
+                  ? new Date(lastSeen).toLocaleString()
+                  : "Never"}
               </td>
               <td>
                 <input
@@ -236,7 +264,8 @@ export default function SensorsTab() {
                 </button>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
 
@@ -277,23 +306,11 @@ export default function SensorsTab() {
             <tbody>
               {recentUnknown.map((rfId) => {
                 const t = eventTiming[rfId];
-                const justSeen = t && now - t.lastSeen <= ONE_MINUTE_MS;
+                const justSeen = isJustSeen(t?.lastSeen ?? null, now);
                 return (
                   <tr key={rfId} style={justSeen ? { fontWeight: "bold" } : undefined}>
                     <td>
-                      {justSeen && (
-                        <span
-                          style={{
-                            display: "inline-block",
-                            width: 8,
-                            height: 8,
-                            borderRadius: "50%",
-                            background: "#22c55e",
-                            marginRight: 6,
-                            verticalAlign: "middle",
-                          }}
-                        />
-                      )}
+                      {justSeen && <JustSeenDot />}
                       {rfId}
                     </td>
                     <td>{t ? new Date(t.firstSeen).toLocaleString() : "—"}</td>

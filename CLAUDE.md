@@ -8,16 +8,19 @@ A self-owned home alarm system to replace dependency on Tuya/Kerui cloud. Existi
 
 | Component | Status | Notes |
 |---|---|---|
-| ESP8266 D1 Mini | On hand, flashed | Edge controller — confirmed ESP8266, not ESP32 |
-| CC1101 433MHz module | **Wired and working** | RF receive confirmed — decodes Kerui packets end-to-end |
+| ESP32-S3 | **Current edge controller** | 8MB PSRAM, 16MB flash, native USB. The board everything runs on |
+| ESP8266 D1 Mini | **ABANDONED** | Too little RAM for this workload — see "ESP8266: abandoned" below |
+| CC1101 433MHz module | **Wired and working** | RF receive + transmit confirmed on ESP32-S3 |
 | Kerui W184 hub | Existing, keep running | 192.168.0.46 on LAN |
 | Kerui sensors | Existing, untouched | 433MHz RF, 24-bit OOK packets |
 | Arduino Uno | On hand | Backup / spike testing |
-| Physical siren | TBD | Wired via relay to D1 Mini GPIO |
+| Physical siren | Paired over RF | EV1527 via CC1101, hub-free. Relay path built but unused |
 
 ## Architecture
 
-**Edge (D1 Mini + CC1101 firmware):** `firmware/edge/device` — built, compiles clean, boots on real hardware and authenticates to Firebase (see Current Status).
+**Edge (ESP32-S3 + CC1101 firmware):** `firmware/edge/device` — runs on real
+hardware: authenticates to Firebase, decodes real sensor packets, drives the
+siren over RF, and reports alarms to the cloud.
 - Listens to 433MHz Kerui sensor packets continuously (`Cc1101Receiver` + `kerui_decoder.h`)
 - Decodes using Kerui protocol (24-bit OOK, timing-based)
 - Arm state + config + local-web-toggle persisted to EEPROM (`EepromStore`) — survives power loss and WiFi outage
@@ -125,6 +128,20 @@ docs/superpowers/plans/
 
 ## Current Status / Next Steps
 
+### ESP8266: abandoned (2026-08-29)
+
+**The D1 Mini is no longer a target — do not spend time making it build.**
+It is too small for this workload: 2 simultaneous TLS connections max, and
+heap fragmentation made cloud event writes impossible (details preserved
+below, since the measurements are worth keeping). `[env:d1_mini]` remains
+in `platformio.ini` but **does not compile** — `cc1101_receiver.cpp` uses
+ESP32-only `esp_timer_get_time`/`GPIO`, and porting it behind
+`platform_compat.h` is deliberately not being done.
+
+Everything from here to the "ESP32-S3 port" heading is ESP8266 history.
+It is kept because the root causes are non-obvious and the measurement
+traps are easy to fall into again — not because any of it is current.
+
 **RESOLVED (2026-08-20): the mint/WDT crash is fixed.** The device now
 boots, mints its custom token, and stays up. Kept here because the root
 cause is non-obvious and easy to reintroduce.
@@ -184,32 +201,37 @@ offset (no `substring()` copy).
 `-DCONT_STACKSIZE=8192` boot-loops this board — do not re-enable
 (see `platformio.ini`). The `noinline` fix makes it unnecessary.
 
-**Hardware bring-up commands** (device on `/dev/cu.usbserial-110`, 115200):
+**Hardware bring-up commands** (ESP32-S3, native USB — check `ls /dev/cu.*`,
+macOS reassigns the `usbmodem` suffix per port/session):
 
 ```bash
-cd firmware/edge/device && pio run -e d1_mini -t upload --upload-port /dev/cu.usbserial-110
+cd firmware/edge/device && pio run -e esp32s3 -t upload --upload-port /dev/cu.usbmodem101
 # NOTE: bare `pio run` also builds [env:native], which fails to link
-# (no _main outside a test run). Always pass -e d1_mini. Tests: pio test -e native
+# (no _main outside a test run). Always pass -e esp32s3. Tests: pio test -e native
 
-# Readable serial capture (filters stack-dump hex); --reset toggles DTR/RTS.
-python3 firmware/edge/read_serial.py 40 --reset
+# Readable serial capture. --port is REQUIRED: the script still defaults to
+# the retired D1 Mini's CH340 path and errors out without it.
+python3 firmware/edge/read_serial.py 40 --port /dev/cu.usbmodem101
 ```
 
-`platformio.ini` pins `upload_speed = 115200`. At the 460800 default this
-CH340 fails partway through the stub upload (`A fatal error occurred:
-Invalid head of packet (0x01)`) while esptool's own `chip_id` probe at
-115200 works fine — that failure looks like dead hardware and is not.
+`--reset` is a no-op here and says so: the S3's native USB-Serial/JTAG
+re-enumerates on reset, dropping the handle. To recapture boot output,
+power-cycle or start the reader immediately after an upload.
 
-`read_serial.py`'s reset holds EN low for 1s. A shorter pulse is NOT
-reliable on this adapter — it leaves the board silent even at the ROM's
-74880 baud, which looks exactly like dead hardware. The CH340 also
-occasionally drops off the USB bus after many rapid flash cycles; replug it.
+The LAN web server is at **`alarm.local`** — the firmware calls
+`MDNS.begin("alarm")`. (Earlier docs said `local.alarm.local`; that never
+resolved.) Useful for bench testing without touching a physical sensor:
+
+```bash
+curl -s http://alarm.local/status
+curl -s -X POST "http://alarm.local/trigger?rfId=0x2E5B73"   # simulate a sensor
+```
 
 **Decoding crash addresses:**
 
 ```bash
-~/.platformio/packages/toolchain-xtensa/bin/xtensa-lx106-elf-addr2line \
-  -pfiaC -e .pio/build/d1_mini/firmware.elf 0x4021864a
+~/.platformio/packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-addr2line \
+  -pfiaC -e .pio/build/esp32s3/firmware.elf 0x42000abc
 ```
 
 `firmware/edge/spike_mint/` remains as a known-good minimal control (mint +
@@ -495,11 +517,52 @@ Done:
   `CloudClient`, local LAN web server for arm/disarm/simulation/siren-pairing.
   Boots on real hardware, mints its Firebase custom token, serves the local
   web UI, decodes real sensor packets and writes events to Firebase with
-  Telegram alerts confirmed. ESP8266 `[env:d1_mini]` still builds (RF TX
-  is gated by `initialised_` so it compiles but TX is untested on that
-  platform).
-- 33 native unit tests (PlatformIO `[env:native]`, 5 suites: alarm_state,
+  Telegram alerts confirmed.
+- 38 native unit tests (PlatformIO `[env:native]`, 5 suites: alarm_state,
   eeprom_store, config_parser, ev1527_frame, siren_address) — all passing
+
+---
+
+## Alarm cause → Telegram (2026-08-29) — verified on hardware
+
+An alarm now names what caused it. Both sides write
+`/{projectId}/state/alarm_cause` **before** setting `state/siren_active`, and
+`onAlarm` — the single notifier for siren-firing alarms — reads it.
+
+Two shapes, and the shape identifies the writer:
+- device: `{rfId, ct, at}` — it knows only the rfId, having no rule or sensor
+  *names*. `onAlarm` resolves the name and the covering rule.
+- server: `{label, at}` — `onSensorEvent` already knows the rule name.
+
+`at` is epoch ms from `time(nullptr)`, NOT `millis()`: `onAlarm` ignores a
+cause older than 60s so a stale node cannot mislabel a later alarm.
+
+**Three bugs found here, all worth not repeating:**
+
+1. **`state/siren_active` latches.** `onAlarm` fires on the `false -> true`
+   edge, and the firmware only ever wrote `true`. The first device alarm
+   worked and every one after it was a silent no-op — the feature worked
+   exactly once. `main.cpp` now clears the flag on the falling edge of
+   `siren.isActive()` (`CloudClient::clearAlarm()`). If alarms stop
+   notifying, check this node first — a stuck `true` is the symptom.
+2. **Do not gate the alarm report on `sirenEnabled`.** An early version
+   skipped `reportAlarm` when the siren was disabled, reasoning a silent
+   alarm needs no alert. That produced no siren AND no Telegram — precisely
+   when the message matters most. Disabling the siren is a noise preference.
+3. **`serverActions.sendTelegram` and `triggerSiren` are independent.**
+   With the siren off, `onAlarm` never runs, so `onSensorEvent` keeps a
+   direct send for that case only. Routing everything through `onAlarm`
+   would silently kill notifications for siren-disabled projects.
+
+Web UI: the Operations page blinks the profile that tripped (red, on the
+side that fired — device or server, inferred from the cause's shape) and
+banners the cause. Because the cause node persists after the alarm,
+"is there an alarm now" is `cause.at` vs. a per-project acknowledgement in
+`localStorage`, not the mere presence of a cause. Disarming acknowledges.
+
+The Operations Siren panel reports *configuration* (`Disabled` /
+`Sounding` / `Enabled — not sounding`), not a phantom control — it used to
+claim "ACTIVE" with a Force Silence button while the siren was disabled.
 
 **Note on protocol separation:** The Kerui decoder (`kerui_decoder.h`) and
 the EV1527 siren encoder (`ev1527_frame.h`) are different protocols sharing
@@ -509,13 +572,9 @@ for TX is the siren's physical response (two beeps on pairing) or a capture
 of a genuine third-party transmitter, not our own receiver.
 
 Next (in order):
-1. Hardware verify: flash, pair siren over LAN, confirm two beeps, verify
-   RX survives TX (sensor decode works after a transmit), test alarm path
-2. Wire a relay + siren, verify `RelaySiren` end-to-end (optional — RF path
-   works hub-free)
-3. Run in parallel with W184
-4. Register the Telegram webhook so bot commands work (see `todo.txt`)
-5. Decommission W184
+1. Run in parallel with W184
+2. Register the Telegram webhook so bot commands work (see `todo.txt`)
+3. Decommission W184
 
 ---
 

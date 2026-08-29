@@ -5,3 +5,19 @@
 body {
   margin: 0;
 }
+
+/* Profile button for the rule that tripped the alarm (Operations page).
+   steps(1, end) gives a hard on/off blink rather than a soft pulse, so it
+   reads as an alert instead of decoration. */
+@keyframes alarm-blink {
+  50% {
+    background: transparent;
+    color: #b71c1c;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes alarm-blink {
+    /* Stay solid red — the colour still marks the profile without motion. */
+  }
+}

@@ -1,7 +1,5 @@
-- paired sensor: also sort by last seen, green if just now and updated as the event comes
-- no telegram on sensor open
-- when alarm goes off - the condition that caused it should be sent in telegram
+- no need to see sensor on ops
+- ui upgrade
 - mass jam of rf alert
-- heart beat
-
+V- heart beat
 
