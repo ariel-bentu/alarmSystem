@@ -21,11 +21,10 @@ class EepromStore {
   // Small headroom so a modest Config change doesn't require an EEPROM
   // layout migration; still an order of magnitude below the old 4096.
   static constexpr size_t kReservedBytes = kRecordBytes + 64;
-  // Bumped from 0xA1A2B3B4 — this is a breaking format change (added
-  // localWebEnabled byte between armed and Config). Old EEPROM contents
-  // written before this change must be rejected, not misread; a magic
-  // mismatch is decode()'s existing rejection mechanism.
-  static constexpr uint32_t kMagic = 0xA1A2B3B5;
+  // Bumped from 0xA1A2B3B5 — adding Config::sirenBaseAddress changed
+  // sizeof(Config), so records written by earlier firmware must be rejected
+  // rather than misread. A magic mismatch is decode()'s rejection mechanism.
+  static constexpr uint32_t kMagic = 0xA1A2B3B6;
 
   bool begin();
   bool load(bool* armed, bool* localWebEnabled, Config* config);

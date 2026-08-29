@@ -43,6 +43,11 @@ inline void platformFeedWatchdog() { yield(); }
 // mDNS on ESP32 is serviced by its own task; MDNS.update() does not exist.
 inline void platformMdnsUpdate() {}
 
+// Hardware RNG. esp_random() lives in ESP-IDF's esp_random.h and is NOT
+// declared by any Arduino core header, so the include is required.
+#include <esp_random.h>
+#define PLATFORM_RANDOM32() (esp_random())
+
 // The cont-stack headroom probe (&local - g_pcont->stack) is meaningless
 // here: loop() runs as a normal FreeRTOS task with an 8KB+ stack, not on the
 // ESP8266's 4KB cooperative cont stack.
@@ -69,6 +74,10 @@ inline void platformFeedWatchdog() { ESP.wdtFeed(); }
 #define PLATFORM_EEPROM_CONST_DATA_PTR() (EEPROM.getConstDataPtr())
 
 inline void platformMdnsUpdate() { MDNS.update(); }
+
+// Hardware RNG register, exposed by the core's esp8266_peri.h (pulled in via
+// Arduino.h). There is no esp_random() on this platform.
+#define PLATFORM_RANDOM32() (RANDOM_REG32)
 
 #define PLATFORM_HAS_CONT_STACK 1
 #define PLATFORM_HAS_SET_BUFFER_SIZES 1

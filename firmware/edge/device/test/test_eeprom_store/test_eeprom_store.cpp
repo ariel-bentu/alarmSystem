@@ -79,12 +79,47 @@ void test_decode_rejects_old_pre_localweb_magic() {
   TEST_ASSERT_FALSE(ok);
 }
 
+void test_siren_base_address_round_trips() {
+  Config config;
+  config.sirenBaseAddress = 0xA1B2C0;
+
+  uint8_t buffer[EepromStore::kReservedBytes];
+  size_t written = EepromStore::encode(false, true, config, buffer, sizeof(buffer));
+  TEST_ASSERT_GREATER_THAN(0, written);
+
+  bool armedOut = false;
+  bool localWebOut = false;
+  Config configOut;
+  TEST_ASSERT_TRUE(
+      EepromStore::decode(buffer, written, &armedOut, &localWebOut, &configOut));
+  TEST_ASSERT_EQUAL_HEX32(0xA1B2C0, configOut.sirenBaseAddress);
+}
+
+void test_decode_rejects_pre_siren_address_magic() {
+  // Adding sirenBaseAddress changed sizeof(Config), so a record written by
+  // the previous firmware must be REJECTED rather than misread as garbage
+  // siren state. The magic bump is that mechanism.
+  Config config;
+  uint8_t buffer[EepromStore::kReservedBytes];
+  EepromStore::encode(true, true, config, buffer, sizeof(buffer));
+  const uint32_t previousMagic = 0xA1A2B3B5;
+  memcpy(buffer, &previousMagic, sizeof(previousMagic));
+
+  bool armedOut = false;
+  bool localWebOut = false;
+  Config configOut;
+  TEST_ASSERT_FALSE(
+      EepromStore::decode(buffer, sizeof(buffer), &armedOut, &localWebOut, &configOut));
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_encode_decode_round_trips_armed_localweb_and_config);
   RUN_TEST(test_localweb_enabled_true_round_trips);
   RUN_TEST(test_decode_rejects_garbage_buffer);
   RUN_TEST(test_decode_rejects_old_pre_localweb_magic);
+  RUN_TEST(test_siren_base_address_round_trips);
+  RUN_TEST(test_decode_rejects_pre_siren_address_magic);
   UNITY_END();
 }
 

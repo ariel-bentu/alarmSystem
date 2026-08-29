@@ -75,8 +75,9 @@ Firestore holds the structured app data.
 
 - Phase 1: GPIO pin → relay → siren — built (`RelaySiren`), untested (no siren wired yet)
 - Phase 2: Sniff W184 siren RF packet with CC1101, replay it wirelessly —
-  **RF transmit solved and proven (2026-08-28); not yet in the main firmware.**
-  See "CC1101 transmit" below. Captured siren codes are static and replayable.
+  **RF transmit solved and in the device firmware (2026-08-29).** EV1527
+  frame rendered via `Cc1101Receiver::transmit()`, siren paired hub-free.
+  See "CC1101 transmit" and "Sounding the siren, hub-free" below.
 
 ## Project Structure
 
@@ -480,28 +481,38 @@ macOS reassigns those suffixes per port/session, so check `ls /dev/cu.*`.
 
 Done:
 - Web app: auth, project setup, sensor pairing, profiles/rules, operations
-  (arm/disarm per profile), event timeline, dev simulator
+  (arm/disarm per profile), event timeline, dev simulator, siren pairing UI
 - Cloud Functions: event ingest + mirroring, server-side alarm evaluation,
   config sync, arm/disarm notifications, dead-sensor check, Telegram alerts,
-  `mintDeviceToken` (device RTDB auth) — all deployed to `alarm-system-100`
+  `mintDeviceToken` (device RTDB auth), `onSirenAddress` (mirrors device's
+  siren address into `state/siren_base`) — all deployed to `alarm-system-100`
 - Invite-only access model, per-project Telegram config
 - ESP32-S3 firmware — WiFi provisioning, CC1101 RF decode (interrupt-based,
   confirmed end-to-end with real Kerui sensors), alarm-condition evaluation
-  (native-tested), EEPROM persistence, relay siren (built, untested), cloud
-  sync via `CloudClient`, local LAN web server for arm/disarm/simulation.
+  (native-tested), EEPROM persistence, **CC1101 RF siren control** (EV1527
+  transmit ported into device firmware; siren paired and driven hub-free),
+  relay siren (built, untested — RF path supersedes it), cloud sync via
+  `CloudClient`, local LAN web server for arm/disarm/simulation/siren-pairing.
   Boots on real hardware, mints its Firebase custom token, serves the local
   web UI, decodes real sensor packets and writes events to Firebase with
-  Telegram alerts confirmed. ESP8266 `[env:d1_mini]` still builds.
-- 20 native unit tests (PlatformIO `[env:native]`, 3 suites: alarm_state,
-  eeprom_store, config_parser) — all passing
+  Telegram alerts confirmed. ESP8266 `[env:d1_mini]` still builds (RF TX
+  is gated by `initialised_` so it compiles but TX is untested on that
+  platform).
+- 33 native unit tests (PlatformIO `[env:native]`, 5 suites: alarm_state,
+  eeprom_store, config_parser, ev1527_frame, siren_address) — all passing
+
+**Note on protocol separation:** The Kerui decoder (`kerui_decoder.h`) and
+the EV1527 siren encoder (`ev1527_frame.h`) are different protocols sharing
+the same CC1101 chip. They must never be validated against each other — the
+Kerui decoder reads our own EV1527 frames as garbage by design. Ground truth
+for TX is the siren's physical response (two beeps on pairing) or a capture
+of a genuine third-party transmitter, not our own receiver.
 
 Next (in order):
-1. **Port CC1101 transmit into the device firmware** — use the SPEC-SHAPED
-   frame from `spike_clean_tx` (see "Sounding the siren, hub-free" below), NOT
-   the bit-in-the-gap encoding from `spike_siren_tx`, which does not drive the
-   siren. `Cc1101Receiver` needs a TX counterpart and an RX/TX mode switch.
-2. Wire a relay + siren, verify `RelaySiren` end-to-end (optional now that RF
-   siren control works)
+1. Hardware verify: flash, pair siren over LAN, confirm two beeps, verify
+   RX survives TX (sensor decode works after a transmit), test alarm path
+2. Wire a relay + siren, verify `RelaySiren` end-to-end (optional — RF path
+   works hub-free)
 3. Run in parallel with W184
 4. Register the Telegram webhook so bot commands work (see `todo.txt`)
 5. Decommission W184

@@ -552,6 +552,21 @@ void CloudClient::applyCommandsJson(const String& json) {
       Serial.printf("cloud: commands.siren -> %s\n", v ? "true" : "false");
     }
   }
+  if (doc["pair"]["n"].is<uint32_t>()) {
+    uint32_t n = doc["pair"]["n"].as<uint32_t>();
+    if (!hadPairNonce_ || n != lastPairNonce_) {
+      hadPairNonce_ = true;
+      lastPairNonce_ = n;
+      pendingPairNonce_ = n;
+      pendingPairUntil_ = doc["pair"]["until"].is<uint32_t>()
+                              ? doc["pair"]["until"].as<uint32_t>()
+                              : 0;
+      hasPendingPair_ = true;
+      Serial.printf("cloud: commands.pair -> nonce %lu until %lu\n",
+                    (unsigned long)pendingPairNonce_,
+                    (unsigned long)pendingPairUntil_);
+    }
+  }
 }
 
 void CloudClient::applyConfigJson(const String& json) {
@@ -592,7 +607,16 @@ bool CloudClient::consumeConfigUpdate(Config* config) {
   return true;
 }
 
-void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi) {
+bool CloudClient::consumePairCommand(uint32_t* nonce, uint32_t* untilEpochSec) {
+  if (!hasPendingPair_) return false;
+  *nonce = pendingPairNonce_;
+  *untilEpochSec = pendingPairUntil_;
+  hasPendingPair_ = false;
+  return true;
+}
+
+void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
+                              const char* value) {
   if (!isReady()) return;  // no buffering v1 — drop if not connected/authed
 
   // Hard floor. BearSSL needs a ~3424-byte contiguous block for the
@@ -631,6 +655,7 @@ void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
   doc["event"] = event;
   doc["battery_low"] = batteryLow;
   doc["rssi"] = rssi;
+  if (value != nullptr) doc["value"] = value;
   String json;
   serializeJson(doc, json);
 

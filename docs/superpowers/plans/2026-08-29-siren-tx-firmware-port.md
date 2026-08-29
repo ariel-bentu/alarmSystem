@@ -672,8 +672,10 @@ Set `initialised_ = true;` in `begin()`, immediately before `return true;`.
 Then add:
 
 ```cpp
-// TX register set. Differs from the RX set in exactly the registers that
-// must change: IOCFG0, PKTCTRL0, the data rate, FREND0 and PATABLE.
+// TX register set. Note this writes FIVE registers the RX config does not
+// write back on its own — PATABLE, FREND0, PKTCTRL1, MDMCFG1, MDMCFG0 —
+// so configureFor433MhzOok() must restore them explicitly rather than
+// relying on the power-on reset it used to inherit them from.
 void Cc1101Receiver::configureForTx() {
   strobe(STROBE_SIDLE);
   delay(2);
@@ -1042,15 +1044,15 @@ In `firmware/edge/device/src/main.cpp`, add after `applyPendingConfigUpdate()`:
 
 ```cpp
 // Loop the base address on air so a siren held in learn mode can bind it.
-// Blocking for ~60s and largely deaf to sensors throughout — acceptable
+// Blocking ~10s and largely deaf to sensors throughout — acceptable
 // because pairing is a deliberate, user-initiated act, and the web UI says
 // so before the user starts.
 //
 // noinline for the cont-stack reason documented on handleSensorEvent().
 __attribute__((noinline))
 void runSirenPairing() {
-  const unsigned long kPairingWindowMs = 60000UL;
-  Serial.printf("[siren] pairing: looping 0x%06lX for 60s — press SET on the siren\n",
+  const unsigned long kPairingWindowMs = 10000UL;
+  Serial.printf("[siren] pairing: looping 0x%06lX for 10s — press SET on the siren\n",
                 (unsigned long)config.sirenBaseAddress);
   const unsigned long start = millis();
   while (millis() - start < kPairingWindowMs) {
@@ -1139,7 +1141,7 @@ In `firmware/edge/device/src/local_web_server.cpp`, register a handler alongside
   server_.on("/pair-siren", HTTP_POST, [this]() {
     pendingPair_ = true;
     server_.send(200, "text/plain",
-                 "Pairing for 60s - press SET on the siren now");
+                 "Pairing for 10s - press SET on the siren now");
   });
 ```
 
@@ -1148,9 +1150,9 @@ In `firmware/edge/device/src/local_web_page.h`, add a button to the page body, m
 ```html
 <h2>Siren</h2>
 <p>Press SET on the siren until its lights come on, then start pairing.
-   The alarm cannot hear sensors for 60 seconds while it transmits.</p>
+   The alarm cannot hear sensors for 10 seconds while it transmits.</p>
 <button onclick="fetch('/pair-siren',{method:'POST'}).then(r=>r.text()).then(t=>alert(t))">
-  Pair siren (60s)
+  Pair siren (10s)
 </button>
 ```
 
@@ -1268,7 +1270,7 @@ describe("buildPairCommand", () => {
   });
 
   it("defaults to a window that covers poll latency plus transmit time", () => {
-    // The device polls /commands every ~30s and then transmits for 60s, so a
+    // The device polls /commands every ~30s and then transmits for 10s, so a
     // window shorter than ~90s can expire before the device even sees it.
     const cmd = buildPairCommand(1_700_000_000_000);
     const seconds = cmd.until - 1_700_000_000;
@@ -1318,7 +1320,7 @@ Create `web/src/features/configure/sirenPairing.ts`:
 // directly unit-testable.
 
 // The device polls /commands every ~15s alternating with /config, so a
-// command can take ~30s to arrive, and pairing then transmits for 60s. The
+// command can take ~30s to arrive, and pairing then transmits for 10s. The
 // window must comfortably exceed both or the device discards its own
 // request as expired.
 const DEFAULT_WINDOW_SEC = 180;
@@ -1372,7 +1374,7 @@ git add web/src/lib/rtdb.ts \
 git commit -m "Add siren pairing command builder and RTDB paths
 
 The window defaults to 180s because the device can take ~30s to poll the
-command and then transmits for 60s."
+command and then transmits for 10s."
 ```
 
 ---
@@ -1401,12 +1403,12 @@ Create `web/src/features/configure/SirenTab.tsx` implementing this state machine
 
 - `idle` — shows the paired address from `state/siren_base` via `formatSirenAddress`, or "waiting for device" when absent. Instruction text: *"Press SET on the siren until the lights come on."* Button: **Send pairing signal**.
 - `sending` — `set(commandsPairRef(projectId), buildPairCommand(Date.now()))`, then show *"Waiting for device (up to 30s)…"*.
-- `transmitting` — *"Transmitting for 60s — the siren should beep twice."* Advance on a timer; the device reports nothing back.
+- `transmitting` — *"Transmitting for 10s — the siren should beep twice."* Advance on a timer; the device reports nothing back.
 - `confirming` — *"Did the siren beep twice?"* with **Yes** and **No, try again**.
 - `paired` — on Yes, write the Firestore siren doc (Task 10) and show the paired address.
 - `failed` — on No, show the likely causes verbatim: *"Learn mode may have timed out — press SET again immediately before retrying."* and *"The siren may be out of range of the alarm device."* Offer retry.
 
-Warn before the user starts, since it is genuinely true: *"The alarm cannot detect sensors while it is transmitting (about 60 seconds)."*
+Warn before the user starts, since it is genuinely true: *"The alarm cannot detect sensors while it is transmitting (about 10 seconds)."*
 
 Follow `SensorsTab.tsx` for layout and styling.
 

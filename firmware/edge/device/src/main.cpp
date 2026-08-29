@@ -10,6 +10,7 @@
 #include "local_web_server.h"
 #include "provision_store.h"
 #include "provisioning_portal.h"
+#include "siren_address.h"
 #include "relay_siren.h"
 
 #ifndef FIREBASE_WEB_API_KEY
@@ -74,6 +75,23 @@ Config config;
 bool mdnsStarted = false;
 unsigned long normalOperationStartMs = 0;
 constexpr unsigned long kDnsUsersStartFallbackMs = 60000UL;  // start anyway if cloud never comes up
+
+// Reported once per boot, strictly after the cloud is actually ready (not
+// merely "settled" — that fallback also fires if the cloud never comes up,
+// in which case there is nothing to report to). A later Cloud Function
+// reads this to show the address in the web UI. Kept out-of-line and
+// gated by a bool so it costs nothing on the other ~thousands of loop()
+// iterations per boot — see handleSensorEvent()'s note on why frame size
+// in loop() matters on this hardware.
+bool sirenAddressReported = false;
+
+__attribute__((noinline))
+void reportSirenAddressOnce() {
+  char addrHex[9];
+  snprintf(addrHex, sizeof(addrHex), "0x%06X", (unsigned int)config.sirenBaseAddress);
+  cloudClient.reportEvent("SIREN0", "siren_address", false, 0, addrHex);
+  sirenAddressReported = true;
+}
 
 void startMdnsIfNeeded() {
   if (mdnsStarted || !localWebEnabled) return;
@@ -173,9 +191,39 @@ void applyPendingConfigUpdate() {
   Config newConfig;
   if (!cloudClient.consumeConfigUpdate(&newConfig)) return;
   newConfig.armed = armed;  // armed is tracked separately from config pushes
+  // The siren address is device-owned and never sent by the cloud; preserve
+  // it across a config push or the device forgets its pairing.
+  newConfig.sirenBaseAddress = config.sirenBaseAddress;
   config = newConfig;
   alarmState.setConfig(config);
   eepromStore.save(armed, localWebEnabled, config);
+}
+
+// Loop the base address on air so a siren held in learn mode can bind it.
+// Blocking and largely deaf to sensors throughout — acceptable because
+// pairing is a deliberate, user-initiated act, and the web UI says so
+// before the user starts.
+//
+// 10s, measured: a real pairing succeeded well inside this window (the
+// siren answered with its two-beep acknowledgement), and at one burst per
+// 300ms that is still ~33 transmissions — ample for a siren already in
+// learn mode. The window was originally 60s, which was simply a guess; it
+// is a direct cost, since the device serves no HTTP and hears no sensors
+// while it runs, so it is kept only as long as it needs to be.
+//
+// noinline for the cont-stack reason documented on handleSensorEvent().
+__attribute__((noinline))
+void runSirenPairing() {
+  const unsigned long kPairingWindowMs = 10000UL;
+  Serial.printf("[siren] pairing: looping 0x%06lX for 10s — press SET on the siren\n",
+                (unsigned long)config.sirenBaseAddress);
+  const unsigned long start = millis();
+  while (millis() - start < kPairingWindowMs) {
+    cc1101.transmit(config.sirenBaseAddress | SirenAddress::kCmdArmHome, 6);
+    delay(300);
+    platformFeedWatchdog();
+  }
+  Serial.println("[siren] pairing window closed");
 }
 
 bool connectToWifi(const String& ssid, const String& password,
@@ -402,10 +450,22 @@ void onNormalOperation() {
   config.armed = armed;
   alarmState.setConfig(config);
 
-  if (!cc1101.begin(kCc1101CsPin, kCc1101Gdo0Pin)) {
-    Serial.println("[cc1101] init FAILED — RF receive disabled");
+  bool radioReady = cc1101.begin(kCc1101CsPin, kCc1101Gdo0Pin);
+  if (!radioReady) {
+    Serial.println("[cc1101] init FAILED — RF receive and siren TX disabled");
   }
-  siren.begin(kRelayPin);
+
+  // Generate the siren identity on first boot and persist it, so a physical
+  // pairing survives reflashing.
+  if (!SirenAddress::isValid(config.sirenBaseAddress)) {
+    config.sirenBaseAddress = SirenAddress::generate();
+    eepromStore.save(armed, localWebEnabled, config);
+    Serial.printf("[siren] generated new base address 0x%06lX\n",
+                  (unsigned long)config.sirenBaseAddress);
+  }
+  Serial.printf("[siren] base address 0x%06lX\n",
+                (unsigned long)config.sirenBaseAddress);
+  siren.begin(kRelayPin, radioReady ? &cc1101 : nullptr, config.sirenBaseAddress);
 
   // NTP sync (configTime()) is deferred until cloud settles — see
   // startNtpSyncIfNeeded(). Harmless either way (mDNS/NTP/CC1101 timing
@@ -520,6 +580,13 @@ void loop() {
     startNtpSyncIfNeeded();
   }
 
+  // Strictly isReady(), not the cloudSettled fallback above — that fallback
+  // also fires if the cloud never comes up, and reportEvent() would just
+  // no-op then anyway. Only mark it done once the call has actually fired.
+  if (!sirenAddressReported && cloudClient.isReady()) {
+    reportSirenAddressOnce();
+  }
+
   bool newArmed;
   if (cloudClient.consumeArmedCommand(&newArmed)) {
     applyArmedCommand(newArmed);
@@ -531,6 +598,19 @@ void loop() {
       siren.turnOn(config.sirenDurationSec, now);
     } else {
       siren.turnOff();
+    }
+  }
+
+  uint32_t pairNonce = 0, pairUntil = 0;
+  if (cloudClient.consumePairCommand(&pairNonce, &pairUntil)) {
+    // Ignore an expired request: time(nullptr) is only meaningful once NTP
+    // has synced, so a zero/unset `until` is treated as "no deadline".
+    const uint32_t nowSec = (uint32_t)time(nullptr);
+    if (pairUntil != 0 && nowSec > 100000UL && nowSec > pairUntil) {
+      Serial.printf("[siren] ignoring expired pair request (now %lu > until %lu)\n",
+                    (unsigned long)nowSec, (unsigned long)pairUntil);
+    } else {
+      runSirenPairing();
     }
   }
 
@@ -555,6 +635,33 @@ void loop() {
       String rfId;
       localWebServer.takePendingTrigger(&rfId);
       handleSensorEvent(rfId.c_str(), now);
+    }
+
+    if (localWebServer.hasPendingPairRequest()) {
+      localWebServer.clearPendingPairRequest();
+      runSirenPairing();
+    }
+
+    // Bench aid: sound the siren on demand, independently of arm state and
+    // alarm rules. Deliberately passes the configured duration so the
+    // auto-off timer runs exactly as it would for a real alarm; POST
+    // /disarm silences it early. If sirenDurationSec is 0 the siren is
+    // disabled and turnOn() is a no-op, which is the correct behaviour.
+    if (localWebServer.hasPendingSirenTest()) {
+      localWebServer.clearPendingSirenTest();
+      // Falls back to 30s when no duration has been synced from the cloud.
+      // Without this the bench test is silently a no-op on a device whose
+      // config has not arrived yet: turnOn() treats 0 as "siren disabled"
+      // and returns before transmitting, which looks exactly like a broken
+      // radio. Observed on a freshly flashed board: "sounding for 0s" and
+      // no tx line at all.
+      uint16_t testDuration = config.sirenDurationSec > 0
+                                  ? config.sirenDurationSec
+                                  : 30;
+      Serial.printf("[siren] bench test: sounding for %us (config=%us) — "
+                    "POST /disarm to stop\n",
+                    testDuration, config.sirenDurationSec);
+      siren.turnOn(testDuration, now);
     }
   }
 }

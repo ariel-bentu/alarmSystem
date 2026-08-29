@@ -85,9 +85,30 @@ such: `T = 300us`, `kChipsPerT = 4`, `kCarrierBit = 1`, `FREND0 = 0x11`,
 formula. Frame: `1T` carrier sync, `31T` silence, then 24 bits MSB first with
 bit 1 = `3T` ON + `1T` off and bit 0 = `1T` ON + `3T` off.
 
-The registers that genuinely differ between modes, and so must be switched:
-`IOCFG0` (0x0D RX / 0x06 TX), `PKTCTRL0` (0x32 RX / 0x00 then 0x02 TX),
-`MDMCFG3`/`MDMCFG4` (different data rates), `FREND0`, and PATABLE.
+The registers that genuinely differ between modes, and so must be switched —
+**and every one of them must be written back on the return to RX.** The RX
+configuration was only ever validated with the TX-only registers at their
+power-on-reset defaults, because the receiver is reached via `SRES` on boot;
+leaving any of them at a TX value puts the receiver in a state never tested
+on hardware. `PATABLE` in particular also biases the receive front end, and a
+front-end change has previously flattened every received pulse to a uniform
+width and destroyed the short/long bit distinction the decoder depends on.
+`configureFor433MhzOok()` must therefore be self-sufficient rather than
+assuming a preceding reset:
+| register | RX value | TX value |
+|---|---|---|
+| `IOCFG0` (0x02) | 0x0D | 0x06 |
+| `PKTCTRL0` (0x08) | 0x32 | 0x00, then 0x02 while streaming |
+| `MDMCFG4`/`MDMCFG3` (0x10/0x11) | 0x87 / 0x32 | solved from the chip rate |
+| `PKTCTRL1` (0x07) | 0x04 (POR) | 0x00 |
+| `MDMCFG1` (0x13) | 0x22 (POR) | 0x02 |
+| `MDMCFG0` (0x14) | 0xF8 (POR) | 0x00 |
+| `FREND0` (0x22) | 0x10 (POR) | 0x11 |
+| `PATABLE` (0x3E) | 0xC6 (POR) | {0x00, 0xC0} |
+
+The last five are the ones the original design overlooked: they have no
+explicit RX value because the receiver had always inherited them from reset,
+which is exactly why the restore has to write them explicitly.
 
 The ~2.4KB rendered-bit buffer is a class member, never a stack local:
 `loop()`'s 4KB cont stack on ESP8266 cannot take it.
@@ -156,7 +177,7 @@ board died with an OOM inside mDNS. The UI must therefore tell the user to hold
 the siren in learn mode while the command is delivered, not imply instant
 action.
 
-**Device routine.** On a fresh, unexpired nonce: loop the base code for ~60s
+**Device routine.** On a fresh, unexpired nonce: loop the base code for ~10s
 (`transmit(base, 6)` every 300ms), then return to RX. The radio is largely deaf
 for that minute; acceptable because pairing is a deliberate, user-initiated act,
 and the UI says so.
@@ -173,7 +194,7 @@ model untouched.
 
 1. *"Press SET on the siren until the lights come on."*
 2. **Send pairing signal** — writes the command; shows *"Waiting for device (up
-   to 30s)..."* then *"Transmitting for 60s — the siren should beep twice."*
+   to 30s)..."* then *"Transmitting for 10s — the siren should beep twice."*
 3. *"Did the siren beep twice?"* -> **Yes** / **No, try again.**
 
 **The user is the oracle.** The device cannot hear the siren's beep, so success

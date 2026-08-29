@@ -51,13 +51,20 @@ class CloudClient {
   // Fire-and-forget event write to /{projectId}/events/{rfId}/{ts}.
   // No-op (silently skipped) if not yet authenticated — matches the
   // "no event buffering v1" decision.
-  void reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi);
+  void reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
+                   const char* value = nullptr);
 
   // Registered once in begin(); main.cpp polls these via getters rather
   // than a callback, to keep main.cpp's control flow linear.
   bool consumeArmedCommand(bool* armed);    // true if a new value arrived since last call
   bool consumeSirenCommand(bool* sirenOn);  // true if a new value arrived since last call
   bool consumeConfigUpdate(Config* config); // true if a new config arrived since last call
+  // Pairing request: /commands/pair = { n: <nonce>, until: <epochSec> }.
+  // A nonce rather than a bool so a repeat request is distinguishable from a
+  // stale one; `until` lets the device ignore a request whose window has
+  // already passed, so a command left in RTDB cannot make a device pair
+  // itself on reboot days later.
+  bool consumePairCommand(uint32_t* nonce, uint32_t* untilEpochSec);
   // Lets callers avoid putting a ~2.4KB Config on the 4KB cont stack unless
   // there is actually an update to take — see main.cpp's loop().
   bool hasPendingConfigUpdate() const { return hasPendingConfig_; }
@@ -164,6 +171,12 @@ class CloudClient {
   bool hasPendingSiren_ = false;
   bool hasPendingConfig_ = false;
   Config pendingConfig_;
+
+  uint32_t lastPairNonce_ = 0;
+  bool hadPairNonce_ = false;
+  uint32_t pendingPairNonce_ = 0;
+  uint32_t pendingPairUntil_ = 0;
+  bool hasPendingPair_ = false;
 
   bool mintCustomToken();
   // Parse a polled /commands or /config payload. Actual config parsing lives

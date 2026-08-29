@@ -35,3 +35,13 @@ export const eventRef = (
   sensorRfId: string,
   timestamp: number
 ): DatabaseReference => ref(rtdb, eventPath(projectId, sensorRfId, timestamp));
+
+export const commandsPairPath = (projectId: string) =>
+  `${projectId}/commands/pair`;
+export const stateSirenBasePath = (projectId: string) =>
+  `${projectId}/state/siren_base`;
+
+export const commandsPairRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, commandsPairPath(projectId));
+export const stateSirenBaseRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, stateSirenBasePath(projectId));

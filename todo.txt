@@ -17,7 +17,10 @@ BLOCKED ON HARDWARE (ESP32 ordered 2026-08-20)
      round trip from the web UI hasn't been watched through to the siren.
   C. CC1101 not wired — RF decode untested against real Kerui packets;
      battery bit position in the 24-bit packet still unconfirmed.
-  D. No siren wired — RelaySiren untested end to end.
+  D. Relay siren untested — no physical relay/siren wired. RF siren control
+     (CC1101 EV1527 TX) is now in the firmware and the siren is paired hub-free,
+     but the GPIO relay path in RelaySiren has never driven an actual load.
+     Optional to wire now that the RF path works.
 
 WEB / BACKEND
   1. Delete-project button in Settings — guard + purge subcollections +

@@ -27,6 +27,11 @@ struct SensorConfig {
 struct Config {
   bool armed = false;
   uint16_t sirenDurationSec = 0;
+  // EV1527 base address this device uses to talk to its siren: top 20 bits
+  // are identity, bottom nibble is the command and is always 0 here.
+  // 0 means "not yet generated". Randomly generated once on first boot and
+  // persisted, so a physical pairing survives reflashing.
+  uint32_t sirenBaseAddress = 0;
   SensorConfig sensors[16];
   uint8_t sensorCount = 0;
 };

@@ -8,6 +8,8 @@ void LocalWebServer::begin() {
   webServer_.on("/arm", HTTP_POST, [this]() { handleArm(); });
   webServer_.on("/disarm", HTTP_POST, [this]() { handleDisarm(); });
   webServer_.on("/trigger", HTTP_POST, [this]() { handleTrigger(); });
+  webServer_.on("/pair-siren", HTTP_POST, [this]() { handlePairSiren(); });
+  webServer_.on("/siren-test", HTTP_POST, [this]() { handleSirenTest(); });
 }
 
 void LocalWebServer::start() {
@@ -79,4 +81,16 @@ void LocalWebServer::handleTrigger() {
   pendingTriggerRfId_ = rfId;
   pendingTrigger_ = true;
   webServer_.send(200, "text/plain", "ok");
+}
+
+void LocalWebServer::handleSirenTest() {
+  pendingSirenTest_ = true;
+  webServer_.send(200, "text/plain",
+                   "Sounding the siren - POST /disarm to silence it");
+}
+
+void LocalWebServer::handlePairSiren() {
+  pendingPair_ = true;
+  webServer_.send(200, "text/plain",
+                   "Pairing for 10s - press SET on the siren now");
 }

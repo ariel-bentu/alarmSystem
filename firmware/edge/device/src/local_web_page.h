@@ -31,6 +31,10 @@ const char LOCAL_WEB_PAGE_HTML[] PROGMEM = R"HTML(
   .sim button { width: 100%; background: #a33; color: white; }
   .note { color: #aaa; font-size: 13px; line-height: 1.4; min-height: 1.2em;
           margin: 8px 0 0; }
+  .pair { max-width: 400px; margin: 24px auto 0; border-top: 1px solid #333;
+          padding-top: 20px; }
+  .pair p { color: #ccc; font-size: 14px; line-height: 1.4; margin: 0 0 12px; }
+  .pair button { width: 100%; background: #663; color: white; }
 </style>
 </head>
 <body>
@@ -46,6 +50,16 @@ const char LOCAL_WEB_PAGE_HTML[] PROGMEM = R"HTML(
   <input type="text" id="rfId" placeholder="0xA1B2C3">
   <button onclick="trigger()">Trigger</button>
   <p class="note" id="simNote"></p>
+</div>
+<div class="pair">
+  <h2>Siren</h2>
+  <p>Press SET on the siren until its lights come on, then start pairing.
+     The siren beeps twice when it has paired. The alarm cannot hear
+     sensors for 10 seconds while it transmits.</p>
+  <button onclick="pairSiren()">Pair siren (10s)</button>
+  <button onclick="sirenTest()">Sound siren (test)</button>
+  <button class="disarm" onclick="sirenSilence()">Silence siren</button>
+  <p class="note" id="pairNote"></p>
 </div>
 <script>
   function post(path) {
@@ -75,6 +89,39 @@ const char LOCAL_WEB_PAGE_HTML[] PROGMEM = R"HTML(
            + ' the synced config.');
       refresh();
     }).catch(function() { note('Trigger failed (network error)'); });
+  }
+  function pairNote(msg) {
+    document.getElementById('pairNote').textContent = msg;
+  }
+  function pairSiren() {
+    pairNote('Pairing for 10s...');
+    fetch('/pair-siren', { method: 'POST' }).then(function(r) {
+      return r.text().then(function(t) {
+        pairNote(t);
+      });
+    }).catch(function() { pairNote('Pairing request failed (network error)'); });
+  }
+  function sirenTest() {
+    pairNote('Sounding the siren...');
+    fetch('/siren-test', { method: 'POST' }).then(function(r) {
+      return r.text().then(function(t) {
+        pairNote(t);
+        refresh();
+      });
+    }).catch(function() { pairNote('Siren test failed (network error)'); });
+  }
+  // Posts to /disarm deliberately rather than to a siren-only endpoint:
+  // disarming is what silences the siren in this system, and routing the
+  // button through the real path means pressing it exercises exactly the
+  // behaviour we care about (disarm transmits the RF stop command).
+  function sirenSilence() {
+    pairNote('Silencing...');
+    fetch('/disarm', { method: 'POST' }).then(function(r) {
+      return r.text().then(function() {
+        pairNote('Disarmed - siren silenced.');
+        refresh();
+      });
+    }).catch(function() { pairNote('Silence failed (network error)'); });
   }
   function refresh() {
     fetch('/status').then(function(r) { return r.json(); }).then(function(s) {

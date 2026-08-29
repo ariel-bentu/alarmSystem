@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <SPI.h>
 
+#include "platform_compat.h"
+
 namespace {
 constexpr uint8_t REG_IOCFG0   = 0x02;
 constexpr uint8_t REG_FIFOTHR  = 0x03;
@@ -35,6 +37,22 @@ constexpr uint8_t REG_VERSION  = 0x31;
 constexpr uint32_t kDelimiterUs  = 5000;
 constexpr uint32_t kBitThreshold = 700;
 constexpr int      kBits         = 24;
+
+constexpr uint8_t REG_PKTCTRL1 = 0x07;
+constexpr uint8_t REG_MDMCFG1  = 0x13;
+constexpr uint8_t REG_MDMCFG0  = 0x14;
+constexpr uint8_t REG_FREND0   = 0x22;
+constexpr uint8_t REG_PATABLE  = 0x3E;
+constexpr uint8_t REG_TXBYTES  = 0x3A;
+constexpr uint8_t REG_TXFIFO   = 0x3F;
+constexpr uint8_t STROBE_SIDLE = 0x36;
+constexpr uint8_t STROBE_STX   = 0x35;
+constexpr uint8_t STROBE_SFTX  = 0x3B;
+constexpr uint8_t CC1101_BURST = 0x40;
+// PA level ported verbatim from spike_clean_tx. Do NOT tune this to close
+// the unexplained 24dB gap against the older sender — the weaker setting is
+// the one the siren actually responds to.
+constexpr uint8_t kPaLevel = 0xC0;
 }  // namespace
 
 Cc1101Receiver* Cc1101Receiver::instance_ = nullptr;
@@ -90,6 +108,7 @@ bool Cc1101Receiver::begin(uint8_t csPin, uint8_t gdo0Pin) {
 
   instance_ = this;
   attachInterrupt(digitalPinToInterrupt(gdo0Pin_), isr, CHANGE);
+  initialised_ = true;
   return true;
 }
 
@@ -215,4 +234,148 @@ void Cc1101Receiver::configureFor433MhzOok() {
   writeReg(REG_FREND1,   0xB6);
   writeReg(REG_MCSM1,    0x30);
   writeReg(REG_MCSM0,    0x18);
+
+  // Undo configureForTx()'s writes to these five registers so RX does not
+  // depend on a preceding SRES ever having run. begin() only ever reaches
+  // this function via SRES, so until transmit() existed these always sat at
+  // their power-on-reset defaults; configureForTx() overwrites them, so this
+  // function must restore them explicitly rather than assume the reset
+  // default. PATABLE in particular biases the receive front end — an
+  // unrestored value here previously flattened every received pulse to a
+  // uniform width and destroyed the short/long distinction decodeEdges()
+  // depends on.
+  writeReg(REG_PKTCTRL1, 0x04);
+  writeReg(REG_MDMCFG1,  0x22);
+  writeReg(REG_MDMCFG0,  0xF8);
+  writeReg(REG_FREND0,   0x10);
+  digitalWrite(csPin_, LOW);     // PATABLE POR default: [0]=0xC6, rest 0x00
+  SPI.transfer(REG_PATABLE | CC1101_BURST);
+  SPI.transfer(0xC6);
+  for (int i = 1; i < 8; i++) SPI.transfer(0x00);
+  digitalWrite(csPin_, HIGH);
+}
+
+// TX register set. Also writes PATABLE, FREND0, PKTCTRL1, MDMCFG1 and
+// MDMCFG0 away from their RX values — configureFor433MhzOok() must (and
+// does) restore all five, not just the registers that are obviously
+// TX-specific.
+void Cc1101Receiver::configureForTx() {
+  strobe(STROBE_SIDLE);
+  delay(2);
+
+  writeReg(REG_IOCFG0,   0x06);  // packet status (unused in TX)
+  writeReg(REG_PKTCTRL0, 0x00);  // fixed length, no CRC/whitening
+  writeReg(REG_PKTCTRL1, 0x00);  // no address check
+  writeReg(REG_FREQ2,    0x10);
+  writeReg(REG_FREQ1,    0xB0);  // 433.92MHz
+  writeReg(REG_FREQ0,    0x71);
+  writeReg(REG_MDMCFG2,  0x30);  // OOK, no Manchester, no sync word
+  writeReg(REG_MDMCFG1,  0x02);  // NUM_PREAMBLE = 0
+  writeReg(REG_MDMCFG0,  0x00);
+
+  uint8_t e = 0, m = 0;
+  Ev1527::computeDrate(Ev1527::kPeriodUs / Ev1527::kChipsPerT, &e, &m);
+  writeReg(REG_MDMCFG4, (uint8_t)(0x80 | e));
+  writeReg(REG_MDMCFG3, m);
+
+  // FREND0 PA_POWER=1 selects PATABLE[1] as the "carrier on" entry. Without
+  // it the PA has no off entry and holds a continuous carrier: a commanded
+  // 50ms pulse was measured arriving as 158ms.
+  writeReg(REG_FREND0, 0x11);
+  writeReg(REG_MCSM1,  0x30);
+  writeReg(REG_MCSM0,  0x18);
+
+  digitalWrite(csPin_, LOW);     // PATABLE: [0] = off, [1] = on
+  SPI.transfer(REG_PATABLE | CC1101_BURST);
+  SPI.transfer(0x00);
+  SPI.transfer(kPaLevel);
+  for (int i = 2; i < 8; i++) SPI.transfer(0x00);
+  digitalWrite(csPin_, HIGH);
+}
+
+// Stream `numBytes` of txBits_ through the TX FIFO, refilling as it drains.
+// Returns true if the whole buffer was fed AND the FIFO fully drained
+// within their respective deadlines; false means the frame was truncated
+// and the caller must not treat the transmission as having succeeded.
+bool Cc1101Receiver::streamTxFifo(size_t numBytes) {
+  strobe(STROBE_SFTX);
+  writeReg(REG_PKTCTRL0, 0x02);  // infinite packet length while streaming
+
+  size_t first = numBytes < 60 ? numBytes : 60;
+  digitalWrite(csPin_, LOW);
+  SPI.transfer(REG_TXFIFO | CC1101_BURST);
+  for (size_t i = 0; i < first; i++) SPI.transfer(txBits_[i]);
+  digitalWrite(csPin_, HIGH);
+
+  size_t sent = first;
+  strobe(STROBE_STX);
+
+  const unsigned long fillDeadline = millis() + 2000;  // never spin forever
+  while (sent < numBytes && millis() < fillDeadline) {
+    if ((readStatusReg(REG_TXBYTES) & 0x7F) < 40) {
+      size_t chunk = numBytes - sent;
+      if (chunk > 20) chunk = 20;
+      digitalWrite(csPin_, LOW);
+      SPI.transfer(REG_TXFIFO | CC1101_BURST);
+      for (size_t i = 0; i < chunk; i++) SPI.transfer(txBits_[sent + i]);
+      digitalWrite(csPin_, HIGH);
+      sent += chunk;
+    }
+    delayMicroseconds(100);
+    platformFeedWatchdog();
+  }
+  bool filled = (sent >= numBytes);
+
+  // Separate deadline for drain: a fill that used most of its 2000ms budget
+  // must not leave the drain loop starved, since draining the last chunk
+  // out over the air still takes real time regardless of how the fill went.
+  const unsigned long drainDeadline = millis() + 2000;
+  while ((readStatusReg(REG_TXBYTES) & 0x7F) > 0 && millis() < drainDeadline) {
+    delayMicroseconds(100);
+    platformFeedWatchdog();
+  }
+  bool drained = ((readStatusReg(REG_TXBYTES) & 0x7F) == 0);
+
+  delayMicroseconds(Ev1527::kPeriodUs * 4);  // let the modulator drain
+  strobe(STROBE_SIDLE);
+
+  return filled && drained;
+}
+
+bool Cc1101Receiver::transmit(uint32_t code, int repeats) {
+  if (!initialised_) return false;
+  if (repeats < 1) repeats = 1;
+  if (repeats > kMaxTxRepeats) repeats = kMaxTxRepeats;
+
+  const size_t chips = Ev1527::renderBurst(code, repeats, txBits_, sizeof(txBits_));
+  if (chips == 0) return false;
+
+  // Stop capturing before touching the radio's mode, and drop whatever
+  // partial burst was mid-flight — those edges would decode as noise.
+  detachInterrupt(digitalPinToInterrupt(gdo0Pin_));
+  edgeCount_ = 0;
+
+  configureForTx();
+  bool ok = streamTxFifo((chips + 7) / 8);
+
+  // Restore receive. This is the regression that matters: a sensor decoded
+  // after a transmit is the proof the register restore is complete. Always
+  // run this, even if the FIFO didn't drain in time — the radio must not be
+  // left in TX mode either way.
+  configureFor433MhzOok();
+  strobe(STROBE_SRX);
+  edgeCount_ = 0;
+  lastEdgeMs_ = (uint32_t)(esp_timer_get_time() / 1000);
+  attachInterrupt(digitalPinToInterrupt(gdo0Pin_), isr, CHANGE);
+
+  if (!ok) {
+    Serial.printf("[cc1101] tx 0x%06lX x%d FAILED (FIFO did not drain within "
+                  "deadline — frame truncated)\n",
+                  (unsigned long)code, repeats);
+    return false;
+  }
+
+  Serial.printf("[cc1101] tx 0x%06lX x%d (%u chips)\n",
+                (unsigned long)code, repeats, (unsigned)chips);
+  return true;
 }
