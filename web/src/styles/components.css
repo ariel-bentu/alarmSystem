@@ -102,6 +102,35 @@
   }
 }
 
+/* ---------- Modal ---------- */
+
+/* Native <dialog> opened with showModal(), so focus trapping, Esc-to-close
+   and the top layer come from the platform rather than from JS. Margin auto
+   on all sides centres it; the UA default is top-aligned. */
+.modal {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0;
+  width: min(420px, calc(100vw - 2 * var(--sp-4)));
+  margin: auto;
+}
+.modal::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+.modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+/* The dialog is the whole point of the interaction, so its title should not
+   also carry the card heading's bottom margin. */
+.modal__body .card__title {
+  margin: 0;
+}
+
 /* ---------- Tabs (scrolling strip) ---------- */
 
 /* The nav has to survive a narrow viewport without hiding items. It scrolls

@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import {
   ref,
   onValue,
@@ -53,6 +53,17 @@ export default function SensorsTab() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [olderExpanded, setOlderExpanded] = useState(false);
+  const pairDialogRef = useRef<HTMLDialogElement>(null);
+
+  // Driven imperatively because showModal() is the only way to get the top
+  // layer, the ::backdrop, focus trapping and Esc-to-close — none of which
+  // happen if the element is merely rendered with an `open` attribute.
+  useEffect(() => {
+    const el = pairDialogRef.current;
+    if (!el) return;
+    if (pairForm && !el.open) el.showModal();
+    if (!pairForm && el.open) el.close();
+  }, [pairForm]);
 
   // Keep `now` fresh so recency highlights update without a page reload.
   useEffect(() => {
@@ -440,40 +451,65 @@ export default function SensorsTab() {
         )}
       </section>
 
-      {pairForm && (
-        <section className="card">
-          <div className="card__header">
+      {/* A modal, not a card appended to the page. Rendered inline it landed
+          BELOW the sensor list — frequently off-screen — so tapping Pair on a
+          row looked like nothing had happened, and the form was visually
+          detached from the row it belonged to.
+          `onCancel` covers Esc and `onClose` the backdrop//form-method=dialog
+          paths, so state can never disagree with what is on screen. */}
+      <dialog
+        ref={pairDialogRef}
+        className="modal"
+        onCancel={() => setPairForm(null)}
+        onClose={() => setPairForm(null)}
+      >
+        {pairForm && (
+          <form
+            method="dialog"
+            className="modal__body"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handlePair();
+            }}
+          >
             <h3 className="card__title">
               {t("cfg.sensors.pairTitle", { rfId: pairForm.rfId })}
             </h3>
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="pair-name">
-              {t("cfg.sensors.name")}
-            </label>
-            <input
-              id="pair-name"
-              className="input"
-              type="text"
-              value={pairName}
-              onChange={(e) => setPairName(e.target.value)}
-              placeholder={t("cfg.sensors.namePlaceholder")}
-            />
-          </div>
-          <div className="row">
-            <button
-              className="btn btn--primary"
-              onClick={handlePair}
-              disabled={!pairName.trim()}
-            >
-              {t("common.save")}
-            </button>
-            <button className="btn" onClick={() => setPairForm(null)}>
-              {t("common.cancel")}
-            </button>
-          </div>
-        </section>
-      )}
+            <div className="field">
+              <label className="field__label" htmlFor="pair-name">
+                {t("cfg.sensors.name")}
+              </label>
+              {/* autoFocus is right here: the dialog exists solely to collect
+                  this one value, and it opens in response to a deliberate tap. */}
+              <input
+                id="pair-name"
+                className="input"
+                type="text"
+                value={pairName}
+                autoFocus
+                onChange={(e) => setPairName(e.target.value)}
+                placeholder={t("cfg.sensors.namePlaceholder")}
+              />
+            </div>
+            <div className="row">
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={!pairName.trim()}
+              >
+                {t("common.save")}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setPairForm(null)}
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
     </div>
   );
 }
