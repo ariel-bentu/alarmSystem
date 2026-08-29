@@ -36,6 +36,11 @@ export const eventRef = (
   timestamp: number
 ): DatabaseReference => ref(rtdb, eventPath(projectId, sensorRfId, timestamp));
 
+export const stateLastSeenPath = (projectId: string) =>
+  `${projectId}/state/last_seen`;
+export const stateLastSeenRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, stateLastSeenPath(projectId));
+
 export const commandsPairPath = (projectId: string) =>
   `${projectId}/commands/pair`;
 export const stateSirenBasePath = (projectId: string) =>

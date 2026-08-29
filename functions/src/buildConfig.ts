@@ -59,12 +59,14 @@ function toRtdbCondition(
  * @param sensors - All sensors in the project (need rfId lookup)
  * @param armed - Current armed state
  * @param sirenDurationSec - Project-level siren duration
+ * @param sirenEnabled - Whether the device should sound the siren
  */
 export function buildRtdbConfig(
   rules: Rule[],
   sensors: Sensor[],
   armed: boolean,
-  sirenDurationSec: number
+  sirenDurationSec: number,
+  sirenEnabled = true
 ): RtdbConfig {
   const sensorMap = new Map<string, Sensor>();
   for (const s of sensors) {
@@ -108,5 +110,5 @@ export function buildRtdbConfig(
 
   const c: RtdbCondition[][] = r.map((rfId) => conditionsByRfId.get(rfId)!);
 
-  return { a: armed, d: sirenDurationSec, r, c };
+  return { a: armed, d: sirenDurationSec, e: sirenEnabled, r, c };
 }

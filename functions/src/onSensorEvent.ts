@@ -62,8 +62,11 @@ export const onSensorEvent = onValueCreated(
       .collection(`projects/${projectId}/events`)
       .add(alarmEvent);
 
-    // (c) Update sensor.lastSeen and batteryStatus
-    const updates: Record<string, unknown> = { lastSeen: Timestamp.fromMillis(timestamp) };
+    // (c) Update sensor.lastSeen, batteryStatus, and clear any dead-sensor alert.
+    const updates: Record<string, unknown> = {
+      lastSeen: Timestamp.fromMillis(timestamp),
+      deadAlertSentAt: null,
+    };
     if (data.battery_low) updates.batteryStatus = "low";
     await sensorDoc.ref.update(updates);
 

@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { onValue } from "firebase/database";
-import { collection, addDoc, Timestamp } from "firebase/firestore";
+import { collection, addDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { set } from "firebase/database";
 import { db } from "@/lib/firebase";
 import { commandsPairRef, stateSirenBaseRef } from "@/lib/rtdb";
 import { buildPairCommand, formatSirenAddress } from "./sirenPairing";
 import { useProject } from "@/app/ProjectProvider";
+import { projectDoc } from "@/lib/firestore";
 
 type PairingState =
   | "idle"
@@ -21,12 +22,20 @@ type PairingState =
 const TRANSMIT_WAIT_MS = 40_000;
 
 export default function SirenTab() {
-  const { project } = useProject();
+  const { project, reloadProject } = useProject();
   const projectId = project?.id ?? "";
 
   const [pairedAddress, setPairedAddress] = useState<number | null>(null);
   const [state, setState] = useState<PairingState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [sirenEnabled, setSirenEnabled] = useState<boolean>(
+    project?.sirenEnabled !== false
+  );
+  const [savingEnabled, setSavingEnabled] = useState(false);
+
+  useEffect(() => {
+    setSirenEnabled(project?.sirenEnabled !== false);
+  }, [project?.sirenEnabled]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -37,6 +46,18 @@ export default function SirenTab() {
     });
     return () => unsub();
   }, [projectId]);
+
+  const handleToggleEnabled = async () => {
+    if (!projectId) return;
+    setSavingEnabled(true);
+    const next = !sirenEnabled;
+    try {
+      await updateDoc(projectDoc(projectId), { sirenEnabled: next });
+      await reloadProject();
+    } finally {
+      setSavingEnabled(false);
+    }
+  };
 
   const handleStartPairing = async () => {
     if (!projectId) return;
@@ -76,6 +97,24 @@ export default function SirenTab() {
   return (
     <div>
       <h2>Siren</h2>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={sirenEnabled}
+            disabled={savingEnabled}
+            onChange={() => void handleToggleEnabled()}
+          />
+          <span>Siren enabled</span>
+        </label>
+        {!sirenEnabled && (
+          <p style={{ color: "#b45309", fontSize: 13, margin: "4px 0 0" }}>
+            Siren is disabled — the device will evaluate alarm rules but never
+            sound the siren or fire the relay.
+          </p>
+        )}
+      </div>
 
       <p style={{ opacity: 0.8, fontSize: 13 }}>
         <strong>Current paired address:</strong>{" "}
@@ -156,3 +195,4 @@ export default function SirenTab() {
     </div>
   );
 }
+

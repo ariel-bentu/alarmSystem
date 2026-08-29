@@ -40,6 +40,8 @@ export interface Sensor {
   pairedAt: Timestamp;
   batteryStatus: BatteryStatus;
   lastSeen: Timestamp | null;
+  deadSensorAlertDays: number; // -1 = never alert
+  deadAlertSentAt: Timestamp | null; // set when alert fires, cleared when sensor seen
 }
 
 export interface Profile {
@@ -142,6 +144,7 @@ export interface RtdbCondition {
 export interface RtdbConfig {
   a: boolean; // armed
   d: number; // siren_duration_sec
+  e: boolean; // siren_enabled
   r: string[]; // rfIds, by index
   c: RtdbCondition[][]; // conditions per sensor, index-aligned with r
 }

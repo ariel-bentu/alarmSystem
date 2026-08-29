@@ -12,6 +12,7 @@ bool parseConfigJson(const char* json, Config* out) {
 
   out->armed = doc["a"] | false;
   out->sirenDurationSec = doc["d"] | 0;
+  out->sirenEnabled = doc["e"] | true;
 
   JsonArray r = doc["r"];
   JsonArray c = doc["c"];

@@ -84,6 +84,8 @@ constexpr unsigned long kDnsUsersStartFallbackMs = 60000UL;  // start anyway if 
 // iterations per boot — see handleSensorEvent()'s note on why frame size
 // in loop() matters on this hardware.
 bool sirenAddressReported = false;
+unsigned long lastHeartbeatMs = 0;
+static constexpr unsigned long kHeartbeatIntervalMs = 10000UL;
 
 __attribute__((noinline))
 void reportSirenAddressOnce() {
@@ -143,7 +145,7 @@ void startNtpSyncIfNeeded() {
 __attribute__((noinline))
 void handleSensorEvent(const char* rfId, unsigned long now, bool batteryLow = false, int rssi = 0) {
   bool shouldFire = alarmState.onSensorEvent(rfId, now);
-  if (shouldFire) {
+  if (shouldFire && config.sirenEnabled) {
     siren.turnOn(config.sirenDurationSec, now);
   }
   cloudClient.reportEvent(rfId, "trigger", batteryLow, rssi);
@@ -163,6 +165,7 @@ void applyArmedCommand(bool newArmed) {
     siren.turnOff();
   }
   eepromStore.save(armed, localWebEnabled, config);
+  cloudClient.reportArmedState(armed);
 }
 
 // The CC1101 poll and the config-update handler both carry large locals
@@ -565,7 +568,7 @@ void loop() {
 
   pollCc1101(now);
 
-  if (alarmState.tickEntryDelay(now)) {
+  if (alarmState.tickEntryDelay(now) && config.sirenEnabled) {
     siren.turnOn(config.sirenDurationSec, now);
   }
   siren.tick(now);
@@ -585,6 +588,11 @@ void loop() {
   // no-op then anyway. Only mark it done once the call has actually fired.
   if (!sirenAddressReported && cloudClient.isReady()) {
     reportSirenAddressOnce();
+  }
+
+  if (cloudClient.isReady() && now - lastHeartbeatMs >= kHeartbeatIntervalMs) {
+    lastHeartbeatMs = now;
+    cloudClient.reportHeartbeat();
   }
 
   bool newArmed;

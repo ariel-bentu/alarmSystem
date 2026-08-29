@@ -52,6 +52,7 @@ export default function CreateProjectPage() {
         serverArmed: false,
         serverActions: { sendTelegram: true, triggerSiren: false },
         sirenDurationSec: 120,
+        sirenEnabled: true,
         notifyEverySensorTrigger: true,
         device: {
           name: "edge-1",

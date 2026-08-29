@@ -25,6 +25,20 @@ export const onRuleChange = onDocumentWritten(
   }
 );
 
+// Trigger on project-level changes that affect the device config (e.g. sirenEnabled)
+export const onProjectConfigChange = onDocumentWritten(
+  { document: "projects/{projectId}", region: "europe-west1" },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after) return;
+    // Only rebuild when sirenEnabled changes — other project fields don't affect RTDB config.
+    if (before.sirenEnabled === after.sirenEnabled) return;
+    const projectId = event.params.projectId;
+    await rebuildConfig(projectId);
+  }
+);
+
 async function rebuildConfig(projectId: string): Promise<void> {
   // Find the active-on-device profile
   const profileSnap = await db
@@ -42,6 +56,7 @@ async function rebuildConfig(projectId: string): Promise<void> {
     await rtdb.ref(`${projectId}/config`).set({
       a: false,
       d: 120,
+      e: true,
     });
     return;
   }
@@ -62,12 +77,15 @@ async function rebuildConfig(projectId: string): Promise<void> {
   const armedSnap = await rtdb.ref(`${projectId}/state/armed`).get();
   const armed = armedSnap.val() === true;
 
-  // Get project for sirenDurationSec
+  // Get project for sirenDurationSec and sirenEnabled
   const projectDoc = await db.doc(`projects/${projectId}`).get();
   const sirenDurationSec = projectDoc.exists
     ? (projectDoc.data()?.sirenDurationSec ?? 120)
     : 120;
+  const sirenEnabled = projectDoc.exists
+    ? (projectDoc.data()?.sirenEnabled !== false)
+    : true;
 
-  const config = buildRtdbConfig(rules, sensors, armed, sirenDurationSec);
+  const config = buildRtdbConfig(rules, sensors, armed, sirenDurationSec, sirenEnabled);
   await rtdb.ref(`${projectId}/config`).set(config);
 }

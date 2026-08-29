@@ -43,6 +43,7 @@ export interface Project {
   serverArmed: boolean;
   serverActions: ServerActions;
   sirenDurationSec: number;
+  sirenEnabled: boolean; // false = device never fires the siren
   notifyEverySensorTrigger: boolean; // Telegram on every sensor trigger (battery/tamper always notify)
   device: DeviceInfo;
 }
@@ -91,6 +92,8 @@ export interface Sensor {
   pairedAt: Timestamp;
   batteryStatus: BatteryStatus;
   lastSeen: Timestamp | null;
+  deadSensorAlertDays: number; // -1 = never alert
+  deadAlertSentAt: Timestamp | null; // set when alert fires, cleared when sensor seen
 }
 
 export interface Condition {
@@ -167,6 +170,7 @@ export interface RtdbCondition {
 export interface RtdbConfig {
   a: boolean; // armed
   d: number; // siren_duration_sec
+  e: boolean; // siren_enabled (false = never fire)
   r: string[];
   c: RtdbCondition[][];
 }

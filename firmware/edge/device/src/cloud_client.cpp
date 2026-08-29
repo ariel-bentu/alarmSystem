@@ -689,3 +689,25 @@ void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
   }
   closeDataClient();
 }
+
+void CloudClient::reportArmedState(bool armed) {
+  if (!isReady()) return;
+  if (!openDataClient()) return;
+  String path = String("/") + projectId_ + "/state/armed";
+  object_t payload(armed ? "true" : "false");
+  bool ok = database_.set<object_t>(*dataClient_, path, payload);
+  Serial.printf("cloud: reportArmedState %s %s (code %d)\n", armed ? "true" : "false",
+                ok ? "ok" : "FAILED", dataClient_->lastError().code());
+}
+
+void CloudClient::reportHeartbeat() {
+  if (!isReady()) return;
+  if (!openDataClient()) return;
+  String path = String("/") + projectId_ + "/state/last_seen";
+  char tsBuf[12];
+  snprintf(tsBuf, sizeof(tsBuf), "%lu", (unsigned long)(millis() / 1000));
+  object_t payload(tsBuf);
+  bool ok = database_.set<object_t>(*dataClient_, path, payload);
+  Serial.printf("cloud: heartbeat uptime=%s %s (code %d)\n", tsBuf, ok ? "ok" : "FAILED",
+                dataClient_->lastError().code());
+}

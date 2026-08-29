@@ -55,6 +55,16 @@ class CloudClient {
   void reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
                    const char* value = nullptr);
 
+  // Write armed state to /{projectId}/state/armed so the web UI reflects
+  // device-side arm/disarm (local web UI, physical button, etc.).
+  // No-op if not yet authenticated.
+  void reportArmedState(bool armed);
+
+  // Write current epoch seconds to /{projectId}/state/last_seen.
+  // Call every ~10s from loop() to drive the web UI's online indicator.
+  // No-op if not yet authenticated.
+  void reportHeartbeat();
+
   // Registered once in begin(); main.cpp polls these via getters rather
   // than a callback, to keep main.cpp's control flow linear.
   bool consumeArmedCommand(bool* armed);    // true if a new value arrived since last call

@@ -4,10 +4,12 @@ import { Link } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 import { useProject } from "./ProjectProvider";
 import { DEV_SIMULATOR } from "@/lib/firebase";
+import { useDeviceState } from "@/features/operations/useDeviceState";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
   const { project, role, memberships, selectProject } = useProject();
+  const { deviceOnline } = useDeviceState(project?.id);
 
   return (
     <div>
@@ -21,6 +23,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
         }}
       >
         <strong>{project?.name ?? "Alarm"}</strong>
+        <span
+          title={deviceOnline ? "Device online" : "Device offline or no heartbeat yet"}
+          style={{
+            display: "inline-block",
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            background: deviceOnline ? "#22c55e" : "#d1d5db",
+            flexShrink: 0,
+          }}
+        />
         {memberships.length > 1 && (
           <select
             value={project?.id ?? ""}
@@ -33,11 +46,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
             ))}
           </select>
         )}
-        {/* Every RTDB read is namespaced by this id (/{projectId}/events,
-            /config, /commands), and the device only writes to ONE of them.
-            Showing it makes "am I looking at the project my device talks
-            to?" answerable at a glance instead of by guessing — with it
-            hidden, a wrong selection looks identical to a broken sensor. */}
         {project?.id && (
           <code
             title="Active projectId — RTDB paths are namespaced under this"
@@ -61,3 +69,4 @@ export function AppLayout({ children }: { children: ReactNode }) {
     </div>
   );
 }
+

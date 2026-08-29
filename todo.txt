@@ -1,42 +1,7 @@
+- paired sensor: also sort by last seen, green if just now and updated as the event comes
+- no telegram on sensor open
+- when alarm goes off - the condition that caused it should be sent in telegram
+- mass jam of rf alert
+- heart beat
 
-BLOCKED ON HARDWARE (ESP32 ordered 2026-08-20)
-  A. Cloud EVENT WRITES don't work on the ESP8266 — heap fragmentation.
-     Mint, RTDB auth and /config + /commands polling all work; only
-     reportEvent()'s TLS write is disabled (kMinBlockForEventWrite floor),
-     because attempting it below ~5KB contiguous RESETS the board rather
-     than failing cleanly. After the first TLS cycle the largest free block
-     settles at ~3.4KB and never recovers, though ~10KB stays free.
-     Consequence today: no Firestore timeline entries and no Telegram
-     alerts for real sensor triggers. Local alarm logic, siren, EEPROM
-     state and LAN arm/disarm are unaffected.
-     Full measurements + what was already tried: cloud_client.cpp top note.
-     Options: ESP32 migration (planned), or route events through the
-     plain-HTTP deviceIngest function instead of a direct TLS RTDB write.
-  B. Verify remote arm/disarm end to end. Polling delivers /commands
-     (verified: commands.armed -> true reached the device), but the full
-     round trip from the web UI hasn't been watched through to the siren.
-  C. CC1101 not wired — RF decode untested against real Kerui packets;
-     battery bit position in the 24-bit packet still unconfirmed.
-  D. Relay siren untested — no physical relay/siren wired. RF siren control
-     (CC1101 EV1527 TX) is now in the firmware and the siren is paired hub-free,
-     but the GPIO relay path in RelaySiren has never driven an actual load.
-     Optional to wire now that the RF path works.
 
-WEB / BACKEND
-  1. Delete-project button in Settings — guard + purge subcollections +
-     strip from members' users.tenants. You asked earlier; not built.
-  3. Telegram webhook not registered — bot won't answer /arm /status.
-  4. RTDB events (/{projectId}/events/{rfId}/{timestamp}) are never deleted
-     after onSensorEvent mirrors them to Firestore — accumulate forever,
-     stored twice with no expiry on either side. NOTE: unpaired sensors
-     deliberately rely on these RTDB nodes for pairing discovery, so any
-     cleanup must not touch rfIds that have no Firestore sensor yet.
-  5. old events archive
-  6. after pairing, the last seen can be from latest event
-  7. Project switcher only renders when memberships.length > 1
-     (AppLayout.tsx). Fine today, but if you ever end up on the wrong
-     single project there's no way to switch. The active projectId is now
-     shown in the header, so at least it's diagnosable.
-  8. Two projects exist in RTDB: acdc2394-... (device's, thin {a,d,r,c}
-     config) and 2775a07d-... (stale, old verbose {armed,siren_duration_sec}
-     format). Decide whether to delete the stale one.
