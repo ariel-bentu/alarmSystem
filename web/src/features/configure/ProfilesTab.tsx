@@ -30,7 +30,19 @@ import RuleEditor from "./RuleEditor";
 import { useT } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/en";
 
-export default function ProfilesTab() {
+interface ProfilesTabProps {
+  /** Whether the create-profile dialog is open. Owned by ConfigurePage, which
+   *  renders the `+` button beside the tab strip — the button and the dialog
+   *  live in different components, so the open state is the only thing that
+   *  crosses between them. */
+  creating?: boolean;
+  onCreatingChange?: (creating: boolean) => void;
+}
+
+export default function ProfilesTab({
+  creating = false,
+  onCreatingChange,
+}: ProfilesTabProps) {
   const t = useT();
   const { project } = useProject();
   const projectId = project?.id ?? "";
@@ -64,6 +76,7 @@ export default function ProfilesTab() {
 
   const editDialogRef = useRef<HTMLDialogElement>(null);
   const addDialogRef = useRef<HTMLDialogElement>(null);
+  const createProfileDialogRef = useRef<HTMLDialogElement>(null);
 
   // Adding a rule discards several fields, so closing has to go through one
   // place — otherwise Esc and the backdrop would leave half-filled state
@@ -92,6 +105,13 @@ export default function ProfilesTab() {
     if (addingRuleProfile && !el.open) el.showModal();
     if (!addingRuleProfile && el.open) el.close();
   }, [addingRuleProfile]);
+
+  useEffect(() => {
+    const el = createProfileDialogRef.current;
+    if (!el) return;
+    if (creating && !el.open) el.showModal();
+    if (!creating && el.open) el.close();
+  }, [creating]);
 
   const loadData = async () => {
     if (!projectId) return;
@@ -153,6 +173,7 @@ export default function ProfilesTab() {
     }
 
     setNewProfileName("");
+    onCreatingChange?.(false);
     await loadData();
   };
 
@@ -358,26 +379,58 @@ export default function ProfilesTab() {
 
   return (
     <div>
-      <section className="card">
-        {/* No heading: the "Profiles" sub-tab above already names this. */}
-        <div className="row">
-          <input
-            className="input"
-            type="text"
-            value={newProfileName}
-            onChange={(e) => setNewProfileName(e.target.value)}
-            placeholder={t("cfg.profiles.namePlaceholder")}
-            aria-label={t("cfg.profiles.namePlaceholder")}
-          />
-          <button
-            className="btn btn--primary"
-            onClick={handleCreateProfile}
-            disabled={!newProfileName.trim()}
-          >
-            {t("cfg.profiles.createProfile")}
-          </button>
+      {/* Creating a profile is occasional; the profiles themselves are what
+          the tab is for. A permanent form pushed them down the page, so this
+          is a modal opened by the `+` beside the tab strip. */}
+      <dialog
+        ref={createProfileDialogRef}
+        className="modal"
+        onCancel={() => onCreatingChange?.(false)}
+        onClose={() => onCreatingChange?.(false)}
+      >
+        <div className="modal__body">
+          <h3 className="card__title">{t("cfg.profiles.createProfile")}</h3>
+          <div className="field">
+            <label className="field__label" htmlFor="new-profile-name">
+              {t("cfg.profiles.renameLabel")}
+            </label>
+            <input
+              id="new-profile-name"
+              className="input"
+              type="text"
+              value={newProfileName}
+              autoFocus
+              onChange={(e) => setNewProfileName(e.target.value)}
+              placeholder={t("cfg.profiles.namePlaceholder")}
+              // Enter creates, Escape abandons — <dialog> already handles
+              // Escape, so only Enter needs wiring.
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newProfileName.trim()) {
+                  void handleCreateProfile();
+                }
+              }}
+            />
+          </div>
+          <div className="row">
+            <button
+              className="btn btn--primary"
+              onClick={() => void handleCreateProfile()}
+              disabled={!newProfileName.trim()}
+            >
+              {t("cfg.profiles.createProfile")}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setNewProfileName("");
+                onCreatingChange?.(false);
+              }}
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
         </div>
-      </section>
+      </dialog>
 
       {profiles.map((profile) => (
         <section className="card" key={profile.id}>

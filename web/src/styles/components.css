@@ -202,9 +202,32 @@
    horizontally, and .tabs-wrap paints fade masks at the edges so it is
    visually obvious there is more; the active tab is scrolled into view by
    ScrollingTabs.tsx. */
+/* Tab strip plus an optional trailing action (e.g. "+ new profile"). The
+   action is a SIBLING of the strip rather than a child: .tabs is the
+   role="tablist", where a non-tab child is invalid, and anything inside it
+   scrolls out of reach. */
+.tabs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Fixed size so the strip — not the button — absorbs the overflow. */
+.tabs-row__action {
+  flex: none;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  padding-inline: var(--sp-3);
+}
+
 .tabs-wrap {
   position: relative;
   min-width: 0;
+}
+
+/* Only meaningful inside .tabs-row, where the strip must take the slack. */
+.tabs-row .tabs-wrap {
+  flex: 1;
 }
 
 .tabs {
