@@ -10,6 +10,7 @@ export interface SettingsForm {
   botToken: string;
   chatId: string;
   sirenDurationSec: number;
+  timezone: string;
   sendTelegram: boolean;
   triggerSiren: boolean;
   notifyEverySensorTrigger: boolean;
@@ -21,6 +22,7 @@ export interface SettingsSource {
   telegramBotToken: string;
   telegramChatId: string;
   sirenDurationSec: number;
+  timezone?: string;
   serverActions: { sendTelegram: boolean; triggerSiren: boolean };
   notifyEverySensorTrigger?: boolean;
 }
@@ -31,6 +33,12 @@ export function formFromProject(project: SettingsSource): SettingsForm {
     botToken: project.telegramBotToken,
     chatId: project.telegramChatId,
     sirenDurationSec: project.sirenDurationSec,
+    // Projects predating the field fall back to the BROWSER's zone, not UTC.
+    // Offering UTC would invite the user to save it, producing exactly the
+    // silent hour-long drift the zone exists to prevent; the browser's zone
+    // is almost always right, since the alarm is in the house they are in.
+    timezone:
+      project.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
     sendTelegram: project.serverActions.sendTelegram,
     triggerSiren: project.serverActions.triggerSiren,
     // Absent means enabled — projects predating the field must not read as
@@ -53,6 +61,7 @@ export function isDirty(saved: SettingsForm, current: SettingsForm): boolean {
     saved.botToken.trim() !== current.botToken.trim() ||
     saved.chatId.trim() !== current.chatId.trim() ||
     saved.sirenDurationSec !== current.sirenDurationSec ||
+    saved.timezone !== current.timezone ||
     saved.sendTelegram !== current.sendTelegram ||
     saved.triggerSiren !== current.triggerSiren ||
     saved.notifyEverySensorTrigger !== current.notifyEverySensorTrigger

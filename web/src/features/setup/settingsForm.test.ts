@@ -6,6 +6,7 @@ const base: SettingsForm = {
   botToken: "tok",
   chatId: "-100",
   sirenDurationSec: 120,
+  timezone: "Asia/Jerusalem",
   sendTelegram: true,
   triggerSiren: false,
   notifyEverySensorTrigger: true,
@@ -57,6 +58,7 @@ describe("formFromProject", () => {
       telegramBotToken: "tok",
       telegramChatId: "-100",
       sirenDurationSec: 90,
+      timezone: "Asia/Jerusalem",
       serverActions: { sendTelegram: true, triggerSiren: true },
       notifyEverySensorTrigger: false,
     });
@@ -65,6 +67,7 @@ describe("formFromProject", () => {
       botToken: "tok",
       chatId: "-100",
       sirenDurationSec: 90,
+      timezone: "Asia/Jerusalem",
       sendTelegram: true,
       triggerSiren: true,
       notifyEverySensorTrigger: false,
@@ -83,5 +86,29 @@ describe("formFromProject", () => {
       notifyEverySensorTrigger: undefined,
     });
     expect(form.notifyEverySensorTrigger).toBe(true);
+  });
+
+  // Projects predating the timezone field fall back to the browser's zone
+  // rather than to UTC. Showing UTC would invite the user to save it, which
+  // is exactly the silent-hour-drift outcome the zone exists to prevent —
+  // whereas the browser's zone is almost always the right answer.
+  it("defaults a missing timezone to the browser's zone", () => {
+    const form = formFromProject({
+      name: "Home",
+      telegramBotToken: "",
+      telegramChatId: "",
+      sirenDurationSec: 120,
+      serverActions: { sendTelegram: false, triggerSiren: false },
+      timezone: undefined,
+    });
+    expect(form.timezone).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone
+    );
+  });
+});
+
+describe("isDirty — timezone", () => {
+  it("detects a changed timezone", () => {
+    expect(isDirty(base, { ...base, timezone: "Europe/London" })).toBe(true);
   });
 });

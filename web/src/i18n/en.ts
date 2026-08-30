@@ -293,6 +293,9 @@ export const en = {
   "sim.rfId": "RF ID",
   "sim.fire": "Fire event",
   "sim.fired": "Event sent.",
+  "settings.timezone": "Time zone",
+  "settings.timezoneHelp":
+    "Schedules resolve their times in this zone. Daylight saving is handled automatically.",
 
   // ---- Schedules ----
   "sched.title": "Schedules",

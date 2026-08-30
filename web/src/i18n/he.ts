@@ -290,6 +290,9 @@ export const he: Record<TranslationKey, string> = {
   "sim.rfId": "מזהה RF",
   "sim.fire": "שליחת אירוע",
   "sim.fired": "האירוע נשלח.",
+  "settings.timezone": "אזור זמן",
+  "settings.timezoneHelp":
+    "התזמונים מתייחסים לשעות באזור זה. שעון קיץ מטופל אוטומטית.",
 
   // ---- Schedules ----
   "sched.title": "תזמונים",

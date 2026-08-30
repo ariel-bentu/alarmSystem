@@ -37,6 +37,18 @@ function Help({ text, label }: { text: string; label: string }) {
   );
 }
 
+/** IANA zones for the picker, with the project's current value guaranteed
+ *  present. Without that union a zone this browser does not enumerate would
+ *  not match any <option>, and the select would render as the first entry —
+ *  silently rewriting the saved zone on the next save. */
+function timezoneOptions(current: string): string[] {
+  const all =
+    typeof Intl.supportedValuesOf === "function"
+      ? Intl.supportedValuesOf("timeZone")
+      : [];
+  return all.includes(current) ? all : [current, ...all];
+}
+
 export default function SettingsPage() {
   const t = useT();
   const { project, role, reloadProject } = useProject();
@@ -77,6 +89,8 @@ export default function SettingsPage() {
     setNotice(null);
   };
 
+  const timezones = timezoneOptions(form.timezone);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dirty) return;
@@ -89,6 +103,7 @@ export default function SettingsPage() {
         telegramBotToken: form.botToken.trim(),
         telegramChatId: form.chatId.trim(),
         sirenDurationSec: form.sirenDurationSec,
+        timezone: form.timezone,
         notifyEverySensorTrigger: form.notifyEverySensorTrigger,
         serverActions: {
           sendTelegram: form.sendTelegram,
@@ -132,6 +147,32 @@ export default function SettingsPage() {
               onChange={(e) => setField("name", e.target.value)}
               required
             />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="project-timezone">
+              {t("settings.timezone")}
+              <Help
+                text={t("settings.timezoneHelp")}
+                label={t("settings.help")}
+              />
+            </label>
+            {/* A select, not a text input: a typo'd zone name would fall back
+                to UTC on the server and shift every schedule by hours without
+                any visible error. Picking from the real IANA list makes that
+                unrepresentable. */}
+            <select
+              id="project-timezone"
+              className="input"
+              value={form.timezone}
+              onChange={(e) => setField("timezone", e.target.value)}
+            >
+              {timezones.map((tz) => (
+                <option key={tz} value={tz}>
+                  {tz}
+                </option>
+              ))}
+            </select>
           </div>
         </section>
 
