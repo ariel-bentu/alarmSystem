@@ -293,6 +293,13 @@ export const en = {
   "sim.rfId": "RF ID",
   "sim.fire": "Fire event",
   "sim.fired": "Event sent.",
+  "cfg.rule.always": "Always active — fires even when disarmed",
+  "cfg.rule.alwaysHelp":
+    "For smoke or gas detectors. Ignores arm state, but still respects the siren setting. Applies to one sensor with an immediate trigger.",
+  "cfg.rule.alwaysMultiHint":
+    "Always active applies to a single sensor. Remove the extra sensors to enable it.",
+  "cfg.rule.alwaysBadge": "always",
+  "ops.alwaysRules": "{count} always-on rule(s) fire even while disarmed",
   "settings.timezone": "Time zone",
   "settings.timezoneHelp":
     "Schedules resolve their times in this zone. Daylight saving is handled automatically.",

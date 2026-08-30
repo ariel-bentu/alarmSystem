@@ -60,6 +60,7 @@ export default function ProfilesTab() {
     type: "immediate",
   });
   const [newRuleName, setNewRuleName] = useState("");
+  const [newRuleAlways, setNewRuleAlways] = useState(false);
 
   const editDialogRef = useRef<HTMLDialogElement>(null);
   const addDialogRef = useRef<HTMLDialogElement>(null);
@@ -72,6 +73,7 @@ export default function ProfilesTab() {
     setNewRuleSensors([]);
     setNewRuleCondition({ type: "immediate" });
     setNewRuleName("");
+    setNewRuleAlways(false);
   };
 
   // showModal() is what puts the dialog in the top layer and gives it the
@@ -229,13 +231,16 @@ export default function ProfilesTab() {
       name: newRuleName.trim(),
       sensors: newRuleSensors,
       condition: newRuleCondition,
+      // Spread only when true, so ordinary rules do not each carry a dead
+      // `always: false` field.
+      ...(newRuleAlways ? { always: true } : {}),
     };
     await addDoc(rulesCol(projectId, addingRuleProfile), newRule as Rule);
 
-    setAddingRuleProfile(null);
-    setNewRuleSensors([]);
-    setNewRuleCondition({ type: "immediate" });
-    setNewRuleName("");
+    // Reuse closeAddRule rather than repeating the field list: a reset that
+    // misses a field leaks it into the NEXT rule added, which for `always`
+    // would silently mark an ordinary rule always-on.
+    closeAddRule();
     await loadData();
   };
 
@@ -465,6 +470,10 @@ export default function ProfilesTab() {
                   </span>
                   <span className="rule-row__cond muted">
                     {t(`cfg.rule.type.${rule.condition.type}` as TranslationKey)}
+                    {/* An always-rule behaves differently from its siblings,
+                        so the list must not show them as identical. */}
+                    {rule.always === true &&
+                      ` · ${t("cfg.rule.alwaysBadge")}`}
                   </span>
                   <button
                     className="btn btn--sm"
@@ -541,6 +550,13 @@ export default function ProfilesTab() {
             selectedSensors={sensors
               .filter((s) => editingRule.rule.sensors.includes(s.id))
               .map((s) => ({ id: s.id, name: s.name }))}
+            always={editingRule.rule.always === true}
+            onAlwaysChange={(always) =>
+              setEditingRule({
+                ...editingRule,
+                rule: { ...editingRule.rule, always },
+              })
+            }
             onChange={(condition) =>
               setEditingRule({
                 ...editingRule,
@@ -605,6 +621,8 @@ export default function ProfilesTab() {
               .filter((s) => newRuleSensors.includes(s.id))
               .map((s) => ({ id: s.id, name: s.name }))}
             onChange={(c) => setNewRuleCondition(c)}
+            always={newRuleAlways}
+            onAlwaysChange={setNewRuleAlways}
           />
           <div className="row">
             <button className="btn btn--primary" onClick={handleAddRule}>

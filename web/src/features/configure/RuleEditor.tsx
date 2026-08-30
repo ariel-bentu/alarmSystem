@@ -24,6 +24,9 @@ interface RuleEditorProps {
   onChange: (condition: Condition) => void;
   /** Sensors selected for this rule — used to render per-sensor counts. */
   selectedSensors?: { id: string; name: string }[];
+  /** Rule-level always-on flag. Lives on the rule, not the condition. */
+  always?: boolean;
+  onAlwaysChange?: (always: boolean) => void;
 }
 
 const CONDITION_TYPES: { value: ConditionType; label: string }[] = [
@@ -37,6 +40,8 @@ export default function RuleEditor({
   condition,
   onChange,
   selectedSensors = [],
+  always = false,
+  onAlwaysChange,
 }: RuleEditorProps) {
   const t = useT();
   const [localCondition, setLocalCondition] = useState<Condition>(condition);
@@ -82,28 +87,65 @@ export default function RuleEditor({
 
   return (
     <div className="stack">
-      <div className="field">
-        <label className="field__label" htmlFor="condition-type">
-          {t("cfg.rule.conditionType")}
-        </label>
-        <select
-          id="condition-type"
-          className="input"
-          value={localCondition.type}
-          disabled={isMulti}
-          onChange={(e) => handleTypeChange(e.target.value as ConditionType)}
-        >
-          {CONDITION_TYPES.filter((ct) =>
-            isMulti ? ct.value === "multi_sensor" : ct.value !== "multi_sensor"
-          ).map((ct) => (
-            <option key={ct.value} value={ct.value}>
-              {t(`cfg.rule.type.${ct.value}` as TranslationKey)}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Hidden while `always` is ticked: an always-rule is single-sensor
+          immediate by definition, so offering the choice would only allow an
+          invalid combination. */}
+      {!always && (
+        <div className="field">
+          <label className="field__label" htmlFor="condition-type">
+            {t("cfg.rule.conditionType")}
+          </label>
+          <select
+            id="condition-type"
+            className="input"
+            value={localCondition.type}
+            disabled={isMulti}
+            onChange={(e) => handleTypeChange(e.target.value as ConditionType)}
+          >
+            {CONDITION_TYPES.filter((ct) =>
+              isMulti ? ct.value === "multi_sensor" : ct.value !== "multi_sensor"
+            ).map((ct) => (
+              <option key={ct.value} value={ct.value}>
+                {t(`cfg.rule.type.${ct.value}` as TranslationKey)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {isMulti && <p className="muted">{t("cfg.rule.multiHint")}</p>}
+
+      {/* Ticking `always` coerces the rule to a single-sensor immediate
+          condition — the same coercion style as the sensor-count effect
+          above, so an invalid combination is unrepresentable rather than
+          rejected on save.
+
+          The two coercions must not fight: with 2+ sensors selected, sensor
+          count wins and `always` is disabled. */}
+      {onAlwaysChange && (
+        <>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={always}
+              disabled={isMulti}
+              onChange={(e) => {
+                const next = e.target.checked;
+                if (next && localCondition.type !== "immediate") {
+                  const c = defaultsFor("immediate");
+                  setLocalCondition(c);
+                  onChange(c);
+                }
+                onAlwaysChange(next);
+              }}
+            />
+            <span>{t("cfg.rule.always")}</span>
+          </label>
+          <p className="muted">
+            {isMulti ? t("cfg.rule.alwaysMultiHint") : t("cfg.rule.alwaysHelp")}
+          </p>
+        </>
+      )}
 
       {localCondition.type === "count_in_window" && (
         <div className="row">

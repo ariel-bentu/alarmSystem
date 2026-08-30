@@ -290,6 +290,13 @@ export const he: Record<TranslationKey, string> = {
   "sim.rfId": "מזהה RF",
   "sim.fire": "שליחת אירוע",
   "sim.fired": "האירוע נשלח.",
+  "cfg.rule.always": "פעיל תמיד — מופעל גם כשהמערכת מנוטרלת",
+  "cfg.rule.alwaysHelp":
+    "לגלאי עשן או גז. מתעלם ממצב הדריכה, אך עדיין כפוף להגדרת הצופר. חל על חיישן אחד עם הפעלה מיידית.",
+  "cfg.rule.alwaysMultiHint":
+    "פעיל תמיד חל על חיישן אחד. הסירו את החיישנים הנוספים כדי לאפשר זאת.",
+  "cfg.rule.alwaysBadge": "תמיד",
+  "ops.alwaysRules": "{count} כללים פעילים תמיד, גם בזמן נטרול",
   "settings.timezone": "אזור זמן",
   "settings.timezoneHelp":
     "התזמונים מתייחסים לשעות באזור זה. שעון קיץ מטופל אוטומטית.",
