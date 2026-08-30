@@ -171,6 +171,23 @@
   white-space: nowrap;
 }
 
+/* An always-on rule fires while the system is disarmed. That is a safety-
+   relevant difference from its siblings, so it gets a tag rather than muted
+   text — and unlike .rule-row__cond it stays visible on narrow screens,
+   where hiding it would be worst. */
+.rule-row__always {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  padding-inline: var(--sp-2);
+  padding-block: 2px;
+  border-radius: 999px;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+}
+
 /* Narrow screens: the condition is the first thing to go, since the name and
    the actions are what the row is for. */
 @media (max-width: 30rem) {

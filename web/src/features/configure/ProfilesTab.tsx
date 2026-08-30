@@ -189,10 +189,14 @@ export default function ProfilesTab() {
       return;
     }
 
+    // `always` is written explicitly as a boolean rather than spread in only
+    // when true: unlike creation, an update must be able to turn it OFF, and
+    // omitting the key would leave the stored `true` untouched.
     await updateDoc(ruleDoc(projectId, profileId, rule.id), {
       name: rule.name,
       sensors: rule.sensors,
       condition: rule.condition,
+      always: rule.always === true,
     });
     setEditingRule(null);
     await loadData();
@@ -470,11 +474,15 @@ export default function ProfilesTab() {
                   </span>
                   <span className="rule-row__cond muted">
                     {t(`cfg.rule.type.${rule.condition.type}` as TranslationKey)}
-                    {/* An always-rule behaves differently from its siblings,
-                        so the list must not show them as identical. */}
-                    {rule.always === true &&
-                      ` · ${t("cfg.rule.alwaysBadge")}`}
                   </span>
+                  {/* An always-rule fires while the system is DISARMED, so it
+                      must not read as just another muted detail next to the
+                      condition type — it gets its own high-contrast tag. */}
+                  {rule.always === true && (
+                    <span className="rule-row__always">
+                      {t("cfg.rule.alwaysBadge")}
+                    </span>
+                  )}
                   <button
                     className="btn btn--sm"
                     onClick={() =>
