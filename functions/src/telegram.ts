@@ -5,17 +5,28 @@ import { Timestamp } from "firebase-admin/firestore";
 
 /**
  * Send a message via Telegram Bot API using global fetch (Node 20).
+ *
+ * `silent` sets disable_notification: the message lands in the chat with no
+ * sound or vibration. Used for notices (arm/disarm, command replies); alarms
+ * and dead-sensor alerts stay loud so the loud channel keeps its meaning.
  */
 export async function sendTelegram(
   botToken: string,
   chatId: string,
-  text: string
+  text: string,
+  silent = false
 ): Promise<void> {
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const payload: Record<string, unknown> = {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+  };
+  if (silent) payload.disable_notification = true;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const body = await res.text();

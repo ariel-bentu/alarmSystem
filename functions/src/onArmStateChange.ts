@@ -61,7 +61,8 @@ export const onArmStateChange = onValueWritten(
     await sendTelegram(
       project.telegramBotToken,
       project.telegramChatId,
-      formatArmState(armed, "Device", profileName)
+      formatArmState(armed, "Device", profileName),
+      true // arm/disarm is a notice, not a demand for attention
     );
   }
 );

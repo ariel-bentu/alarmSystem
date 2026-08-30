@@ -55,7 +55,8 @@ export const onServerArmChange = onDocumentUpdated(
     await sendTelegram(
       after.telegramBotToken,
       after.telegramChatId,
-      formatArmState(armed, "Server", profileName)
+      formatArmState(armed, "Server", profileName),
+      true // see onArmStateChange
     );
   }
 );

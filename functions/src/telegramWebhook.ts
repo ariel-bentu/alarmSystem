@@ -47,35 +47,38 @@ export const telegramWebhook = onRequest(
 
     const { cmd } = parseCommand(message.text);
 
+    // Every reply here is silent: the user just typed the command, so a
+    // buzz confirming their own action adds nothing.
     switch (cmd) {
       case "arm": {
         await db.doc(`projects/${projectId}`).update({ serverArmed: true });
         await rtdb.ref(`${projectId}/commands/armed`).set(true);
-        await sendTelegram(project.telegramBotToken, chatId, "🔒 System armed");
+        await sendTelegram(project.telegramBotToken, chatId, "🔒 System armed", true);
         break;
       }
       case "disarm": {
         await db.doc(`projects/${projectId}`).update({ serverArmed: false });
         await rtdb.ref(`${projectId}/commands/armed`).set(false);
-        await sendTelegram(project.telegramBotToken, chatId, "🔓 System disarmed");
+        await sendTelegram(project.telegramBotToken, chatId, "🔓 System disarmed", true);
         break;
       }
       case "status": {
         const info = await gatherStatus(projectId, project);
         const text = formatStatus(info);
-        await sendTelegram(project.telegramBotToken, chatId, text);
+        await sendTelegram(project.telegramBotToken, chatId, text, true);
         break;
       }
       case "siren_off": {
         await rtdb.ref(`${projectId}/commands/siren`).set(false);
-        await sendTelegram(project.telegramBotToken, chatId, "Siren silenced");
+        await sendTelegram(project.telegramBotToken, chatId, "Siren silenced", true);
         break;
       }
       default: {
         await sendTelegram(
           project.telegramBotToken,
           chatId,
-          "Unknown command. Available: /arm /disarm /status /siren off"
+          "Unknown command. Available: /arm /disarm /status /siren off",
+          true
         );
       }
     }

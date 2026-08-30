@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { Timestamp } from "firebase-admin/firestore";
 import {
+  sendTelegram,
   formatSensorAlert,
   formatAlarm,
   formatArmState,
@@ -86,5 +87,34 @@ describe("telegram formatters", () => {
       expect(result).toContain("Device profile: none");
       expect(result).toContain("Server profile: none");
     });
+  });
+});
+
+describe("sendTelegram silent flag", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("omits disable_notification by default", async () => {
+    let captured: Record<string, unknown> = {};
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      captured = JSON.parse(init.body as string);
+      return { ok: true } as Response;
+    }) as typeof fetch;
+
+    await sendTelegram("tok", "chat", "hello");
+    expect(captured.disable_notification).toBeUndefined();
+  });
+
+  it("sets disable_notification when silent", async () => {
+    let captured: Record<string, unknown> = {};
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      captured = JSON.parse(init.body as string);
+      return { ok: true } as Response;
+    }) as typeof fetch;
+
+    await sendTelegram("tok", "chat", "hello", true);
+    expect(captured.disable_notification).toBe(true);
   });
 });
