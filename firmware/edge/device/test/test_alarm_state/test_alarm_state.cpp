@@ -29,7 +29,7 @@ void test_unknown_sensor_never_fires() {
   TEST_ASSERT_FALSE(state.onSensorEvent("FFFFFF", 1000));
 }
 
-void test_disarmed_never_fires() {
+void test_disarmed_ordinary_condition_never_fires() {
   Config config;
   config.armed = false;
   config.sensorCount = 1;
@@ -41,6 +41,82 @@ void test_disarmed_never_fires() {
   state.setConfig(config);
 
   TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000));
+}
+
+void test_disarmed_always_condition_fires() {
+  Config config;
+  config.armed = false;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+  config.sensors[0].conditions[0].always = true;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 1000));
+}
+
+void test_armed_always_condition_still_fires() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+  config.sensors[0].conditions[0].always = true;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 1000));
+}
+
+// An always condition on one sensor must not make an ordinary condition on
+// a DIFFERENT sensor fire while disarmed.
+void test_disarmed_always_does_not_leak_to_other_sensors() {
+  Config config;
+  config.armed = false;
+  config.sensorCount = 2;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+  config.sensors[0].conditions[0].always = true;
+  strcpy(config.sensors[1].rfId, "D4E5F6");
+  config.sensors[1].conditionCount = 1;
+  config.sensors[1].conditions[0].t = 0;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 1000));
+  TEST_ASSERT_FALSE(state.onSensorEvent("D4E5F6", 1000));
+}
+
+// Disarmed, an ordinary count_in_window must accumulate NO history, so
+// arming later does not inherit a backlog of stale triggers.
+void test_disarmed_ordinary_accumulates_no_history() {
+  Config config;
+  config.armed = false;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1; // count_in_window
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 60;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000));
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 2000));
+
+  // Arm now: the two disarmed events must not count toward the threshold,
+  // so the next single event is the FIRST, not the third.
+  config.armed = true;
+  state.setConfig(config);
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 3000));
 }
 
 void test_count_in_window_requires_n_triggers_within_w() {
@@ -239,7 +315,11 @@ void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_immediate_condition_fires_on_first_event);
   RUN_TEST(test_unknown_sensor_never_fires);
-  RUN_TEST(test_disarmed_never_fires);
+  RUN_TEST(test_disarmed_ordinary_condition_never_fires);
+  RUN_TEST(test_disarmed_always_condition_fires);
+  RUN_TEST(test_armed_always_condition_still_fires);
+  RUN_TEST(test_disarmed_always_does_not_leak_to_other_sensors);
+  RUN_TEST(test_disarmed_ordinary_accumulates_no_history);
   RUN_TEST(test_count_in_window_requires_n_triggers_within_w);
   RUN_TEST(test_count_in_window_resets_outside_window);
   RUN_TEST(test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay);

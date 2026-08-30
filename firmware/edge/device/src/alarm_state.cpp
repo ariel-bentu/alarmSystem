@@ -95,13 +95,18 @@ bool AlarmState::evaluateCondition(uint8_t sensorIndex, uint8_t conditionIndex, 
 
 bool AlarmState::onSensorEvent(const char* rfId, unsigned long nowMs,
                                TriggerCause* cause) {
-  if (!config_.armed) return false;
-
   int sensorIndex = findSensorIndex(rfId);
   if (sensorIndex < 0) return false;
 
   const SensorConfig& sensor = config_.sensors[sensorIndex];
   for (uint8_t c = 0; c < sensor.conditionCount; c++) {
+    // Disarmed no longer means "evaluate nothing": always-conditions (smoke,
+    // gas) fire regardless. `continue` rather than an early return is what
+    // keeps ordinary conditions from accumulating trigger history while
+    // disarmed — evaluateCondition records history as a side effect of being
+    // called, so skipping the call is what preserves today's behaviour.
+    if (!config_.armed && !sensor.conditions[c].always) continue;
+
     if (evaluateCondition((uint8_t)sensorIndex, c, nowMs)) {
       if (cause) {
         strncpy(cause->rfId, sensor.rfId, sizeof(cause->rfId) - 1);

@@ -11,6 +11,9 @@ struct Condition {
   uint8_t kIndex[8] = {};
   uint16_t kCount[8] = {};
   uint8_t kLen = 0;
+  // Fires regardless of arm state (smoke, gas). Always implies a
+  // single-sensor immediate condition, so it carries no runtime state.
+  bool always = false;
 };
 
 struct SensorConfig {
@@ -36,6 +39,13 @@ struct Config {
   SensorConfig sensors[16];
   uint8_t sensorCount = 0;
 };
+
+// Config is persisted verbatim to EEPROM by EepromStore, so its size is part
+// of the on-flash format. `always` was added into the padding that already
+// followed Condition::kLen — measured 2416 bytes before and after. If this
+// ever fails, bump EepromStore::kMagic so stale config is discarded rather
+// than misread as the new layout.
+static_assert(sizeof(Config) == 2416, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the
 // Telegram alert can name it. The device knows rfIds, not sensor or rule

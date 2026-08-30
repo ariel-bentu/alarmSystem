@@ -42,6 +42,8 @@ bool parseConfigJson(const char* json, Config* out) {
       cond.n = condJson["n"] | 0;
       cond.w = condJson["w"] | 0;
       cond.y = condJson["y"] | 0;
+      // Always-on: fires regardless of arm state. Omitted when false.
+      cond.always = (condJson["x"] | 0) == 1;
       cond.kLen = 0;
       JsonObject k = condJson["k"];
       if (!k.isNull()) {

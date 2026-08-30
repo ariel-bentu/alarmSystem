@@ -148,6 +148,30 @@ void test_out_of_range_k_index_is_dropped_not_stored() {
   TEST_ASSERT_EQUAL_UINT16(1, cond.kCount[0]);
 }
 
+void test_parses_always_flag() {
+  const char* json = R"({
+    "a": true, "d": 120, "r": ["0xA1B2C3"], "c": [[{ "t": 0, "x": 1 }]]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_TRUE(config.sensors[0].conditions[0].always);
+}
+
+void test_absent_x_means_not_always() {
+  const char* json = R"({
+    "a": true, "d": 120, "r": ["0xA1B2C3"], "c": [[{ "t": 0 }]]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_FALSE(config.sensors[0].conditions[0].always);
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_valid_config_round_trip_with_all_condition_types);
@@ -158,6 +182,8 @@ void setup() {
   RUN_TEST(test_more_than_16_sensors_is_truncated_not_rejected);
   RUN_TEST(test_more_than_4_conditions_on_one_sensor_is_truncated);
   RUN_TEST(test_out_of_range_k_index_is_dropped_not_stored);
+  RUN_TEST(test_parses_always_flag);
+  RUN_TEST(test_absent_x_means_not_always);
   UNITY_END();
 }
 
