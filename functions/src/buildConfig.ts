@@ -28,15 +28,19 @@ function toRtdbCondition(
   condition: Condition,
   ruleSensorIds: string[],
   rfIdOf: (sensorId: string) => string | undefined,
-  indexOfRfId: (rfId: string) => number
+  indexOfRfId: (rfId: string) => number,
+  always = false
 ): RtdbCondition {
   const t = CONDITION_TYPE_CODE[condition.type];
+  // Spread rather than assigning undefined: an explicit `x: undefined` shows
+  // up in toEqual comparisons, and RTDB rejects undefined values outright.
+  const x = always ? ({ x: 1 } as const) : {};
 
   if (condition.type === "count_in_window") {
-    return { t, n: condition.count, w: condition.window_sec };
+    return { t, n: condition.count, w: condition.window_sec, ...x };
   }
   if (condition.type === "entry_delay") {
-    return { t, y: condition.delay_sec };
+    return { t, y: condition.delay_sec, ...x };
   }
   if (condition.type === "multi_sensor") {
     const k: Record<string, number> = {};
@@ -47,10 +51,10 @@ function toRtdbCondition(
       if (idx === -1) continue;
       k[String(idx)] = condition.counts?.[sensorId] ?? 1;
     }
-    return { t, w: condition.window_sec, k };
+    return { t, w: condition.window_sec, k, ...x };
   }
   // immediate
-  return { t };
+  return { t, ...x };
 }
 
 /**
@@ -66,7 +70,8 @@ export function buildRtdbConfig(
   sensors: Sensor[],
   armed: boolean,
   sirenDurationSec: number,
-  sirenEnabled = true
+  sirenEnabled = true,
+  alwaysRules: Rule[] = []
 ): RtdbConfig {
   const sensorMap = new Map<string, Sensor>();
   for (const s of sensors) {
@@ -74,11 +79,24 @@ export function buildRtdbConfig(
   }
   const rfIdOf = (sensorId: string) => sensorMap.get(sensorId)?.rfId;
 
+  // Always-rules come from EVERY profile, not just the active one: a smoke
+  // rule sitting in an inactive profile must still reach the device, or the
+  // UI would show it enabled while nothing happens on hardware.
+  // De-duplicated by id, because a rule in the active profile arrives twice.
+  const seenRuleIds = new Set(rules.map((r) => r.id));
+  const allRules = [...rules];
+  for (const r of alwaysRules) {
+    if (!seenRuleIds.has(r.id)) {
+      seenRuleIds.add(r.id);
+      allRules.push(r);
+    }
+  }
+
   // Pass 1: determine r (stable order = first-seen order across rules).
   const r: string[] = [];
   const rIndex = new Map<string, number>(); // rfId -> index into r
 
-  for (const rule of rules) {
+  for (const rule of allRules) {
     for (const sensorId of rule.sensors) {
       const sensor = sensorMap.get(sensorId);
       if (!sensor) continue;
@@ -99,8 +117,14 @@ export function buildRtdbConfig(
 
   // Pass 2: translate each rule's condition once, append to every
   // participating sensor's condition list.
-  for (const rule of rules) {
-    const translated = toRtdbCondition(rule.condition, rule.sensors, rfIdOf, indexOfRfId);
+  for (const rule of allRules) {
+    const translated = toRtdbCondition(
+      rule.condition,
+      rule.sensors,
+      rfIdOf,
+      indexOfRfId,
+      rule.always === true
+    );
     for (const sensorId of rule.sensors) {
       const rfId = rfIdOf(sensorId);
       if (!rfId) continue;

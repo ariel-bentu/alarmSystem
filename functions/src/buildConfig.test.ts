@@ -148,3 +148,61 @@ describe("buildRtdbConfig", () => {
     expect(config.c).toEqual([]);
   });
 });
+
+describe("buildRtdbConfig — always-on rules", () => {
+  it("omits x for an ordinary rule", () => {
+    const rules: Rule[] = [
+      { id: "r1", name: "Door", sensors: ["s1"], condition: { type: "immediate" } },
+    ];
+    const config = buildRtdbConfig(rules, sensors, true, 120);
+    expect(config.c).toEqual([[{ t: 0 }]]);
+  });
+
+  it("sets x:1 for an always rule", () => {
+    const rules: Rule[] = [
+      {
+        id: "r1",
+        name: "Smoke",
+        sensors: ["s1"],
+        condition: { type: "immediate" },
+        always: true,
+      },
+    ];
+    const config = buildRtdbConfig(rules, sensors, true, 120);
+    expect(config.c).toEqual([[{ t: 0, x: 1 }]]);
+  });
+
+  it("includes an always rule from a non-active profile", () => {
+    // The active profile covers s1; the always rule lives elsewhere and
+    // covers s2. Without the second pass, s2 never reaches the device.
+    const active: Rule[] = [
+      { id: "r1", name: "Door", sensors: ["s1"], condition: { type: "immediate" } },
+    ];
+    const alwaysRules: Rule[] = [
+      {
+        id: "r9",
+        name: "Smoke",
+        sensors: ["s2"],
+        condition: { type: "immediate" },
+        always: true,
+      },
+    ];
+    const config = buildRtdbConfig(active, sensors, true, 120, true, alwaysRules);
+    expect(config.r).toEqual(["0xA1B2C3", "0xD4E5F6"]);
+    expect(config.c).toEqual([[{ t: 0 }], [{ t: 0, x: 1 }]]);
+  });
+
+  it("does not duplicate an always rule that is also in the active profile", () => {
+    const rule: Rule = {
+      id: "r1",
+      name: "Smoke",
+      sensors: ["s1"],
+      condition: { type: "immediate" },
+      always: true,
+    };
+    // Same rule id arriving through both paths must appear once.
+    const config = buildRtdbConfig([rule], sensors, true, 120, true, [rule]);
+    expect(config.r).toEqual(["0xA1B2C3"]);
+    expect(config.c).toEqual([[{ t: 0, x: 1 }]]);
+  });
+});
