@@ -4,11 +4,24 @@
 // The sensor list deliberately lives in Configure, not here: this page is for
 // acting on the system, not inspecting it.
 import { useEffect, useState } from "react";
-import { onSnapshot, updateDoc, writeBatch } from "firebase/firestore";
+import {
+  getDocs,
+  onSnapshot,
+  query,
+  updateDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
 import { set } from "firebase/database";
 import { db } from "@/lib/firebase";
 import { useProject } from "@/app/ProjectProvider";
-import { sensorsCol, profilesCol, projectDoc, profileDoc } from "@/lib/firestore";
+import {
+  sensorsCol,
+  profilesCol,
+  projectDoc,
+  profileDoc,
+  rulesCol,
+} from "@/lib/firestore";
 import { commandsArmedRef, commandsSirenRef } from "@/lib/rtdb";
 import { useOnlineStatus } from "@/lib/useOnlineStatus";
 import { useT } from "@/i18n/I18nProvider";
@@ -30,6 +43,7 @@ export default function OperationsPage() {
 
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [alwaysRuleCount, setAlwaysRuleCount] = useState(0);
   // Which control has a write in flight, not merely THAT one does: the write
   // takes a visible round-trip, so the pressed button has to say so itself.
   // A bare boolean could only disable everything, which reads as a dead UI.
@@ -59,6 +73,27 @@ export default function OperationsPage() {
     });
     return unsub;
   }, [projectId]);
+
+  // Always-rules span every profile, so this is a project-level fact rather
+  // than a property of the armed profile. Once any exists, "Disarmed" stops
+  // being a complete description of the system and the page must say so.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    void (async () => {
+      const snaps = await Promise.all(
+        profiles.map((p) =>
+          getDocs(query(rulesCol(projectId, p.id), where("always", "==", true)))
+        )
+      );
+      if (!cancelled) {
+        setAlwaysRuleCount(snaps.reduce((n, s) => n + s.size, 0));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, profiles]);
 
   // Disarm the SOS confirmation if the second press never comes. Without this
   // the button stays primed indefinitely, so a tap now and an unrelated tap
@@ -311,6 +346,11 @@ export default function OperationsPage() {
               <StateBadge armed={Boolean(deviceArmed)} />
             </div>
             <ArmGrid side="device" activeId={activeDeviceId} />
+            {alwaysRuleCount > 0 && (
+              <p className="muted">
+                {t("ops.alwaysRules", { count: String(alwaysRuleCount) })}
+              </p>
+            )}
             <SosButton />
           </section>
 
