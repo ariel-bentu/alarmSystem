@@ -14,6 +14,7 @@ import { useOnlineStatus } from "@/lib/useOnlineStatus";
 import { useT } from "@/i18n/I18nProvider";
 import { useDeviceState } from "./useDeviceState";
 import { useAlarmState } from "./useAlarmState";
+import SchedulesPanel from "./SchedulesPanel";
 import { causeLabel } from "./alarmState";
 import type { Sensor, Profile } from "@/types";
 
@@ -325,6 +326,17 @@ export default function OperationsPage() {
               </div>
               <ArmGrid side="server" activeId={activeServerId} />
             </section>
+          )}
+
+          {/* Below the arm grid and SOS, above the siren panel: the arm grid
+              is what you came to press; schedules are what you check on the
+              way past. */}
+          {projectId && (
+            <SchedulesPanel
+              projectId={projectId}
+              profiles={profiles}
+              role={role}
+            />
           )}
 
           <section className="card">

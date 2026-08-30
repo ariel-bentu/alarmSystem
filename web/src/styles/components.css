@@ -730,3 +730,80 @@ textarea.input {
 .text-sm {
   font-size: var(--fs-sm);
 }
+
+/* ---------- Schedules ---------- */
+
+/* Phone-alarm shaped: large time, small subtitle, toggle at the inline end.
+   Logical properties throughout so the RTL layout mirrors correctly in
+   Hebrew (the 23:00 → 07:00 arrow reads right-to-left). */
+.sched-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sched-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding-block: var(--sp-2);
+  border-block-end: 1px solid var(--border);
+}
+
+.sched-list li:last-child {
+  border-block-end: none;
+}
+
+.sched-row {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: start;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sched-row:disabled {
+  cursor: default;
+}
+
+/* The largest step in the scale: the time is the thing you scan for, and at
+   card-title size (--fs-lg) the row stops reading as a clock entry. */
+.sched-row__time {
+  font-size: var(--fs-2xl);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.sched-row__meta {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.day-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.day-toggle {
+  min-inline-size: 2.5rem;
+  min-block-size: var(--tap);
+  padding-inline: var(--sp-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.day-toggle.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
