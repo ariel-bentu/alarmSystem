@@ -31,6 +31,11 @@ export interface Rule {
   name: string;
   sensors: string[];
   condition: Condition;
+  // Fires even when disarmed (smoke, gas). Absent = false: every rule
+  // predating this field must keep its armed-only behaviour.
+  // The editor restricts this to single-sensor `immediate` rules; the
+  // data model deliberately does not encode that restriction.
+  always?: boolean;
 }
 
 export interface Sensor {
@@ -153,12 +158,15 @@ export interface RtdbRawEvent {
 // y: delay_sec (entry_delay)
 // k: counts, keyed by index-into-r (as string) — required trigger count per
 //    participant, always explicit for every participant including self
+// x: always-on — 1 when the rule fires regardless of arm state. Omitted when
+//    false so the common payload is unchanged (the device polls this every 5s).
 export interface RtdbCondition {
   t: 0 | 1 | 2 | 3;
   n?: number;
   w?: number;
   y?: number;
   k?: Record<string, number>;
+  x?: 1;
 }
 
 // Device-facing config written to RTDB /{projectId}/config.

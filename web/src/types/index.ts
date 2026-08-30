@@ -115,6 +115,11 @@ export interface Rule {
   name: string; // required when the rule spans several sensors
   sensors: string[]; // sensorIds; a sensor may appear in several rules (rules are OR'd)
   condition: Condition;
+  // Fires even when disarmed (smoke, gas). Absent = false: every rule
+  // predating this field must keep its armed-only behaviour.
+  // The editor restricts this to single-sensor `immediate` rules; the
+  // data model deliberately does not encode that restriction.
+  always?: boolean;
 }
 
 export interface Profile {
@@ -188,6 +193,9 @@ export interface RtdbCondition {
   w?: number;
   y?: number;
   k?: Record<string, number>; // keyed by index into RtdbConfig.r
+  // always-on: 1 when the rule fires regardless of arm state. Omitted when
+  // false so the common payload is unchanged (the device polls this every 5s).
+  x?: 1;
 }
 
 // Device-facing config at RTDB /{projectId}/config. r[i]/c[i] are
