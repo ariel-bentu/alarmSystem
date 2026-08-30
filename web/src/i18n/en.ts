@@ -298,6 +298,8 @@ export const en = {
     "For smoke or gas detectors. Ignores arm state, but still respects the siren setting. Applies to one sensor with an immediate trigger.",
   "cfg.rule.alwaysMultiHint":
     "Always active applies to a single sensor. Remove the extra sensors to enable it.",
+  "cfg.rule.alwaysCleared":
+    "Always active was turned off: it applies to a single sensor, and this rule now covers several.",
   "cfg.rule.alwaysBadge": "always",
   "ops.alwaysRules": "{count} always-on rule(s) fire even while disarmed",
   "settings.timezone": "Time zone",

@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import type { Condition, ConditionType } from "@/types";
-import { conditionParamsValid } from "./profileRules";
+import {
+  conditionParamsValid,
+  alwaysAllowedForSensorCount,
+} from "./profileRules";
 import { useT } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/en";
 
@@ -47,6 +50,10 @@ export default function RuleEditor({
   const [localCondition, setLocalCondition] = useState<Condition>(condition);
 
   const isMulti = selectedSensors.length > 1;
+  const alwaysAllowed = alwaysAllowedForSensorCount(selectedSensors.length);
+  // Surfaced only when we actually cleared the flag, so the warning marks a
+  // change that happened rather than nagging about a disabled control.
+  const [alwaysCleared, setAlwaysCleared] = useState(false);
 
   // The condition type is driven by how many sensors the rule covers:
   // 2+ sensors is only meaningful as multi_sensor, 1 sensor never is.
@@ -60,6 +67,16 @@ export default function RuleEditor({
       setLocalCondition(next);
       onChange(next);
     }
+
+    // Adding a second sensor must CLEAR always, not just disable the box.
+    // Leaving it set would persist an always-on multi-sensor rule that the
+    // user can neither see nor undo — the control that would show it is
+    // exactly the one we just disabled.
+    if (!alwaysAllowed && always) {
+      onAlwaysChange?.(false);
+      setAlwaysCleared(true);
+    }
+    if (alwaysAllowed && alwaysCleared) setAlwaysCleared(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMulti]);
 
@@ -128,7 +145,7 @@ export default function RuleEditor({
             <input
               type="checkbox"
               checked={always}
-              disabled={isMulti}
+              disabled={!alwaysAllowed}
               onChange={(e) => {
                 const next = e.target.checked;
                 if (next && localCondition.type !== "immediate") {
@@ -141,9 +158,17 @@ export default function RuleEditor({
             />
             <span>{t("cfg.rule.always")}</span>
           </label>
-          <p className="muted">
-            {isMulti ? t("cfg.rule.alwaysMultiHint") : t("cfg.rule.alwaysHelp")}
-          </p>
+          {alwaysCleared ? (
+            <p className="banner banner--warn">
+              {t("cfg.rule.alwaysCleared")}
+            </p>
+          ) : (
+            <p className="muted">
+              {isMulti
+                ? t("cfg.rule.alwaysMultiHint")
+                : t("cfg.rule.alwaysHelp")}
+            </p>
+          )}
         </>
       )}
 

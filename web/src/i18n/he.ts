@@ -295,6 +295,8 @@ export const he: Record<TranslationKey, string> = {
     "לגלאי עשן או גז. מתעלם ממצב הדריכה, אך עדיין כפוף להגדרת הצופר. חל על חיישן אחד עם הפעלה מיידית.",
   "cfg.rule.alwaysMultiHint":
     "פעיל תמיד חל על חיישן אחד. הסירו את החיישנים הנוספים כדי לאפשר זאת.",
+  "cfg.rule.alwaysCleared":
+    "״פעיל תמיד״ בוטל: הוא חל על חיישן אחד, והכלל הזה מכסה כעת כמה.",
   "cfg.rule.alwaysBadge": "תמיד",
   "ops.alwaysRules": "{count} כללים פעילים תמיד, גם בזמן נטרול",
   "settings.timezone": "אזור זמן",

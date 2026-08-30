@@ -3,6 +3,7 @@ import {
   buildInitialRules,
   conditionParamsValid,
   ruleNameRequired,
+  alwaysAllowedForSensorCount,
   ruleNameValid,
   sensorCountValidForType,
   reconcileRulesForRemovedSensor,
@@ -303,5 +304,22 @@ describe("ruleDisplayName", () => {
   it("returns null when there is nothing to name it with", () => {
     // Caller substitutes its own translated placeholder.
     expect(ruleDisplayName({ name: "", sensors: [] }, lookup)).toBeNull();
+  });
+});
+
+describe("alwaysAllowedForSensorCount", () => {
+  it("allows always for a single sensor", () => {
+    expect(alwaysAllowedForSensorCount(1)).toBe(true);
+  });
+
+  it("allows always before any sensor is picked", () => {
+    // An empty selection is mid-edit, not a violation — the rule cannot be
+    // saved in that state anyway.
+    expect(alwaysAllowedForSensorCount(0)).toBe(true);
+  });
+
+  it("disallows always once a rule spans several sensors", () => {
+    expect(alwaysAllowedForSensorCount(2)).toBe(false);
+    expect(alwaysAllowedForSensorCount(5)).toBe(false);
   });
 });

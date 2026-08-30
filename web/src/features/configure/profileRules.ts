@@ -152,3 +152,17 @@ export function ruleDisplayName(
   // ugly but identifies the row, which a blank cell would not.
   return rule.sensors.map((id) => sensorNameById(id) ?? id).join(" + ");
 }
+
+/**
+ * Whether a rule covering `sensorCount` sensors may be marked always-on.
+ *
+ * Always-on means a single sensor with an immediate trigger — a smoke
+ * detector firing on its own. Adding a second sensor makes the rule
+ * `multi_sensor`, which cannot be always-on, so the flag must be CLEARED
+ * rather than merely disabled: leaving it set would save an always-on
+ * multi-sensor rule the user can no longer see or undo.
+ */
+export function alwaysAllowedForSensorCount(sensorCount: number): boolean {
+  // 0 sensors is mid-edit, not a violation — such a rule cannot be saved.
+  return sensorCount <= 1;
+}
