@@ -55,6 +55,9 @@ export default function CreateProjectPage() {
         serverActions: { sendTelegram: true, triggerSiren: false },
         sirenDurationSec: 120,
         sirenEnabled: true,
+        // The browser's zone is right in almost every case — the alarm is in
+        // the house the user is standing in. Readers fall back to UTC.
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         notifyEverySensorTrigger: true,
         device: {
           name: "edge-1",
