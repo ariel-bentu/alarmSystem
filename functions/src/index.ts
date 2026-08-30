@@ -7,6 +7,7 @@ export { onScheduleChange } from "./onScheduleChange";
 export { onArmStateChange } from "./onArmStateChange";
 export { onServerArmChange } from "./onServerArmChange";
 export { deadSensorCheck } from "./deadSensorCheck";
+export { scheduleTick } from "./scheduleTick";
 export { telegramWebhook } from "./telegramWebhook";
 export { provisionUser } from "./provisionUser";
 export { grantTenantAccess } from "./grantTenantAccess";
