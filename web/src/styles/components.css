@@ -446,6 +446,13 @@ textarea.input {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+/* Hebrew is unicameral, so uppercasing does nothing here — but the tracking
+   that goes with it still applies, and loosening 12px Hebrew is what pushes
+   ר/ל and כ/ק towards each other. Drop both for RTL. */
+[dir="rtl"] .table th {
+  text-transform: none;
+  letter-spacing: 0;
+}
 @media (hover: hover) {
   .table tbody tr:hover {
     background: var(--surface-2);

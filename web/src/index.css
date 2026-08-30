@@ -1,5 +1,7 @@
-/* Entry stylesheet. Order matters: tokens define the custom properties that
-   base and components consume. */
+/* Entry stylesheet. Order matters: fonts are declared before anything can
+   reference them, then tokens define the custom properties that base and
+   components consume. */
+@import "./styles/fonts.css";
 @import "./styles/tokens.css";
 @import "./styles/base.css";
 @import "./styles/components.css";

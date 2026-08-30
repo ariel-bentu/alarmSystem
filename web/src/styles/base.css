@@ -16,7 +16,10 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Heebo first so Hebrew renders identically everywhere; the system stack
+     stays as a fallback for the moments before the woff2 lands (or if it
+     fails outright). See styles/fonts.css for why this is not optional. */
+  font-family: "Heebo", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: var(--fs-md);
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
