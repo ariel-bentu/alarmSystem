@@ -1,3 +1,9 @@
+- docu - publish repo
+
+
 - when arming on device -> cloud should be updated (as soon as connected)
 - mass jam of rf alert
+- always sensors
+- battery/tamper with
+- battery low on device?
 

@@ -1,15 +1,22 @@
 // Cloud Function: deadSensorCheck
 // Trigger: scheduled daily at noon.
-// For each project + sensor: if lastSeen older than sensor.deadSensorAlertDays
-// and no alert has been sent yet this silence period → Telegram alert once.
-// deadAlertSentAt is set on fire and cleared when the sensor is seen again
-// (onSensorEvent.ts handles the clear on any trigger).
+//
+// Two daily maintenance jobs share this one schedule, rather than deploying a
+// second scheduled function to walk the same project list:
+//
+//  1. Dead-sensor alerts. For each project + sensor: if lastSeen older than
+//     sensor.deadSensorAlertDays and no alert has been sent yet this silence
+//     period → Telegram alert once. deadAlertSentAt is set on fire and cleared
+//     when the sensor is seen again (onSensorEvent.ts handles the clear on any
+//     trigger).
+//  2. RTDB event retention — see eventCleanup.ts.
 
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "./admin";
 import { Project, Sensor } from "./types";
 import { sendTelegram, formatDeadSensor } from "./telegram";
+import { cleanupProjectEvents, cutoffFrom } from "./eventCleanup";
 
 export const deadSensorCheck = onSchedule(
   { schedule: "every day 12:00", region: "europe-west1" },
@@ -18,8 +25,25 @@ export const deadSensorCheck = onSchedule(
 
     const projectsSnap = await db.collection("projects").get();
 
+    const cutoff = cutoffFrom(now);
+
     for (const projectDoc of projectsSnap.docs) {
       const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
+
+      // Runs before the Telegram guard below: retention applies to every
+      // project, including those with no Telegram configured. Isolated so a
+      // failure here cannot cost the remaining projects their dead-sensor
+      // alerts.
+      try {
+        const removed = await cleanupProjectEvents(project.id, cutoff);
+        if (removed > 0) {
+          console.log(
+            `eventCleanup: removed ${removed} expired events from project=${project.id}`
+          );
+        }
+      } catch (err) {
+        console.error(`eventCleanup failed for project=${project.id}`, err);
+      }
 
       if (!project.telegramBotToken || !project.telegramChatId) continue;
 
