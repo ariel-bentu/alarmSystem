@@ -11,6 +11,9 @@ A rule may be marked **always**. Always-rules are evaluated on every sensor
 event regardless of arm state; ordinary rules keep their current behaviour and
 are evaluated only when armed.
 
+**An always-rule is always a single sensor with an `immediate` condition.**
+This is a deliberate restriction, not an omission — see below.
+
 ## Why a per-rule flag, not an always-on profile
 
 The obvious shape — a special built-in `alwaysOn` profile — was considered and
@@ -44,6 +47,35 @@ Gas" and ticks `always` on its rules. It reads as one group in Configure while
 the code still sees ordinary rules.
 
 ## Design Decisions
+
+### Always implies single-sensor `immediate`
+
+An always-rule covers exactly one sensor and uses the `immediate` condition.
+The other three condition types are not offered:
+
+- **`entry_delay`** is a contradiction — a grace period to disarm, on a rule
+  that ignores disarming.
+- **`count_in_window`** would mean "smoke twice in a minute", which is not how
+  anyone reasons about a smoke detector, and it delays the alarm.
+- **`multi_sensor`** requires several sensors to agree; the motivating case is
+  one detector firing on its own.
+
+This restriction is what makes the feature cheap. An `immediate` condition
+carries **no runtime state** — `evaluateCondition` case 0 is a bare
+`return true` — so there is no trigger history to accumulate while disarmed
+and no question about what happens to it on arming. The device change reduces
+to a single skip test.
+
+The UI **coerces rather than validates**, following the existing precedent in
+`RuleEditor.tsx:47-59`, where adding a second sensor auto-switches the type to
+`multi_sensor`. Ticking `always` therefore sets the type to `immediate` and
+restricts the rule to one sensor; the condition-type selector is hidden while
+it is ticked. An invalid combination is unrepresentable rather than rejected.
+
+Server-side, `evaluateRules` needs no matching guard: a stored always-rule with
+some other condition type would simply evaluate as that type. The restriction
+lives in the editor, and the data model does not encode it — keeping the door
+open if a real use case appears later.
 
 ### An always-rule fires a full alarm
 
@@ -223,18 +255,14 @@ if (!config_.armed && !cond.always) continue;
 
 **Why `continue` and not an early `return`.** `evaluateCondition` records
 trigger history as a *side effect of being called* (`alarm_state.cpp:45-92` —
-cases 1 and 3 append to `rt.triggerTimesMs` before deciding). So:
+cases 1 and 3 append to `rt.triggerTimesMs` before deciding). Skipping with
+`continue` leaves ordinary conditions untouched while disarmed, which is
+exactly today's behaviour under the current early `return false`, so arming
+never inherits a backlog of stale triggers.
 
-- Always-conditions are evaluated while disarmed, and therefore accumulate
-  history — a disarmed `count_in_window` always-rule works.
-- Ordinary conditions are skipped while disarmed and accumulate nothing, which
-  is exactly today's behaviour (the current early `return false` has the same
-  effect), so arming does not inherit a backlog of stale triggers.
-
-An `entry_delay` always-rule is a contradiction — a grace period to disarm,
-on a rule that ignores disarming. The UI should not offer `always` for
-`entry_delay`; if one is somehow configured, it behaves as today (the delay
-timer runs and `tickEntryDelay` fires it), which is harmless but pointless.
+Because always implies `immediate`, always-conditions have no runtime state of
+their own (case 0 is a bare `return true`), so nothing accumulates for them
+either. The restriction is what keeps this to one line.
 
 ### 6. `firmware/edge/device/src/config_parser.cpp`
 
@@ -245,6 +273,12 @@ Parse `x` into `Condition::always`, defaulting to false when absent.
 **`RuleEditor.tsx`** gains a checkbox: "Always active — fires even when
 disarmed", with help text explaining it ignores arm state and still respects
 the siren setting.
+
+Ticking it coerces the rule to a single-sensor `immediate` condition and hides
+the condition-type selector, mirroring the existing sensor-count coercion at
+`RuleEditor.tsx:47-59`. If two or more sensors are selected, `always` is
+disabled with a note saying it applies to one sensor — the two coercions must
+not fight each other, so sensor count wins and `always` yields.
 
 **`ProfilesTab.tsx`** marks always-rules in the rule list, so a profile's rules
 are not silently different from each other.
@@ -262,8 +296,9 @@ Disarmed state. Reads from the profiles/rules the page already subscribes to.
   into a pure helper so it is testable without Firestore — armed with and
   without always-rules, disarmed with and without.
 - **`alarm_state`** (native Unity): disarmed + always fires; disarmed +
-  ordinary does not; armed + both fire; a disarmed `count_in_window`
-  always-rule accumulates across events.
+  ordinary does not; armed + both fire; and a disarmed ordinary
+  `count_in_window` accumulates **no** history, so arming does not inherit a
+  backlog (the regression the `continue` placement protects).
 - **`config_parser`** (native Unity): `x: 1` parses to `always = true`; absent
   parses to false.
 - **`static_assert`** on `sizeof(Config)` guarding the EEPROM layout.
