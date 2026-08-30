@@ -47,8 +47,37 @@ async function rebuildConfig(projectId: string): Promise<void> {
     .limit(1)
     .get();
 
-  if (profileSnap.empty) {
-    // No active profile — write the thin config shape with r/c omitted.
+  // No early return on an empty active profile: a project with no armed
+  // profile can still have always-rules, which must reach the device.
+  const activeProfile = profileSnap.empty ? null : profileSnap.docs[0];
+
+  let rules: Rule[] = [];
+  if (activeProfile) {
+    const rulesSnap = await db
+      .collection(`projects/${projectId}/profiles/${activeProfile.id}/rules`)
+      .get();
+    rules = rulesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Rule));
+  }
+
+  // Always-rules are collected from EVERY profile — see buildConfig. A
+  // collection-group query would also span other projects, so this walks the
+  // project's own profiles instead.
+  const allProfilesSnap = await db
+    .collection(`projects/${projectId}/profiles`)
+    .get();
+  const alwaysRules: Rule[] = [];
+  for (const prof of allProfilesSnap.docs) {
+    const rs = await db
+      .collection(`projects/${projectId}/profiles/${prof.id}/rules`)
+      .where("always", "==", true)
+      .get();
+    for (const d of rs.docs) {
+      alwaysRules.push({ id: d.id, ...d.data() } as Rule);
+    }
+  }
+
+  if (!activeProfile && alwaysRules.length === 0) {
+    // Nothing to evaluate — write the thin config shape with r/c omitted.
     // RTDB drops empty arrays on .set(), so writing r: [], c: [] here would
     // round-trip as if the fields were never set at all; the firmware's
     // parseConfigJson (cloud_client.cpp) is written to treat missing r/c as
@@ -60,14 +89,6 @@ async function rebuildConfig(projectId: string): Promise<void> {
     });
     return;
   }
-
-  const profileDoc = profileSnap.docs[0];
-
-  // Get rules for this profile
-  const rulesSnap = await db
-    .collection(`projects/${projectId}/profiles/${profileDoc.id}/rules`)
-    .get();
-  const rules: Rule[] = rulesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Rule));
 
   // Get all sensors
   const sensorsSnap = await db.collection(`projects/${projectId}/sensors`).get();
@@ -86,6 +107,13 @@ async function rebuildConfig(projectId: string): Promise<void> {
     ? (projectDoc.data()?.sirenEnabled !== false)
     : true;
 
-  const config = buildRtdbConfig(rules, sensors, armed, sirenDurationSec, sirenEnabled);
+  const config = buildRtdbConfig(
+    rules,
+    sensors,
+    armed,
+    sirenDurationSec,
+    sirenEnabled,
+    alwaysRules
+  );
   await rtdb.ref(`${projectId}/config`).set(config);
 }
