@@ -16,6 +16,7 @@ import type {
   Sensor,
   Profile,
   Rule,
+  Schedule,
   AlarmEvent,
   UserDoc,
 } from "@/types";
@@ -39,6 +40,7 @@ const inviteConverter = converter<Invite>();
 const sensorConverter = converter<Sensor>();
 const profileConverter = converter<Profile>();
 const ruleConverter = converter<Rule>();
+const scheduleConverter = converter<Schedule>();
 const eventConverter = converter<AlarmEvent>();
 const userConverter = converter<UserDoc>();
 
@@ -102,6 +104,16 @@ export const ruleDoc = (projectId: string, profileId: string, ruleId: string) =>
   doc(db, "projects", projectId, "profiles", profileId, "rules", ruleId).withConverter(
     ruleConverter
   ) as DocumentReference<Rule>;
+
+export const schedulesCol = (projectId: string) =>
+  collection(db, "projects", projectId, "schedules").withConverter(
+    scheduleConverter
+  ) as CollectionReference<Schedule>;
+
+export const scheduleDoc = (projectId: string, scheduleId: string) =>
+  doc(db, "projects", projectId, "schedules", scheduleId).withConverter(
+    scheduleConverter
+  ) as DocumentReference<Schedule>;
 
 export const eventsCol = (projectId: string) =>
   collection(db, "projects", projectId, "events").withConverter(

@@ -293,6 +293,43 @@ export const en = {
   "sim.rfId": "RF ID",
   "sim.fire": "Fire event",
   "sim.fired": "Event sent.",
+
+  // ---- Schedules ----
+  "sched.title": "Schedules",
+  "sched.none": "No schedules yet.",
+  "sched.add": "Add schedule",
+  "sched.edit": "Edit schedule",
+  "sched.name": "Name",
+  "sched.side": "Side",
+  "sched.side.device": "device",
+  "sched.side.server": "server",
+  "sched.profile": "Profile",
+  "sched.armTime": "Arm at",
+  "sched.disarmTime": "Disarm at",
+  "sched.armOptional": "Leave empty to arm manually",
+  "sched.disarmOnly": "disarm only",
+  "sched.repeat": "Repeat",
+  "sched.repeat.weekly": "Weekly",
+  "sched.repeat.once": "Once",
+  "sched.date": "Date",
+  "sched.everyDay": "every day",
+  "sched.next": "Next: {what}",
+  "sched.nextArm": "{side} arms {when}",
+  "sched.nextDisarm": "{side} disarms {when}",
+  "sched.nextNone": "nothing scheduled",
+  "sched.overlapWarning":
+    "This overlaps another schedule on the same side. Both will run; the later edge wins.",
+  "sched.disabledProfile":
+    "This profile is disabled — the arm step will be skipped.",
+  "sched.enable": "Enable schedule",
+  "sched.disable": "Disable schedule",
+  "sched.day.0": "Sun",
+  "sched.day.1": "Mon",
+  "sched.day.2": "Tue",
+  "sched.day.3": "Wed",
+  "sched.day.4": "Thu",
+  "sched.day.5": "Fri",
+  "sched.day.6": "Sat",
 } as const;
 
 export type TranslationKey = keyof typeof en;
