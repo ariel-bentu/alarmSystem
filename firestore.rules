@@ -81,6 +81,25 @@ service cloud.firestore {
         }
       }
 
+      match /schedules/{scheduleId} {
+        allow read: if isMember(projectId);
+        allow create, delete: if isAdmin(projectId);
+        // Admin may edit everything. A plain member may only pause/resume a
+        // DEVICE schedule — the same boundary as the profiles rule above: a
+        // member may arm and disarm the device but not the server. Pausing a
+        // device schedule is the same class of act as arming the device;
+        // pausing a server schedule is not.
+        //
+        // The derived fields (nextArmAt/nextDisarmAt/lastFiredAt) are written
+        // by onScheduleChange and scheduleTick under the admin SDK, which
+        // bypasses rules, so they need no client allowance here.
+        allow update: if isAdmin(projectId)
+          || (isMember(projectId)
+              && resource.data.side == 'device'
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['enabled']));
+      }
+
       match /events/{eventId} {
         allow read: if isMember(projectId);
         // Events are written only by Cloud Functions (admin SDK bypasses rules).
