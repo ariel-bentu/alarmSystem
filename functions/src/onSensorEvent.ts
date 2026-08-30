@@ -7,6 +7,7 @@ import { db, rtdb } from "./admin";
 import { AlarmEvent, EventType, Project, Sensor, Rule } from "./types";
 import { sendTelegram, formatSensorAlert, formatAlarm } from "./telegram";
 import { evaluateRules } from "./alarmLogic";
+import { applicableRules } from "./alwaysRules";
 
 export const onSensorEvent = onValueCreated(
   { ref: "/{projectId}/events/{rfId}/{timestamp}", region: "europe-west1" },
@@ -87,74 +88,100 @@ export const onSensorEvent = onValueCreated(
       await sendTelegram(project.telegramBotToken, project.telegramChatId, msg);
     }
 
-    // (e) Server-side alarm evaluation
-    if (project.serverArmed) {
-      // Find active server profile
+    // (e) Server-side alarm evaluation.
+    //
+    // Disarmed no longer means "evaluate nothing": always-rules (smoke, gas)
+    // fire regardless. Arm state now selects WHICH rules apply, and the
+    // evaluation below is shared between both cases.
+    const serverArmed = project.serverArmed === true;
+
+    let activeProfileRules: Rule[] = [];
+    if (serverArmed) {
       const profileSnap = await db
         .collection(`projects/${projectId}/profiles`)
         .where("isActiveOnServer", "==", true)
         .limit(1)
         .get();
-
       if (!profileSnap.empty) {
-        const profileDoc = profileSnap.docs[0];
-
-        // Get rules for this profile
         const rulesSnap = await db
-          .collection(`projects/${projectId}/profiles/${profileDoc.id}/rules`)
+          .collection(`projects/${projectId}/profiles/${profileSnap.docs[0].id}/rules`)
           .get();
-        const rules: Rule[] = rulesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Rule));
+        activeProfileRules = rulesSnap.docs.map(
+          (d) => ({ id: d.id, ...d.data() } as Rule)
+        );
+      }
+    }
 
-        // Get recent events for evaluation (last 5 minutes). Query on timestamp
-        // only (single-field, auto-indexed) and filter by sensor in memory to
-        // avoid needing a composite index. For multi_sensor rules we need other
-        // sensors' events too, so we do NOT filter by sensorId in the query.
-        const fiveMinAgo = Timestamp.fromMillis(timestamp - 5 * 60 * 1000);
-        const recentSnap = await db
-          .collection(`projects/${projectId}/events`)
-          .where("timestamp", ">=", fiveMinAgo)
-          .orderBy("timestamp", "desc")
-          .limit(100)
-          .get();
+    // Always-rules come from every profile — when disarmed there is no active
+    // profile to read them from.
+    const allProfilesSnap = await db
+      .collection(`projects/${projectId}/profiles`)
+      .get();
+    const alwaysRules: Rule[] = [];
+    for (const prof of allProfilesSnap.docs) {
+      const rs = await db
+        .collection(`projects/${projectId}/profiles/${prof.id}/rules`)
+        .where("always", "==", true)
+        .get();
+      for (const d of rs.docs) {
+        alwaysRules.push({ id: d.id, ...d.data() } as Rule);
+      }
+    }
 
-        const recentEvents: AlarmEvent[] = recentSnap.docs
-          .filter((d) => d.id !== eventRef.id) // exclude the event we just wrote
-          .map((d) => ({ id: d.id, ...d.data() } as AlarmEvent));
+    const rules = applicableRules(serverArmed, activeProfileRules, alwaysRules);
 
-        const fullEvent: AlarmEvent = { id: eventRef.id, ...alarmEvent };
-        const result = evaluateRules(rules, fullEvent, recentEvents, timestamp);
+    // Nothing applies — skip the event query entirely, preserving today's
+    // cost for a disarmed project with no always-rules.
+    if (rules.length === 0) return;
 
-        if (result.triggered) {
-          // Use the rule/condition name; fall back to the sensor name when
-          // the rule is unnamed.
-          const label = result.ruleName || sensor.name;
+    // Get recent events for evaluation (last 5 minutes). Query on timestamp
+    // only (single-field, auto-indexed) and filter by sensor in memory to
+    // avoid needing a composite index. For multi_sensor rules we need other
+    // sensors' events too, so we do NOT filter by sensorId in the query.
+    const fiveMinAgo = Timestamp.fromMillis(timestamp - 5 * 60 * 1000);
+    const recentSnap = await db
+      .collection(`projects/${projectId}/events`)
+      .where("timestamp", ">=", fiveMinAgo)
+      .orderBy("timestamp", "desc")
+      .limit(100)
+      .get();
 
-          // Record what caused the alarm BEFORE flipping siren_active, so
-          // onAlarm can name it. onAlarm is the notifier whenever the siren
-          // fires — for device-side alarms too — so we do not also send here
-          // and duplicate the message.
-          await rtdb
-            .ref(`${projectId}/state/alarm_cause`)
-            .set({ label, at: Date.now() });
+    const recentEvents: AlarmEvent[] = recentSnap.docs
+      .filter((d) => d.id !== eventRef.id) // exclude the event we just wrote
+      .map((d) => ({ id: d.id, ...d.data() } as AlarmEvent));
 
-          // If entry_delay, we note it but still fire (server doesn't implement delay timer in v1)
-          if (project.serverActions.triggerSiren) {
-            await rtdb.ref(`${projectId}/state/siren_active`).set(true);
-          } else if (
-            // Siren suppressed, so onAlarm never runs — send the alarm
-            // notification directly instead. These two toggles are
-            // independent, so Telegram-without-siren must still notify.
-            project.serverActions.sendTelegram &&
-            project.telegramBotToken &&
-            project.telegramChatId
-          ) {
-            await sendTelegram(
-              project.telegramBotToken,
-              project.telegramChatId,
-              formatAlarm(label)
-            );
-          }
-        }
+    const fullEvent: AlarmEvent = { id: eventRef.id, ...alarmEvent };
+    const result = evaluateRules(rules, fullEvent, recentEvents, timestamp);
+
+    if (result.triggered) {
+      // Use the rule/condition name; fall back to the sensor name when
+      // the rule is unnamed.
+      const label = result.ruleName || sensor.name;
+
+      // Record what caused the alarm BEFORE flipping siren_active, so
+      // onAlarm can name it. onAlarm is the notifier whenever the siren
+      // fires — for device-side alarms too — so we do not also send here
+      // and duplicate the message.
+      await rtdb
+        .ref(`${projectId}/state/alarm_cause`)
+        .set({ label, at: Date.now() });
+
+      // If entry_delay, we note it but still fire (server doesn't implement delay timer in v1)
+      if (project.serverActions.triggerSiren) {
+        await rtdb.ref(`${projectId}/state/siren_active`).set(true);
+      } else if (
+        // Siren suppressed, so onAlarm never runs — send the alarm
+        // notification directly instead. These two toggles are
+        // independent, so Telegram-without-siren must still notify.
+        project.serverActions.sendTelegram &&
+        project.telegramBotToken &&
+        project.telegramChatId
+      ) {
+        await sendTelegram(
+          project.telegramBotToken,
+          project.telegramChatId,
+          formatAlarm(label)
+        );
       }
     }
   }
