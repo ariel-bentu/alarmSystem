@@ -53,6 +53,27 @@ export interface Profile {
   isActiveOnServer: boolean;
 }
 
+// A scheduled arming window. armTime is optional (a manual-arm/auto-disarm
+// window); disarmTime is required, so every window closes.
+// Exactly one of `days` (non-empty) or `date` (non-null) is populated:
+// non-empty days = recurring, a set date = one-time.
+export interface Schedule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  side: "device" | "server";
+  profileId: string;
+  armTime: string | null; // "HH:MM" local, or null
+  disarmTime: string; // "HH:MM" local, required
+  days: number[]; // 0-6, Sun-Sat. Empty = one-time
+  date: string | null; // "YYYY-MM-DD" for one-time, else null
+  // Derived — written only by onScheduleChange/scheduleTick (admin SDK).
+  nextArmAt: Timestamp | null;
+  nextDisarmAt: Timestamp | null;
+  lastFiredAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
 export interface TenantMembership {
   name: string;
   role: Role;
@@ -96,6 +117,10 @@ export interface Project {
   serverArmed: boolean;
   serverActions: ServerActions;
   sirenDurationSec: number;
+  // IANA zone, e.g. "Asia/Jerusalem". Schedules resolve wall-clock times in
+  // it. Optional because project docs predate the field; readers fall back
+  // to "UTC".
+  timezone?: string;
   notifyEverySensorTrigger?: boolean;
   device: DeviceInfo;
 }

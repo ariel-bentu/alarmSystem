@@ -44,6 +44,10 @@ export interface Project {
   serverActions: ServerActions;
   sirenDurationSec: number;
   sirenEnabled: boolean; // false = device never fires the siren
+  // IANA zone, e.g. "Asia/Jerusalem". Schedules resolve wall-clock times in
+  // it. Optional because project docs predate the field; readers fall back
+  // to "UTC".
+  timezone?: string;
   notifyEverySensorTrigger: boolean; // Telegram on every sensor trigger (battery/tamper always notify)
   device: DeviceInfo;
 }
@@ -120,6 +124,27 @@ export interface Profile {
   enabled: boolean; // available to arm in Operations; disabled profiles are hidden
   isActiveOnDevice: boolean;
   isActiveOnServer: boolean;
+}
+
+// A scheduled arming window. armTime is optional (a manual-arm/auto-disarm
+// window); disarmTime is required, so every window closes.
+// Exactly one of `days` (non-empty) or `date` (non-null) is populated:
+// non-empty days = recurring, a set date = one-time.
+export interface Schedule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  side: "device" | "server";
+  profileId: string;
+  armTime: string | null; // "HH:MM" local, or null
+  disarmTime: string; // "HH:MM" local, required
+  days: number[]; // 0-6, Sun-Sat. Empty = one-time
+  date: string | null; // "YYYY-MM-DD" for one-time, else null
+  // Derived — written only by onScheduleChange/scheduleTick (admin SDK).
+  nextArmAt: Timestamp | null;
+  nextDisarmAt: Timestamp | null;
+  lastFiredAt: Timestamp | null;
+  createdAt: Timestamp;
 }
 
 export interface AlarmEvent {
