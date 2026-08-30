@@ -171,6 +171,29 @@
   white-space: nowrap;
 }
 
+/* A sub-heading with a trailing action ("Rules  +"). Like .card__header but
+   for headings inside a card, so the action stays next to what it acts on
+   rather than drifting below a long list. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-block: var(--sp-3) var(--sp-2);
+}
+.section-head h4 {
+  margin: 0;
+}
+/* Pushed to the far edge, and fixed-size so a long heading does not squash
+   it. `margin-inline-start: auto` rather than justify-content so the gap
+   still applies in both writing directions. */
+.section-head__action {
+  flex: none;
+  margin-inline-start: auto;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  padding-inline: var(--sp-3);
+}
+
 /* An always-on rule fires while the system is disarmed. That is a safety-
    relevant difference from its siblings, so it gets a tag rather than muted
    text — and unlike .rule-row__cond it stays visible on narrow screens,

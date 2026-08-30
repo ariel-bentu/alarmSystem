@@ -509,7 +509,23 @@ export default function ProfilesTab({
             <span>{t("cfg.profiles.enabledHelp")}</span>
           </label>
 
-          <h4>{t("cfg.profiles.rules")}</h4>
+          {/* The + sits on the heading rather than below the list: with
+              several rules the trailing button drifted down the card, away
+              from the thing it adds to. */}
+          <div className="section-head">
+            <h4>{t("cfg.profiles.rules")}</h4>
+            <button
+              type="button"
+              className="btn btn--sm section-head__action"
+              onClick={() => setAddingRuleProfile(profile.id)}
+              aria-label={t("cfg.profiles.addRuleTo", {
+                profile: profile.displayName,
+              })}
+              title={t("cfg.profiles.addRule")}
+            >
+              +
+            </button>
+          </div>
           {(rulesMap[profile.id] ?? []).length === 0 ? (
             <p className="muted">{t("cfg.profiles.noRules")}</p>
           ) : (
@@ -555,12 +571,6 @@ export default function ProfilesTab({
             </ul>
           )}
 
-          <button
-            className="btn btn--sm"
-            onClick={() => setAddingRuleProfile(profile.id)}
-          >
-            {t("cfg.profiles.addRule")}
-          </button>
         </section>
       ))}
 
