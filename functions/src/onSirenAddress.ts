@@ -28,6 +28,15 @@ export const parseSirenAddressEvent = (
   return isNaN(parsed) ? null : parsed;
 };
 
+// The canonical Firestore string form: "0x" + 6 upper-case hex digits. Matches
+// what the device reports and the form Remote.identity uses, so a stored value
+// can be compared for equality without re-normalising both sides.
+//
+// Kept pure and separate from the handler so the change-detection below is
+// testable without mocking Firestore.
+export const canonicalSirenAddress = (address: number): string =>
+  `0x${address.toString(16).toUpperCase().padStart(6, "0")}`;
+
 export const onSirenAddress = onValueCreated(
   { ref: "/{projectId}/events/{rfId}/{timestamp}", region: "europe-west1" },
   async (event) => {
@@ -47,6 +56,33 @@ export const onSirenAddress = onValueCreated(
     await rtdb.ref(`${projectId}/state/siren_base`).set(address);
     console.log(
       `onSirenAddress: set state/siren_base = 0x${address.toString(16).toUpperCase()} for ${projectId}`
+    );
+
+    // Durable copy in Firestore. state/siren_base above is for DISPLAY; this
+    // is the record that survives, and onProjectConfigChange carries it back
+    // down as config.s so a device whose EEPROM was wiped re-adopts its own
+    // address instead of generating a new one the siren is not paired to.
+    //
+    // The device-facing config carries the parsed NUMBER, not this string
+    // (see buildConfig's sirenKey).
+    const canonical = canonicalSirenAddress(address);
+
+    // Only write when it actually changed. The device re-reports its address
+    // on EVERY boot, and this doc write triggers onProjectConfigChange ->
+    // rebuildConfig; rewriting an identical value would burn a config rebuild
+    // (and an RTDB config push to the device) on every single reboot.
+    const { db } = await import("./admin");
+    const projectRef = db.doc(`projects/${projectId}`);
+    const snap = await projectRef.get();
+    if (!snap.exists) {
+      console.log(`onSirenAddress: project ${projectId} does not exist`);
+      return;
+    }
+    if (snap.data()?.sirenBaseAddress === canonical) return;
+
+    await projectRef.set({ sirenBaseAddress: canonical }, { merge: true });
+    console.log(
+      `onSirenAddress: persisted sirenBaseAddress = ${canonical} for ${projectId}`
     );
   }
 );

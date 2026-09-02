@@ -98,6 +98,12 @@ constexpr unsigned long kDnsUsersStartFallbackMs = 60000UL;  // start anyway if 
 // iterations per boot — see handleSensorEvent()'s note on why frame size
 // in loop() matters on this hardware.
 bool sirenAddressReported = false;
+// Retry pacing for the siren-address report. It is only latched on a
+// CONFIRMED write (see reportSirenAddressOnce), so a device that is
+// momentarily too low on contiguous heap tries again rather than giving up —
+// but at this interval, not on every loop iteration.
+unsigned long lastSirenAddressReportMs = 0;
+static constexpr unsigned long kSirenAddressRetryMs = 60000UL;
 // True between reporting an alarm to the cloud and clearing state/siren_active
 // again. See the falling-edge clear in loop().
 bool alarmReportedToCloud = false;
@@ -109,7 +115,20 @@ static constexpr unsigned long kHeartbeatIntervalMs = 10000UL;
 // the mint response wait 15s, runSirenPairing() 10s. Those all call
 // platformFeedWatchdog() as they go, so the real requirement is just that
 // this comfortably exceeds one loop() iteration.
-static constexpr uint32_t kWatchdogTimeoutSec = 30;
+//
+// RAISED 30 -> 60. The binding stretch is NOT any of the above: it is the
+// synchronous FirebaseClient poll/write inside cloudClient.loop(), which
+// blocks WITHOUT feeding the watchdog (its internal wait calls delay(0),
+// which yields to FreeRTOS but does not reset the TWDT). That is now capped
+// at CloudClient::kSyncTimeoutSec — see the long note there.
+//
+// At 30s this constant EQUALED the library's own default socket timeout, so
+// a single stalled poll could burn the whole budget and reboot a healthy
+// device. The budget must clear the worst legitimate case, which is
+// reportAlarm(): TWO sequential blocking set() calls, i.e. 2x kSyncTimeoutSec
+// plus the surrounding loop work. 60s leaves ample margin while still
+// catching a genuine hang within a minute.
+static constexpr uint32_t kWatchdogTimeoutSec = 60;
 
 // Boot cause is reported once, after the cloud comes up. Same gating shape
 // as sirenAddressReported — strictly isReady(), since there is nothing to
@@ -150,9 +169,19 @@ static constexpr unsigned long kWifiDownRebootMs = 2UL * 60UL * 60UL * 1000UL;
 __attribute__((noinline))
 void reportSirenAddressOnce() {
   char addrHex[9];
+  // "0x%06X" — upper-case and zero-padded to six digits. This EXACT form is
+  // what onSirenAddress stores in Firestore (canonicalSirenAddress produces
+  // the same string), so a re-report on the next boot compares equal and
+  // does not rewrite the project doc. Changing this format would make every
+  // reboot trigger a config rebuild and an RTDB push.
   snprintf(addrHex, sizeof(addrHex), "0x%06X", (unsigned int)config.sirenBaseAddress);
-  cloudClient.reportEvent("SIREN0", "siren_address", false, 0, addrHex);
-  sirenAddressReported = true;
+  // Latch ONLY on a confirmed write. reportEvent silently skips when
+  // contiguous heap is below its floor, and this particular event is what
+  // persists the device's siren identity to Firestore — marking it done
+  // after a skipped write would strand the address on-device forever. On a
+  // failure we simply retry on a later loop.
+  sirenAddressReported =
+      cloudClient.reportEvent("SIREN0", "siren_address", false, 0, addrHex);
 }
 
 void startMdnsIfNeeded() {
@@ -371,9 +400,24 @@ void applyPendingConfigUpdate() {
   Config newConfig;
   if (!cloudClient.consumeConfigUpdate(&newConfig)) return;
   newConfig.armed = armed;  // armed is tracked separately from config pushes
-  // The siren address is device-owned and never sent by the cloud; preserve
-  // it across a config push or the device forgets its pairing.
-  newConfig.sirenBaseAddress = config.sirenBaseAddress;
+
+  // Siren address: the DEVICE stays authoritative, with the cloud as a
+  // recovery path — not the other way round.
+  //
+  // - local valid            -> keep local, ignore whatever the cloud sent.
+  //   Never let a config push overwrite a working pairing.
+  // - local empty + cloud has one -> ADOPT it. This is the whole point: an
+  //   EEPROM wipe (magic bump, reflash) no longer costs the physical pairing,
+  //   because Firestore kept the address the siren is actually bound to.
+  // - neither                -> leave empty; maybeGenerateSirenAddress()
+  //   mints one from loop() once we know the cloud has nothing.
+  const bool hadLocalAddress = SirenAddress::isValid(config.sirenBaseAddress);
+  if (hadLocalAddress) {
+    newConfig.sirenBaseAddress = config.sirenBaseAddress;
+  } else if (SirenAddress::isValid(newConfig.sirenBaseAddress)) {
+    Serial.printf("[siren] adopted base address 0x%06lX from the cloud\n",
+                  (unsigned long)newConfig.sirenBaseAddress);
+  }
   // Remotes paired LOCALLY (via alarm.local, with no internet) exist on the
   // device before the cloud knows about them. A config push carrying an
   // empty or shorter m would otherwise erase them, so merge rather than
@@ -386,7 +430,35 @@ void applyPendingConfigUpdate() {
   }
   config = newConfig;
   alarmState.setConfig(config);
+  // Push a newly adopted address into the live siren. begin() captured
+  // whatever was in EEPROM at boot (possibly nothing), so without this the
+  // adopted address would sit in config and not reach the radio until the
+  // next reboot — the siren would stay silent for the rest of the session.
+  if (!hadLocalAddress && SirenAddress::isValid(config.sirenBaseAddress)) {
+    siren.setBaseAddress(config.sirenBaseAddress);
+  }
   eepromStore.save(armed, localWebEnabled, config);
+}
+
+// Mint a siren identity, but ONLY once the cloud has been heard from and had
+// nothing to offer. Called from loop().
+//
+// The ordering is the entire fix for the lost-pairing bug: generating eagerly
+// at boot is what overwrote a still-valid cloud address after an EEPROM wipe.
+// A device that has never had a siren, and a cloud that has no record of one,
+// is the only case where a fresh address is correct.
+//
+// Reported up by the existing reportSirenAddressOnce() path, which is what
+// gets it into Firestore via onSirenAddress.
+__attribute__((noinline))
+void maybeGenerateSirenAddress() {
+  config.sirenBaseAddress = SirenAddress::generate();
+  siren.setBaseAddress(config.sirenBaseAddress);
+  alarmState.setConfig(config);
+  eepromStore.save(armed, localWebEnabled, config);
+  Serial.printf("[siren] no address on device or in cloud — generated "
+                "0x%06lX\n",
+                (unsigned long)config.sirenBaseAddress);
 }
 
 // Loop the base address on air so a siren held in learn mode can bind it.
@@ -721,16 +793,30 @@ void onNormalOperation() {
     Serial.println("[cc1101] init FAILED — RF receive and siren TX disabled");
   }
 
-  // Generate the siren identity on first boot and persist it, so a physical
-  // pairing survives reflashing.
-  if (!SirenAddress::isValid(config.sirenBaseAddress)) {
-    config.sirenBaseAddress = SirenAddress::generate();
-    eepromStore.save(armed, localWebEnabled, config);
-    Serial.printf("[siren] generated new base address 0x%06lX\n",
+  // DELIBERATELY does NOT generate an address here when EEPROM has none.
+  //
+  // Generating is the LAST resort, not the first move. This device previously
+  // minted a fresh address the moment EEPROM came up empty — which is exactly
+  // how a physical siren pairing was lost: an EepromStore::kMagic bump
+  // discarded the stored Config, the device generated a NEW address on the
+  // next boot, and the siren stayed bound to the old one it could no longer
+  // hear. The cloud held the right value the whole time.
+  //
+  // So: wait. If Firestore has an address it arrives in the next config push
+  // and applyPendingConfigUpdate() adopts it. Only if the cloud also has none
+  // does maybeGenerateSirenAddress() mint one (see loop()).
+  //
+  // Safe to run addressless in the meantime: RelaySiren::sendCommand() gates
+  // on SirenAddress::isValid(), so the siren is silent rather than
+  // transmitting garbage, and the address can be applied live via
+  // siren.setBaseAddress().
+  if (SirenAddress::isValid(config.sirenBaseAddress)) {
+    Serial.printf("[siren] base address 0x%06lX (from EEPROM)\n",
                   (unsigned long)config.sirenBaseAddress);
+  } else {
+    Serial.println("[siren] no stored base address — waiting for the cloud "
+                   "before generating one");
   }
-  Serial.printf("[siren] base address 0x%06lX\n",
-                (unsigned long)config.sirenBaseAddress);
   siren.begin(kRelayPin, radioReady ? &cc1101 : nullptr, config.sirenBaseAddress);
 
   // NTP sync (configTime()) is deferred until cloud settles — see
@@ -867,10 +953,38 @@ void loop() {
     startNtpSyncIfNeeded();
   }
 
+  // Last-resort address generation. Runs BEFORE the report below so a freshly
+  // minted address is reported in the same pass rather than a poll later.
+  //
+  // Requires hasReceivedConfig(): the cloud must have actually answered with
+  // a config that carried no `s`. An offline device therefore never generates
+  // — correct, because its EEPROM copy may simply be waiting for a cloud that
+  // would have supplied the right one.
+  //
+  // Note this is "config RECEIVED", not "config update applied": a device
+  // whose config never changes gets no updates, and gating on those would
+  // leave it addressless forever.
+  if (cloudClient.hasReceivedConfig() &&
+      !SirenAddress::isValid(config.sirenBaseAddress)) {
+    maybeGenerateSirenAddress();
+  }
+
   // Strictly isReady(), not the cloudSettled fallback above — that fallback
   // also fires if the cloud never comes up, and reportEvent() would just
   // no-op then anyway. Only mark it done once the call has actually fired.
-  if (!sirenAddressReported && cloudClient.isReady()) {
+  //
+  // Also gated on HAVING an address: a device still waiting on the cloud has
+  // nothing to report, and reporting 0x000000 would round-trip through
+  // onSirenAddress as a bogus pairing.
+  //
+  // Rate-limited because the report now RETRIES until confirmed (see
+  // reportSirenAddressOnce): an unthrottled retry would attempt a TLS write
+  // every loop iteration on a device whose heap is too low to serve one.
+  if (!sirenAddressReported && cloudClient.isReady() &&
+      SirenAddress::isValid(config.sirenBaseAddress) &&
+      (lastSirenAddressReportMs == 0 ||
+       now - lastSirenAddressReportMs >= kSirenAddressRetryMs)) {
+    lastSirenAddressReportMs = now;
     reportSirenAddressOnce();
   }
 

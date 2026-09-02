@@ -49,10 +49,17 @@ class CloudClient {
 
   bool isReady() const;  // true once authenticated and streams attached
 
-  // Fire-and-forget event write to /{projectId}/events/{rfId}/{ts}.
+  // Event write to /{projectId}/events/{rfId}/{ts}.
   // No-op (silently skipped) if not yet authenticated — matches the
   // "no event buffering v1" decision.
-  void reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
+  //
+  // Returns true only if the write actually reached RTDB. Sensor triggers
+  // ignore this (a lost event is accepted by design), but the siren-address
+  // report MUST check it: that write is what persists the device's identity
+  // to Firestore, and it is also skipped when contiguous heap is low. Marking
+  // it "reported" after a skipped write would strand the address on-device
+  // forever, which is the very failure this reporting exists to prevent.
+  bool reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
                    const char* value = nullptr);
 
   // Write armed state to /{projectId}/state/armed so the web UI reflects
@@ -120,6 +127,15 @@ class CloudClient {
   // Lets callers avoid putting a ~2.4KB Config on the 4KB cont stack unless
   // there is actually an update to take — see main.cpp's loop().
   bool hasPendingConfigUpdate() const { return hasPendingConfig_; }
+
+  // True once a config has been successfully read from RTDB at all — even an
+  // unchanged one that produced no pending update.
+  //
+  // This is deliberately NOT "a config update was applied". main.cpp needs to
+  // know whether the cloud has been HEARD FROM before it may generate a siren
+  // address, and a device whose config never changes gets no updates at all;
+  // gating on updates alone would mean it never generates one.
+  bool hasReceivedConfig() const { return hadConfigValue_; }
 
  private:
   String mintTokenUrl_;
@@ -200,6 +216,32 @@ class CloudClient {
   // only bounds REMOTE command latency.
   static constexpr unsigned long kPollIntervalMs = 5000;
   static constexpr unsigned long kPollIntervalAlarmMs = 1000;
+
+  // How long a single synchronous FirebaseClient operation may block loop().
+  //
+  // THIS IS A WATCHDOG CONSTRAINT, NOT A LATENCY PREFERENCE. database_.get()
+  // and database_.set() are SYNCHRONOUS: they block inside loop() in
+  //   while (!sData->response.tcpAvailable()) { sys_idle(); ... }
+  // (FirebaseClient AsyncClient.h), and sys_idle() on ESP32 is just delay(0)
+  // — it yields to FreeRTOS but does NOT feed the task watchdog.
+  //
+  // Left unset, that wait is bounded only by the library's own
+  // FIREBASE_TCP_READ_TIMEOUT_SEC / FIREBASE_TCP_WRITE_TIMEOUT_SEC, both 30s
+  // (core/Options.h, marked "Do not change"). The default applies whenever
+  // setSyncReadTimeout()/setSyncSendTimeout() are not called, because the
+  // library reads `sync_*_timeout_sec > 0 ? sync_*_timeout_sec : -1` and -1
+  // means "use the 30s default".
+  //
+  // kWatchdogTimeoutSec was ALSO 30, so one stalled poll could consume the
+  // entire watchdog budget and reboot a perfectly healthy device — the
+  // occasional "device gets stuck" reports. reportAlarm() is the worst case:
+  // two sequential blocking set() calls, i.e. up to 60s, DURING AN ALARM.
+  //
+  // 5s is far longer than a healthy round-trip (observed well under 1s) and
+  // far shorter than the watchdog budget, so a stalled network now fails the
+  // poll cleanly and loop() keeps running — RF decode, the siren and the LAN
+  // UI are all local and must not be held hostage by a slow socket.
+  static constexpr uint32_t kSyncTimeoutSec = 5;
 
   // Last-seen polled values. SSE delivered only changes; polling re-reads
   // the same value every few seconds, so these suppress no-op updates that

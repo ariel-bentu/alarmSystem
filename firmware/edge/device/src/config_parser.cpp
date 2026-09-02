@@ -14,6 +14,15 @@ bool parseConfigJson(const char* json, Config* out) {
   out->sirenDurationSec = doc["d"] | 0;
   out->sirenEnabled = doc["e"] | true;
 
+  // Siren base address, echoed back by the cloud so a device whose EEPROM was
+  // wiped can re-adopt its own identity rather than generating a new one the
+  // physical siren was never paired to. 0 means "cloud has none"; the caller
+  // decides whether to adopt (see main.cpp's applyPendingConfigUpdate — a
+  // device with a valid local address ignores this and stays authoritative).
+  //
+  // Parsed BEFORE the r/c early return below, for the same reason as `m`.
+  out->sirenBaseAddress = doc["s"] | 0;
+
   // Parsed BEFORE the r/c handling below, which has an early return for the
   // no-sensors case — remotes must survive that path or a project with no
   // rules could never use one.

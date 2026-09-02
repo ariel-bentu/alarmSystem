@@ -5,7 +5,7 @@
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { db, rtdb } from "./admin";
 import { Rule, Sensor, Remote } from "./types";
-import { buildRtdbConfig } from "./buildConfig";
+import { buildRtdbConfig, sirenKey } from "./buildConfig";
 
 // Trigger on profile document changes
 export const onProfileChange = onDocumentWritten(
@@ -34,15 +34,28 @@ export const onRemoteChange = onDocumentWritten(
   }
 );
 
-// Trigger on project-level changes that affect the device config (e.g. sirenEnabled)
+// Trigger on project-level changes that affect the device config
+// (sirenEnabled, sirenBaseAddress)
 export const onProjectConfigChange = onDocumentWritten(
   { document: "projects/{projectId}", region: "europe-west1" },
   async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after) return;
-    // Only rebuild when sirenEnabled changes — other project fields don't affect RTDB config.
-    if (before.sirenEnabled === after.sirenEnabled) return;
+    // Only rebuild when a config-affecting field changes — other project
+    // fields don't affect RTDB config.
+    //
+    // sirenBaseAddress MUST be in this list: onSirenAddress writes it to
+    // Firestore, and this trigger is the only thing that carries it into
+    // RTDB config and therefore down to the device. Omit it and the address
+    // is stored durably but never delivered — the pairing-recovery path
+    // would look correct and do nothing.
+    if (
+      before.sirenEnabled === after.sirenEnabled &&
+      before.sirenBaseAddress === after.sirenBaseAddress
+    ) {
+      return;
+    }
     const projectId = event.params.projectId;
     await rebuildConfig(projectId);
   }
@@ -96,6 +109,12 @@ async function rebuildConfig(projectId: string): Promise<void> {
     .map((remote) => parseInt(remote.identity, 16))
     .filter((id) => Number.isFinite(id));
 
+  // Read the project doc once, up here: the siren address is needed by BOTH
+  // the thin early-return shape below and the full build further down.
+  const projectDoc = await db.doc(`projects/${projectId}`).get();
+  const projectData = projectDoc.exists ? projectDoc.data() : undefined;
+  const sirenBaseAddress = projectData?.sirenBaseAddress as string | undefined;
+
   if (!activeProfile && alwaysRules.length === 0) {
     // Nothing to evaluate — write the thin config shape with r/c omitted.
     // RTDB drops empty arrays on .set(), so writing r: [], c: [] here would
@@ -104,12 +123,15 @@ async function rebuildConfig(projectId: string): Promise<void> {
     // "zero sensors" (not a parse failure) specifically to make this work.
     // m is still carried here: pairing a remote to a project that has no
     // active profile and no always-rules must still reach the device, or
-    // the remote would silently never work.
+    // the remote would silently never work. s is carried for exactly the
+    // same reason — a device with a wiped EEPROM must be able to recover its
+    // siren address regardless of whether any profile is active.
     await rtdb.ref(`${projectId}/config`).set({
       a: false,
       d: 120,
       e: true,
       ...(remoteIds.length > 0 ? { m: remoteIds } : {}),
+      ...sirenKey(sirenBaseAddress),
     });
     return;
   }
@@ -122,14 +144,10 @@ async function rebuildConfig(projectId: string): Promise<void> {
   const armedSnap = await rtdb.ref(`${projectId}/state/armed`).get();
   const armed = armedSnap.val() === true;
 
-  // Get project for sirenDurationSec and sirenEnabled
-  const projectDoc = await db.doc(`projects/${projectId}`).get();
-  const sirenDurationSec = projectDoc.exists
-    ? (projectDoc.data()?.sirenDurationSec ?? 120)
-    : 120;
-  const sirenEnabled = projectDoc.exists
-    ? (projectDoc.data()?.sirenEnabled !== false)
-    : true;
+  // Project-level siren settings. projectData was read above, since the
+  // thin-config path needs the siren address too.
+  const sirenDurationSec = projectData?.sirenDurationSec ?? 120;
+  const sirenEnabled = projectData?.sirenEnabled !== false;
 
   const config = buildRtdbConfig(
     rules,
@@ -138,7 +156,8 @@ async function rebuildConfig(projectId: string): Promise<void> {
     sirenDurationSec,
     sirenEnabled,
     alwaysRules,
-    remotes
+    remotes,
+    sirenBaseAddress
   );
   await rtdb.ref(`${projectId}/config`).set(config);
 }

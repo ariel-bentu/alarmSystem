@@ -144,6 +144,22 @@ export interface Project {
   serverArmed: boolean;
   serverActions: ServerActions;
   sirenDurationSec: number;
+  // The device's EV1527 identity for its siren, as "0xRRGGBB" — the same
+  // string form the device reports and that Remote.identity uses.
+  //
+  // The DEVICE generates this (from its hardware RNG) and owns it; this
+  // field is the durable record, written by onSirenAddress when the device
+  // reports it. It exists because the device's only other copy is in EEPROM,
+  // and an EEPROM magic bump (e.g. adding a Config field) discards the whole
+  // record — which silently lost a physical siren pairing, since the siren
+  // stays bound to an address the device no longer knows.
+  //
+  // Pushed back down as RtdbConfig.s so a wiped device re-adopts it instead
+  // of minting a new address the siren has never heard.
+  //
+  // Optional: project docs predate the field, and a project whose device has
+  // never reported one simply has no siren address yet.
+  sirenBaseAddress?: string;
   // IANA zone, e.g. "Asia/Jerusalem". Schedules resolve wall-clock times in
   // it. Optional because project docs predate the field; readers fall back
   // to "UTC".
@@ -206,6 +222,17 @@ export interface RtdbConfig {
   // none are paired — RTDB drops empty arrays on .set(), so the firmware's
   // parser treats an absent m as "zero remotes", never a parse failure.
   m?: number[];
+  // Siren base address (24-bit, as a NUMBER — Firestore stores the "0x..."
+  // string form, this is the parsed value, same split as `m`). Omitted when
+  // the project has no siren address yet.
+  //
+  // The device adopts this ONLY when its own EEPROM copy is missing; a
+  // device that already has a valid address ignores it and stays
+  // authoritative. See main.cpp's applyPendingConfigUpdate().
+  //
+  // Single value, not an array: multi-siren is a TODO (see todo.txt), and
+  // the firmware TX path drives one address today.
+  s?: number;
 }
 
 export interface AlarmEvent {
