@@ -32,64 +32,60 @@ export const onDeviceArmStateChange = onValueWritten(
     const projectId = event.params.projectId;
     const armed = after === true;
 
+    // Read source before anything else: it determines whether the device acted
+    // on its own (remote/local) or echoed a cloud command. Written by the
+    // device BEFORE state/armed, so it is already present here.
+    const sourceSnap = await rtdb.ref(`${projectId}/state/armed_by`).get();
+    const source = sourceSnap.exists() ? String(sourceSnap.val()) : null;
+    const isDeviceOriginated = source === "remote" || source === "local";
+
     const commandsSnap = await rtdb.ref(`${projectId}/commands/armed`).get();
     const commandsArmed = commandsSnap.exists()
       ? commandsSnap.val() === true
       : null;
 
-    // When the device disarms by a source that bypassed the web intent channel
-    // (remote control, local web UI), commands/armed is still true and
-    // isActiveOnDevice on the profile is still true, so the web UI shows
-    // "Armed" even though the device is disarmed. Sync Firestore here so the
-    // UI reflects reality.
-    if (!armed && commandsArmed === true) {
-      const profilesSnap = await db
-        .collection(`projects/${projectId}/profiles`)
-        .where("isActiveOnDevice", "==", true)
-        .get();
-      const batch = db.batch();
-      for (const doc of profilesSnap.docs) {
-        batch.update(doc.ref, { isActiveOnDevice: false });
+    // Only sync Firestore/commands when the device acted independently of the
+    // web. A "cloud" source means it echoed commands/armed — already in sync.
+    if (isDeviceOriginated) {
+      if (!armed && commandsArmed === true) {
+        // Device disarmed via remote/local: clear profile flag and commands.
+        const profilesSnap = await db
+          .collection(`projects/${projectId}/profiles`)
+          .where("isActiveOnDevice", "==", true)
+          .get();
+        const batch = db.batch();
+        for (const doc of profilesSnap.docs) {
+          batch.update(doc.ref, { isActiveOnDevice: false });
+        }
+        await Promise.all([
+          batch.commit(),
+          rtdb.ref(`${projectId}/commands/armed`).set(false),
+        ]);
       }
-      await Promise.all([
-        batch.commit(),
-        rtdb.ref(`${projectId}/commands/armed`).set(false),
-      ]);
-    }
 
-    // When the device arms via remote (bypassing the web), commands/armed is
-    // false but state/armed just flipped true. Restore isActiveOnDevice on the
-    // last profile the web armed with (stored in commands/armedProfileId by
-    // onArmStateChange) so the UI grid highlights the right profile.
-    if (armed && commandsArmed === false) {
-      const profileIdSnap = await rtdb
-        .ref(`${projectId}/commands/armedProfileId`)
-        .get();
-      const profileId = profileIdSnap.exists()
-        ? String(profileIdSnap.val())
-        : null;
-      const writes: Promise<unknown>[] = [
-        // Keep commands/armed in sync so a subsequent web disarm sees a
-        // false→false no-op and actually delivers the command to the device.
-        rtdb.ref(`${projectId}/commands/armed`).set(true),
-      ];
-      if (profileId) {
-        writes.push(
-          db
-            .doc(`projects/${projectId}/profiles/${profileId}`)
-            .update({ isActiveOnDevice: true })
-        );
+      if (armed && commandsArmed === false) {
+        // Device armed via remote: restore last-known profile and sync commands.
+        const profileIdSnap = await rtdb
+          .ref(`${projectId}/commands/armedProfileId`)
+          .get();
+        const profileId = profileIdSnap.exists()
+          ? String(profileIdSnap.val())
+          : null;
+        const writes: Promise<unknown>[] = [
+          rtdb.ref(`${projectId}/commands/armed`).set(true),
+        ];
+        if (profileId) {
+          writes.push(
+            db
+              .doc(`projects/${projectId}/profiles/${profileId}`)
+              .update({ isActiveOnDevice: true })
+          );
+        }
+        await Promise.all(writes);
       }
-      await Promise.all(writes);
     }
 
     if (shouldSuppressDeviceArmNotification(commandsArmed, armed)) return;
-
-    // Written by the device in the same update as state/armed, and written
-    // FIRST, so it is already present when this fires. Absent for older
-    // firmware, which falls back to a generic "Device armed/disarmed".
-    const sourceSnap = await rtdb.ref(`${projectId}/state/armed_by`).get();
-    const source = sourceSnap.exists() ? String(sourceSnap.val()) : null;
 
     // Mirror to the Firestore timeline. sensorName carries "what this event
     // is about", matching onArmStateChange's use of it for the profile name.
