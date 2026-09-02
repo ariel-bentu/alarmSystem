@@ -798,7 +798,13 @@ textarea.input {
 
 /* Phone-alarm shaped: large time, small subtitle, toggle at the inline end.
    Logical properties throughout so the RTL layout mirrors correctly in
-   Hebrew (the 23:00 → 07:00 arrow reads right-to-left). */
+   Hebrew.
+
+   The TIME RANGE itself is the exception and must NOT mirror: the arrow
+   encodes arm -> disarm order, not reading order. Left to the bidi
+   algorithm, "16:48 → 16:45" renders in Hebrew as "16:45 ← 16:48" — every
+   part is bidi-neutral, so the runs reorder and the window reads backwards.
+   SchedulesPanel adds .ltr to that span. */
 .sched-list {
   list-style: none;
   margin: 0;

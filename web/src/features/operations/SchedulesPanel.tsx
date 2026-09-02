@@ -127,7 +127,12 @@ export default function SchedulesPanel({ projectId, profiles, role }: Props) {
                 }}
                 disabled={!isAdmin}
               >
-                <span className="sched-row__time">
+                {/* .ltr: the arrow and both times are bidi-neutral, so in
+                    Hebrew the runs reorder and "16:48 → 16:45" renders as
+                    "16:45 ← 16:48" — reversed, and pointing the wrong way.
+                    An arm→disarm window has a real direction, so it must
+                    keep LTR order regardless of page direction. */}
+                <span className="sched-row__time ltr">
                   {formatTimeRange(s.armTime, s.disarmTime)}
                 </span>
                 <span className="sched-row__meta">
