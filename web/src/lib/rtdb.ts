@@ -41,6 +41,15 @@ export const stateLastSeenPath = (projectId: string) =>
 export const stateLastSeenRef = (projectId: string): DatabaseReference =>
   ref(rtdb, stateLastSeenPath(projectId));
 
+// Why the device last booted: { reason, at }. Written once per boot by the
+// firmware (CloudClient::reportBoot). `reason` is "power_on" for an ordinary
+// unplug, but "panic" / "twdt" / "brownout" mean the device died on its own
+// and came back — which is otherwise invisible, since a rebooted device
+// looks identical to one that never left.
+export const stateBootPath = (projectId: string) => `${projectId}/state/boot`;
+export const stateBootRef = (projectId: string): DatabaseReference =>
+  ref(rtdb, stateBootPath(projectId));
+
 // What tripped the alarm. Written by the device ({rfId, ct, at}) and by the
 // server ({label, at}) — see features/operations/alarmState.ts.
 export const stateAlarmCausePath = (projectId: string) =>

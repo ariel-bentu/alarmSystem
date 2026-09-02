@@ -29,17 +29,47 @@ import { useDeviceState } from "./useDeviceState";
 import { useAlarmState } from "./useAlarmState";
 import SchedulesPanel from "./SchedulesPanel";
 import { causeLabel } from "./alarmState";
+import { bootSeverity, bootReasonKey, isRecentBoot } from "./bootReason";
 import type { Sensor, Profile } from "@/types";
 
 type Side = "device" | "server";
+
+// How long an unexpected restart stays worth reporting. The boot node
+// persists until the next boot overwrites it, so without a window the notice
+// would be permanent. A day is long enough that an overnight crash is still
+// waiting in the morning.
+const BOOT_NOTICE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export default function OperationsPage() {
   const t = useT();
   const { project, role } = useProject();
   const projectId = project?.id;
-  const { armed: deviceArmed, sirenActive, loading: rtdbLoading } = useDeviceState(projectId);
+  const {
+    armed: deviceArmed,
+    sirenActive,
+    boot,
+    loading: rtdbLoading,
+  } = useDeviceState(projectId);
   const alarm = useAlarmState(projectId);
   const online = useOnlineStatus();
+
+  // An unexpected restart is worth surfacing exactly once. Dismissal is keyed
+  // by the boot timestamp and persisted, so it survives a reload but a NEW
+  // crash still shows — the same shape as the alarm acknowledgement above.
+  const [bootDismissedAt, setBootDismissedAt] = useState<number | null>(() => {
+    if (!projectId) return null;
+    const raw = localStorage.getItem(`bootAck:${projectId}`);
+    return raw ? Number(raw) : null;
+  });
+  const showBootNotice =
+    bootSeverity(boot?.reason) === "unexpected" &&
+    isRecentBoot(boot, Date.now(), BOOT_NOTICE_WINDOW_MS) &&
+    boot?.at !== bootDismissedAt;
+  const dismissBootNotice = () => {
+    if (!projectId || !boot) return;
+    localStorage.setItem(`bootAck:${projectId}`, String(boot.at));
+    setBootDismissedAt(boot.at);
+  };
 
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -325,6 +355,27 @@ export default function OperationsPage() {
             type="button"
             className="btn btn--sm spacer"
             onClick={alarm.acknowledge}
+          >
+            {t("common.dismiss")}
+          </button>
+        </div>
+      )}
+
+      {showBootNotice && boot && (
+        <div className="banner banner--warn" role="status">
+          <span className="banner__title">
+            <span aria-hidden="true">⚠️</span> {t("ops.deviceRestarted")}
+          </span>
+          <span>
+            {t(bootReasonKey(boot.reason))}
+            {` ${t("ops.bootAt", {
+              time: new Date(boot.at).toLocaleString(),
+            })}`}
+          </span>
+          <button
+            type="button"
+            className="btn btn--sm spacer"
+            onClick={dismissBootNotice}
           >
             {t("common.dismiss")}
           </button>

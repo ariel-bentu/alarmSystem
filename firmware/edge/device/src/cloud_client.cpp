@@ -772,6 +772,36 @@ void CloudClient::reportHeartbeat() {
   snprintf(tsBuf, sizeof(tsBuf), "%lu", (unsigned long)(millis() / 1000));
   object_t payload(tsBuf);
   bool ok = database_.set<object_t>(*dataClient_, path, payload);
-  Serial.printf("cloud: heartbeat uptime=%s %s (code %d)\n", tsBuf, ok ? "ok" : "FAILED",
+  // Heap trend, not just the instant value. A slow leak is invisible in
+  // getFreeHeap() sampled once, but shows clearly as minFree marching
+  // downward across hours of heartbeats — and this device died after 9h16m
+  // with no evidence either way, which is what made that death unexplainable.
+  // Printed rather than written to RTDB: serial is free, and an extra RTDB
+  // write every 10s is not.
+  Serial.printf("cloud: heartbeat uptime=%s %s (code %d) heap=%u min=%u "
+                "maxblock=%u\n",
+                tsBuf, ok ? "ok" : "FAILED", dataClient_->lastError().code(),
+                ESP.getFreeHeap(), platformMinFreeHeap(),
+                platformMaxAllocHeap());
+}
+
+void CloudClient::reportBoot() {
+  if (!isReady()) return;
+  if (!openDataClient()) return;
+
+  JsonDocument doc;
+  doc["reason"] = platformResetReason();
+  // Wall-clock, so this is comparable against event timestamps and against
+  // Date.now() in the web UI. NTP may not have synced this early, in which
+  // case it is epoch-adjacent — the reason string is the load-bearing part.
+  doc["at"] = (uint64_t)time(nullptr) * 1000ULL;
+  String json;
+  serializeJson(doc, json);
+
+  String path = String("/") + projectId_ + "/state/boot";
+  object_t payload(json.c_str());
+  bool ok = database_.set<object_t>(*dataClient_, path, payload);
+  Serial.printf("cloud: reportBoot reason=%s %s (code %d)\n",
+                platformResetReason(), ok ? "ok" : "FAILED",
                 dataClient_->lastError().code());
 }

@@ -72,6 +72,19 @@ export function formatDeadSensor(sensorName: string, hoursSilent: number): strin
   return `💤 ${sensorName} has not reported in ${hoursSilent}h`;
 }
 
+// The CONTROLLER went silent, not a sensor. Named separately from
+// formatDeadSensor because the consequence is different in kind: one dead
+// sensor is a blind spot, a dead controller while armed means nothing is
+// being watched at all. `silence` is pre-humanised (see formatSilence).
+export function formatDeviceOffline(silence: string, armed: boolean): string {
+  const state = armed ? " while ARMED" : "";
+  return `📵 Alarm device offline${state} — no heartbeat for ${silence}`;
+}
+
+export function formatDeviceBackOnline(silence: string): string {
+  return `✅ Alarm device back online — was offline for ${silence}`;
+}
+
 export interface StatusInfo {
   serverArmed: boolean;
   deviceArmed: boolean;

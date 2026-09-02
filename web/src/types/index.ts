@@ -170,6 +170,16 @@ export interface RtdbState {
   siren_active: boolean;
   last_seen?: Record<string, number>;
   battery?: Record<string, BatteryStatus>;
+  boot?: RtdbBoot;
+}
+
+// Written once per boot by the firmware. An unexpected `reason` is the only
+// way to tell that the device died and silently recovered.
+export interface RtdbBoot {
+  // "power_on" | "panic" | "twdt" | "brownout" | "sw_restart" | ...
+  // See platformResetReason() in firmware/edge/device/src/platform_compat.h.
+  reason: string;
+  at: number; // epoch ms; 0-adjacent if NTP had not synced yet
 }
 
 export interface RtdbCommands {

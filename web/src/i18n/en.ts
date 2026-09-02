@@ -72,6 +72,18 @@ export const en = {
   "ops.alarm": "Alarm",
   "ops.alarmCauseUnknown": "cause unknown",
   "ops.alarmAt": "at {time}",
+  // Shown when the device rebooted itself rather than being restarted by a
+  // person — otherwise a crash-and-recover is completely invisible.
+  "ops.deviceRestarted": "Device restarted",
+  "ops.bootAt": "at {time}",
+  "ops.bootPowerOn": "Powered on normally",
+  "ops.bootExternal": "Reset externally",
+  "ops.bootSwRestart": "Restarted by the firmware",
+  "ops.bootPanic": "Recovered from a crash",
+  "ops.bootWatchdog": "Recovered from a freeze",
+  "ops.bootBrownout": "Recovered from a power dip",
+  "ops.bootDeepSleep": "Woke from deep sleep",
+  "ops.bootUnknown": "Restarted for an unknown reason",
   "ops.sos": "SOS",
   "ops.sosConfirm": "Press again to sound",
   "ops.sosCancel": "Cancel",
