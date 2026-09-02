@@ -374,6 +374,16 @@ void applyPendingConfigUpdate() {
   // The siren address is device-owned and never sent by the cloud; preserve
   // it across a config push or the device forgets its pairing.
   newConfig.sirenBaseAddress = config.sirenBaseAddress;
+  // Remotes paired LOCALLY (via alarm.local, with no internet) exist on the
+  // device before the cloud knows about them. A config push carrying an
+  // empty or shorter m would otherwise erase them, so merge rather than
+  // replace: keep any local identity the push does not already contain.
+  for (uint8_t i = 0; i < config.remoteCount && i < Config::kMaxRemotes; i++) {
+    if (newConfig.remoteCount >= Config::kMaxRemotes) break;
+    if (!remoteIsPaired(newConfig, config.remotes[i])) {
+      newConfig.remotes[newConfig.remoteCount++] = config.remotes[i];
+    }
+  }
   config = newConfig;
   alarmState.setConfig(config);
   eepromStore.save(armed, localWebEnabled, config);

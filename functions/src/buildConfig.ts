@@ -4,6 +4,7 @@
 import {
   Rule,
   Sensor,
+  Remote,
   Condition,
   RtdbCondition,
   RtdbConfig,
@@ -64,6 +65,8 @@ function toRtdbCondition(
  * @param armed - Current armed state
  * @param sirenDurationSec - Project-level siren duration
  * @param sirenEnabled - Whether the device should sound the siren
+ * @param remotes - Paired remote controls, pushed so the device can act on
+ *   them with no cloud connection
  */
 export function buildRtdbConfig(
   rules: Rule[],
@@ -71,7 +74,8 @@ export function buildRtdbConfig(
   armed: boolean,
   sirenDurationSec: number,
   sirenEnabled = true,
-  alwaysRules: Rule[] = []
+  alwaysRules: Rule[] = [],
+  remotes: Remote[] = []
 ): RtdbConfig {
   const sensorMap = new Map<string, Sensor>();
   for (const s of sensors) {
@@ -134,5 +138,21 @@ export function buildRtdbConfig(
 
   const c: RtdbCondition[][] = r.map((rfId) => conditionsByRfId.get(rfId)!);
 
-  return { a: armed, d: sirenDurationSec, e: sirenEnabled, r, c };
+  // Remote identities as numbers. Unparseable entries are dropped rather
+  // than sent as NaN, which RTDB would reject outright.
+  const m = remotes
+    .map((remote) => parseInt(remote.identity, 16))
+    .filter((id) => Number.isFinite(id));
+
+  // Spread rather than assigning undefined: RTDB rejects undefined values,
+  // and an explicit `m: undefined` shows up in toEqual comparisons — the
+  // same reason toRtdbCondition spreads `x` above.
+  return {
+    a: armed,
+    d: sirenDurationSec,
+    e: sirenEnabled,
+    r,
+    c,
+    ...(m.length > 0 ? { m } : {}),
+  };
 }

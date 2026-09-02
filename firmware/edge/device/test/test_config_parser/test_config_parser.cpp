@@ -172,6 +172,35 @@ void test_absent_x_means_not_always() {
   TEST_ASSERT_FALSE(config.sensors[0].conditions[0].always);
 }
 
+// 938442 = 0xE51CA, 74570 = 0x1234A. RTDB numbers arrive as decimal.
+void test_parses_remote_identities() {
+  const char* json = "{\"a\":false,\"d\":120,\"e\":true,\"m\":[938442,74570]}";
+  Config out;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &out));
+  TEST_ASSERT_EQUAL(2, out.remoteCount);
+  TEST_ASSERT_EQUAL_HEX32(0xE51CA, out.remotes[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x1234A, out.remotes[1]);
+}
+
+// RTDB drops empty arrays on .set(), so an absent m must mean "no remotes",
+// never a parse failure — the same contract r/c already have.
+void test_absent_m_means_zero_remotes() {
+  const char* json = "{\"a\":false,\"d\":120,\"e\":true}";
+  Config out;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &out));
+  TEST_ASSERT_EQUAL(0, out.remoteCount);
+}
+
+// A malicious or corrupt config must not overflow the fixed array.
+void test_clamps_excess_remotes_to_capacity() {
+  const char* json =
+      "{\"a\":false,\"d\":120,\"e\":true,"
+      "\"m\":[1,2,3,4,5,6,7,8,9,10,11,12]}";
+  Config out;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &out));
+  TEST_ASSERT_EQUAL(Config::kMaxRemotes, out.remoteCount);
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_valid_config_round_trip_with_all_condition_types);
@@ -184,6 +213,9 @@ void setup() {
   RUN_TEST(test_out_of_range_k_index_is_dropped_not_stored);
   RUN_TEST(test_parses_always_flag);
   RUN_TEST(test_absent_x_means_not_always);
+  RUN_TEST(test_parses_remote_identities);
+  RUN_TEST(test_absent_m_means_zero_remotes);
+  RUN_TEST(test_clamps_excess_remotes_to_capacity);
   UNITY_END();
 }
 

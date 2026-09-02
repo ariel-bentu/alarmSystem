@@ -4,7 +4,7 @@
 
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { db, rtdb } from "./admin";
-import { Rule, Sensor } from "./types";
+import { Rule, Sensor, Remote } from "./types";
 import { buildRtdbConfig } from "./buildConfig";
 
 // Trigger on profile document changes
@@ -76,16 +76,31 @@ async function rebuildConfig(projectId: string): Promise<void> {
     }
   }
 
+  // Remotes are independent of profiles and rules: they control the alarm
+  // rather than trigger it, so they are loaded before the early return
+  // below and carried into every config shape.
+  const remotesSnap = await db.collection(`projects/${projectId}/remotes`).get();
+  const remotes: Remote[] = remotesSnap.docs.map(
+    (d) => ({ id: d.id, ...d.data() } as Remote)
+  );
+  const remoteIds = remotes
+    .map((remote) => parseInt(remote.identity, 16))
+    .filter((id) => Number.isFinite(id));
+
   if (!activeProfile && alwaysRules.length === 0) {
     // Nothing to evaluate — write the thin config shape with r/c omitted.
     // RTDB drops empty arrays on .set(), so writing r: [], c: [] here would
     // round-trip as if the fields were never set at all; the firmware's
     // parseConfigJson (cloud_client.cpp) is written to treat missing r/c as
     // "zero sensors" (not a parse failure) specifically to make this work.
+    // m is still carried here: pairing a remote to a project that has no
+    // active profile and no always-rules must still reach the device, or
+    // the remote would silently never work.
     await rtdb.ref(`${projectId}/config`).set({
       a: false,
       d: 120,
       e: true,
+      ...(remoteIds.length > 0 ? { m: remoteIds } : {}),
     });
     return;
   }
@@ -113,7 +128,8 @@ async function rebuildConfig(projectId: string): Promise<void> {
     armed,
     sirenDurationSec,
     sirenEnabled,
-    alwaysRules
+    alwaysRules,
+    remotes
   );
   await rtdb.ref(`${projectId}/config`).set(config);
 }

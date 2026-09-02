@@ -89,6 +89,20 @@ export interface Invite {
   acceptedBy: string | null; // userId
 }
 
+// A 433MHz remote control. Kept SEPARATE from Sensor deliberately: a sensor
+// means "can trigger the alarm", a remote means "can control the alarm".
+// Merging them would let a rule be built on a remote button — e.g. arming
+// the house when disarm is pressed — which has no legitimate use.
+export interface Remote {
+  id: string; // remoteId
+  // Hex, 20-bit, e.g. "0xE45CA" — the identity only. The button lives in the
+  // bottom nibble of the transmitted code and is never stored.
+  identity: string;
+  name: string;
+  pairedAt: Timestamp;
+  lastSeen: Timestamp | null;
+}
+
 export interface Sensor {
   id: string; // sensorId
   rfId: string; // hex e.g. "0xA1B2C3"

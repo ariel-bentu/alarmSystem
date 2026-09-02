@@ -205,4 +205,22 @@ describe("buildRtdbConfig — always-on rules", () => {
     expect(config.r).toEqual(["0xA1B2C3"]);
     expect(config.c).toEqual([[{ t: 0, x: 1 }]]);
   });
+
+  it("emits paired remote identities as numbers in m", () => {
+    const config = buildRtdbConfig([], sensors, false, 120, true, [], [
+      {
+        id: "r1",
+        identity: "0xE45CA",
+        name: "Keyfob",
+        pairedAt: Timestamp.fromMillis(1000),
+        lastSeen: null,
+      },
+    ]);
+    expect(config.m).toEqual([0xe45ca]);
+  });
+
+  it("omits m entirely when no remotes are paired", () => {
+    const config = buildRtdbConfig([], sensors, false, 120, true, [], []);
+    expect(config.m).toBeUndefined();
+  });
 });

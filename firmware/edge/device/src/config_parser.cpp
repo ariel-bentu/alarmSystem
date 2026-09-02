@@ -14,6 +14,20 @@ bool parseConfigJson(const char* json, Config* out) {
   out->sirenDurationSec = doc["d"] | 0;
   out->sirenEnabled = doc["e"] | true;
 
+  // Parsed BEFORE the r/c handling below, which has an early return for the
+  // no-sensors case — remotes must survive that path or a project with no
+  // rules could never use one.
+  out->remoteCount = 0;
+  JsonArray m = doc["m"];
+  if (!m.isNull()) {
+    for (JsonVariant v : m) {
+      // Clamp rather than overflow: the array is fixed-size and the config
+      // is remote input.
+      if (out->remoteCount >= Config::kMaxRemotes) break;
+      out->remotes[out->remoteCount++] = v.as<uint32_t>();
+    }
+  }
+
   JsonArray r = doc["r"];
   JsonArray c = doc["c"];
   // Paired with onProfileChange.ts: RTDB drops empty arrays on .set(), so
