@@ -63,6 +63,15 @@ service cloud.firestore {
         allow write: if isAdmin(projectId);
       }
 
+      // Remote controls. Admin-only to write, like sensors: a paired remote
+      // can arm, disarm and sound the siren, and fixed-code remotes are
+      // replayable — so who may add one is a security decision, not a
+      // convenience one.
+      match /remotes/{remoteId} {
+        allow read: if isMember(projectId);
+        allow write: if isAdmin(projectId);
+      }
+
       match /profiles/{profileId} {
         allow read: if isMember(projectId);
         allow create, delete: if isAdmin(projectId);
