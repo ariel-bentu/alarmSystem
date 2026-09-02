@@ -58,7 +58,12 @@ class CloudClient {
   // Write armed state to /{projectId}/state/armed so the web UI reflects
   // device-side arm/disarm (local web UI, physical button, etc.).
   // No-op if not yet authenticated.
-  void reportArmedState(bool armed);
+  // `source` ("remote", "local", "cloud") is written to
+  // /{projectId}/state/armed_by BEFORE state/armed, so onDeviceArmStateChange
+  // — which triggers on state/armed — always finds it already present. Same
+  // ordering discipline reportAlarm() uses for alarm_cause before
+  // siren_active. Pass nullptr to leave armed_by untouched.
+  void reportArmedState(bool armed, const char* source = nullptr);
 
   // Report a device-side alarm: writes /{projectId}/state/alarm_cause
   // ({rfId, ct, at}) and then sets /state/siren_active true. The cause goes
@@ -66,6 +71,15 @@ class CloudClient {
   // rfId/conditionType come from AlarmState's TriggerCause.
   // No-op if not yet authenticated.
   void reportAlarm(const char* rfId, uint8_t conditionType);
+
+  // Report an alarm that has no sensor behind it (SOS from a remote).
+  // Writes /{projectId}/state/alarm_cause as {label, at} — the shape
+  // alarmCause.ts already supports, where a label wins outright over rfId
+  // mapping — then sets /state/siren_active true, exactly like
+  // reportAlarm(). Do NOT pass a remote's raw code to reportAlarm()
+  // instead: it would make the Telegram alert name an unpaired sensor.
+  // No-op if not yet authenticated.
+  void reportAlarmLabel(const char* label);
 
   // Clear /{projectId}/state/siren_active. REQUIRED after every reportAlarm:
   // onAlarm triggers on the false->true edge, so a flag left true swallows

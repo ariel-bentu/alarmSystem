@@ -702,14 +702,28 @@ void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
   closeDataClient();
 }
 
-void CloudClient::reportArmedState(bool armed) {
+void CloudClient::reportArmedState(bool armed, const char* source) {
   if (!isReady()) return;
   if (!openDataClient()) return;
+
+  // Written FIRST so onDeviceArmStateChange, which triggers on state/armed
+  // below, always finds the source already in place. Without it that
+  // function cannot tell a remote disarm from a LAN one — and naming who
+  // disarmed the house is the only mitigation a replayable fixed-code
+  // remote has.
+  if (source != nullptr) {
+    String sourcePath = String("/") + projectId_ + "/state/armed_by";
+    object_t sourcePayload(String("\"" + String(source) + "\"").c_str());
+    database_.set<object_t>(*dataClient_, sourcePath, sourcePayload);
+  }
+
   String path = String("/") + projectId_ + "/state/armed";
   object_t payload(armed ? "true" : "false");
   bool ok = database_.set<object_t>(*dataClient_, path, payload);
-  Serial.printf("cloud: reportArmedState %s %s (code %d)\n", armed ? "true" : "false",
-                ok ? "ok" : "FAILED", dataClient_->lastError().code());
+  Serial.printf("cloud: reportArmedState %s%s%s %s (code %d)\n",
+                armed ? "true" : "false", source ? " by " : "",
+                source ? source : "", ok ? "ok" : "FAILED",
+                dataClient_->lastError().code());
 }
 
 void CloudClient::reportAlarm(const char* rfId, uint8_t conditionType) {
@@ -751,6 +765,48 @@ void CloudClient::reportAlarm(const char* rfId, uint8_t conditionType) {
   Serial.printf("cloud: reportAlarm %s ct=%u %s (code %d)\n", rfId,
                 (unsigned)conditionType, sirenOk ? "ok" : "FAILED",
                 dataClient_->lastError().code());
+  closeDataClient();
+}
+
+void CloudClient::reportAlarmLabel(const char* label) {
+  if (!isReady()) return;
+  if (!openDataClient()) {
+    Serial.printf("cloud: reportAlarmLabel %s DROPPED — no data client (%u "
+                  "contiguous bytes free)\n",
+                  label, platformMaxAllocHeap());
+    return;
+  }
+
+  // Same wall-clock source as reportAlarm — onAlarm ignores a cause older
+  // than CAUSE_MAX_AGE_MS, so an uptime value here would look stale.
+  uint64_t nowMs = (uint64_t)time(nullptr) * 1000ULL;
+
+  // {label, at} rather than {rfId, ct, at}: alarmCause.ts takes a
+  // server-written label outright, so this names the SOS directly instead
+  // of mapping a nonexistent sensor.
+  JsonDocument doc;
+  doc["label"] = label;
+  doc["at"] = nowMs;
+  String json;
+  serializeJson(doc, json);
+
+  String causePath = String("/") + projectId_ + "/state/alarm_cause";
+  object_t causePayload(json.c_str());
+  bool causeOk = database_.set<object_t>(*dataClient_, causePath, causePayload);
+  if (!causeOk) {
+    // Non-fatal, same as reportAlarm: sounding the alarm matters more than
+    // naming it.
+    Serial.printf("cloud: reportAlarmLabel cause FAILED (code %d) — "
+                  "siren_active still being set\n",
+                  dataClient_->lastError().code());
+  }
+
+  // Written second: onAlarm triggers on this edge and reads the cause above.
+  String sirenPath = String("/") + projectId_ + "/state/siren_active";
+  object_t sirenPayload("true");
+  bool sirenOk = database_.set<object_t>(*dataClient_, sirenPath, sirenPayload);
+  Serial.printf("cloud: reportAlarmLabel %s %s (code %d)\n", label,
+                sirenOk ? "ok" : "FAILED", dataClient_->lastError().code());
   closeDataClient();
 }
 

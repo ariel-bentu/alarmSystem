@@ -10,6 +10,7 @@
 #include "local_web_server.h"
 #include "provision_store.h"
 #include "provisioning_portal.h"
+#include "remote_control.h"
 #include "siren_address.h"
 #include "relay_siren.h"
 
@@ -64,6 +65,19 @@ LocalWebServer localWebServer;
 bool armed = false;
 bool localWebEnabled = true;
 Config config;
+
+// Which input last changed the arm state, reported to state/armed_by so the
+// Telegram alert can name it ("remote" vs "local" vs "cloud"). A fixed-code
+// remote is replayable, so attribution is the only available mitigation —
+// see the design doc's Security section.
+const char* armedBySource = "cloud";
+
+// Non-blocking remote pairing window; 0 = closed. Deliberately NOT modelled
+// on runSirenPairing(), which blocks the loop for 10s and leaves the alarm
+// deaf to sensors. Remote pairing is receive-only, so it needs no blocking
+// at all: it is a deadline checked inside the packet path.
+unsigned long remotePairUntilMs = 0;
+constexpr unsigned long kRemotePairWindowMs = 30000UL;
 
 // mDNS and configTime()'s SNTP setup are both deferred until the first
 // mint attempt settles. Two theories motivated this originally (DNS
@@ -239,13 +253,65 @@ void applyArmedCommand(bool newArmed) {
     siren.turnOff();
   }
   eepromStore.save(armed, localWebEnabled, config);
-  cloudClient.reportArmedState(armed);
+  cloudClient.reportArmedState(armed, armedBySource);
+  // Reset to the default so a stale source cannot mislabel the NEXT change:
+  // callers that care (remote, local web) set it immediately before calling.
+  armedBySource = "cloud";
 }
 
 // The CC1101 poll and the config-update handler both carry large locals
 // (KeruiPacket + decoder buffers; a ~2.4KB Config). Held out-of-line so
 // their frames never become part of loop()'s always-allocated frame — see
 // handleSensorEvent()'s note for the full reasoning and measurements.
+// Route a decoded packet that belongs to a paired remote. Returns true when
+// the packet was consumed, so the caller must NOT fall through to the sensor
+// path — a remote must never be able to trigger an alarm rule.
+//
+// noinline for the cont-stack reason documented on handleSensorEvent(): it
+// touches the ~2.4KB Config, and that frame must not join loop()'s
+// always-allocated one.
+__attribute__((noinline))
+bool handleRemotePacket(uint32_t code, unsigned long now) {
+  uint32_t identity = remoteIdentityOf(code);
+  if (!remoteIsPaired(config, identity)) return false;
+
+  RemoteAction action = remoteActionFor(remoteNibbleOf(code));
+  Serial.printf("[remote] 0x%05X button=0x%X action=%d\n", (unsigned)identity,
+                remoteNibbleOf(code), (int)action);
+
+  switch (action) {
+    case RemoteAction::Arm:
+      // Arms with whatever config is currently loaded. The remote does NOT
+      // select a profile — see the design doc.
+      armedBySource = "remote";
+      applyArmedCommand(true);
+      break;
+    case RemoteAction::Disarm:
+      armedBySource = "remote";
+      applyArmedCommand(false);
+      break;
+    case RemoteAction::Sos:
+      // Fires regardless of arm state — a panic button gated on armed is
+      // useless. Still honours sirenEnabled, which is a noise preference.
+      if (config.sirenEnabled) {
+        siren.turnOn(config.sirenDurationSec, now);
+      }
+      cloudClient.reportAlarmLabel("SOS (remote)");
+      alarmReportedToCloud = true;
+      break;
+    case RemoteAction::ArmHome:
+      // "S" is decoded deliberately and does nothing, so an unmapped button
+      // is visibly ignored rather than silently falling through to the
+      // sensor path.
+      Serial.println("[remote] arm-home (S) ignored");
+      break;
+    case RemoteAction::None:
+      Serial.println("[remote] unrecognised button nibble, ignored");
+      break;
+  }
+  return true;
+}
+
 __attribute__((noinline))
 void pollCc1101(unsigned long now) {
   KeruiPacket packet;
@@ -256,6 +322,10 @@ void pollCc1101(unsigned long now) {
   // the cloud path (reportEvent may be skipped on low heap).
   Serial.printf("[cc1101] packet sensorId=0x%06X battery=%d rssi=%d\n",
                 packet.sensorId, packet.batteryLow, rssi);
+  // Before the sensor path: a paired remote is a CONTROL device, not a
+  // trigger. Returning here keeps it out of handleSensorEvent entirely, so
+  // it cannot satisfy an alarm rule or be written to /events as a trigger.
+  if (handleRemotePacket(packet.sensorId, now)) return;
   // 0x-prefixed to match the format used everywhere else in the system
   // (Firestore sensor.rfId, buildConfig.ts, smoke scripts, web pairing UI
   // reading event keys) — see alarm_state.h's SensorConfig::rfId sizing.
@@ -815,6 +885,9 @@ void loop() {
 
     if (localWebServer.hasPendingArmCommand()) {
       bool newArmedFromWeb = localWebServer.takePendingArmCommand();
+      // Tagged so onDeviceArmStateChange can say "from local web UI" — this
+      // path produced NO notification at all before that function existed.
+      armedBySource = "local";
       applyArmedCommand(newArmedFromWeb);
     }
 
