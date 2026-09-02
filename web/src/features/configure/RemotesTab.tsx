@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ref, onValue, type DataSnapshot } from "firebase/database";
 import { onSnapshot, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
 import { rtdbSync } from "@/lib/firebase";
@@ -27,6 +27,22 @@ export default function RemotesTab() {
   const [pairIdentity, setPairIdentity] = useState<string | null>(null);
   const [pairName, setPairName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const pairDialogRef = useRef<HTMLDialogElement>(null);
+
+  const closePairForm = () => {
+    setPairIdentity(null);
+    setPairName("");
+  };
+
+  // Driven imperatively because showModal() is the only way to get the top
+  // layer, the ::backdrop, focus trapping and Esc-to-close — none of which
+  // happen if the element is merely rendered with an `open` attribute.
+  useEffect(() => {
+    const el = pairDialogRef.current;
+    if (!el) return;
+    if (pairIdentity && !el.open) el.showModal();
+    if (!pairIdentity && el.open) el.close();
+  }, [pairIdentity]);
 
   // Same 10s cadence as SensorsTab so the "just seen" dot decays visibly.
   useEffect(() => {
@@ -92,8 +108,7 @@ export default function RemotesTab() {
         pairedAt: Timestamp.now(),
         lastSeen: null,
       } as Omit<Remote, "id">);
-      setPairIdentity(null);
-      setPairName("");
+      closePairForm();
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -207,33 +222,59 @@ export default function RemotesTab() {
         </table>
       )}
 
-      {pairIdentity && (
-        <div>
-          <h3>
-            {t("cfg.remotes.pairing")}{" "}
-            <span className="ltr">{pairIdentity}</span>
-          </h3>
-          <label>
-            {t("cfg.remotes.name")}
-            <input
-              type="text"
-              value={pairName}
-              onChange={(e) => setPairName(e.target.value)}
-              placeholder={pairIdentity}
-            />
-          </label>
-          <button
-            className="btn btn--primary"
-            onClick={handlePair}
-            disabled={!pairName.trim()}
+      {/* A modal for the same reason SensorsTab uses one: rendered inline
+          this form landed BELOW the candidate list, so tapping Pair looked
+          like nothing had happened.
+          `onCancel` covers Esc and `onClose` the backdrop / form-method=dialog
+          paths, so state can never disagree with what is on screen. */}
+      <dialog
+        ref={pairDialogRef}
+        className="modal"
+        onCancel={closePairForm}
+        onClose={closePairForm}
+      >
+        {pairIdentity && (
+          <form
+            method="dialog"
+            className="modal__body"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handlePair();
+            }}
           >
-            {t("cfg.remotes.save")}
-          </button>
-          <button className="btn btn--sm" onClick={() => setPairIdentity(null)}>
-            {t("cfg.remotes.cancel")}
-          </button>
-        </div>
-      )}
+            <h3 className="card__title">
+              {t("cfg.remotes.pairTitle", { identity: pairIdentity })}
+            </h3>
+            <div className="field">
+              <label className="field__label" htmlFor="remote-pair-name">
+                {t("cfg.remotes.name")}
+              </label>
+              <input
+                id="remote-pair-name"
+                className="input"
+                type="text"
+                value={pairName}
+                autoFocus
+                onChange={(e) => setPairName(e.target.value)}
+                placeholder={t("cfg.remotes.namePlaceholder")}
+              />
+            </div>
+
+            <div className="row">
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={!pairName.trim()}
+              >
+                {t("common.save")}
+              </button>
+              <button type="button" className="btn" onClick={closePairForm}>
+                {t("common.cancel")}
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
 
       {/* Fixed in firmware (remote_control.cpp), so documented not edited. */}
       <h3>{t("cfg.remotes.legend")}</h3>
