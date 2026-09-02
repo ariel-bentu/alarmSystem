@@ -12,3 +12,20 @@ RemoteAction remoteActionFor(uint8_t nibble) {
     default:  return RemoteAction::None;
   }
 }
+
+bool remoteIsPaired(const Config& config, uint32_t identity) {
+  // identity 0 is the empty-slot marker, never a real remote.
+  if (identity == 0) return false;
+  for (uint8_t i = 0; i < config.remoteCount && i < Config::kMaxRemotes; i++) {
+    if (config.remotes[i] == identity) return true;
+  }
+  return false;
+}
+
+RemotePairResult remotePair(Config* config, uint32_t identity, bool armed) {
+  if (armed) return RemotePairResult::RefusedArmed;
+  if (remoteIsPaired(*config, identity)) return RemotePairResult::AlreadyPaired;
+  if (config->remoteCount >= Config::kMaxRemotes) return RemotePairResult::Full;
+  config->remotes[config->remoteCount++] = identity;
+  return RemotePairResult::Paired;
+}

@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "alarm_state.h"
+
 // A 433MHz 4-button remote in the same fixed-code EV1527 family as the
 // Kerui sensors: one 24-bit code per press, where the TOP 20 BITS are the
 // remote's identity and the BOTTOM NIBBLE is which button, one-hot.
@@ -33,3 +35,22 @@ inline uint8_t remoteNibbleOf(uint32_t code) {
 // Map a button nibble to its action. The nibble is ONE-HOT; anything else
 // is a corrupt decode and returns None rather than a guessed action.
 RemoteAction remoteActionFor(uint8_t nibble);
+
+// Why pairing was refused. Distinguishable so the UI can say which.
+enum class RemotePairResult : uint8_t {
+  Paired = 0,
+  AlreadyPaired,  // idempotent success
+  RefusedArmed,
+  Full,
+};
+
+// Is this identity one of the paired remotes?
+bool remoteIsPaired(const Config& config, uint32_t identity);
+
+// Adopt `identity` as a paired remote.
+//
+// Refused while armed: an attacker in RF range could otherwise pair their
+// own remote against an armed system and immediately disarm it. Idempotent,
+// so repeated presses during the pairing window do not consume slots.
+// Caller is responsible for persisting `config` afterwards.
+RemotePairResult remotePair(Config* config, uint32_t identity, bool armed);
