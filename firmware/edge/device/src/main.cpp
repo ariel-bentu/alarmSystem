@@ -90,6 +90,49 @@ bool alarmReportedToCloud = false;
 unsigned long lastHeartbeatMs = 0;
 static constexpr unsigned long kHeartbeatIntervalMs = 10000UL;
 
+// Watchdog budget. Must exceed the longest LEGITIMATE blocking stretch in
+// the firmware, or a healthy device reboots itself: connectToWifi() 15s,
+// the mint response wait 15s, runSirenPairing() 10s. Those all call
+// platformFeedWatchdog() as they go, so the real requirement is just that
+// this comfortably exceeds one loop() iteration.
+static constexpr uint32_t kWatchdogTimeoutSec = 30;
+
+// Boot cause is reported once, after the cloud comes up. Same gating shape
+// as sirenAddressReported — strictly isReady(), since there is nothing to
+// report to otherwise.
+bool bootReported = false;
+
+// Steady-state WiFi supervision. setup() connects, but until now NOTHING
+// re-checked the link afterwards: loop() trusted WiFi.setAutoReconnect(true)
+// with no fallback, so a device whose auto-reconnect failed to re-associate
+// stayed silently offline until a human noticed. The alarm itself keeps
+// working (siren, EEPROM, LAN are all local), but remote arm/disarm and
+// every cloud alert are gone, which is a large silent failure.
+unsigned long lastWifiCheckMs = 0;
+static constexpr unsigned long kWifiCheckIntervalMs = 30000UL;
+// Grace period before intervening. WiFi.begin() is asynchronous and the SDK
+// does its own reconnect attempts; reconnecting on the first missed check
+// would fight it and could thrash the radio.
+unsigned long wifiDownSinceMs = 0;
+static constexpr unsigned long kWifiDownGraceMs = 120000UL;
+
+// When to give up nudging and reboot. TWO HOURS, deliberately — this is NOT
+// a "connectivity is broken, restart it" timer.
+//
+// An offline device still fully protects the premises: RF decode, rule
+// evaluation, the siren and EEPROM arm state are all local and cloud-
+// independent by design (see CLAUDE.md's Key Decisions). A router reboot,
+// an ISP outage or a moved AP must NOT cost anything, and a reboot is
+// strictly worse than staying up — every restart is a window in which no
+// sensor is being watched at all, and a short timer during a long outage
+// turns that into a loop.
+//
+// So the reboot exists only for the case a nudge cannot fix: a wedged radio
+// or a driver stuck past any plausible outage. At 2h the local alarm has had
+// every chance to keep working, and the one-off ~15s restart is a fair price
+// for recovering a device that would otherwise stay offline indefinitely.
+static constexpr unsigned long kWifiDownRebootMs = 2UL * 60UL * 60UL * 1000UL;
+
 __attribute__((noinline))
 void reportSirenAddressOnce() {
   char addrHex[9];
@@ -451,6 +494,67 @@ bool connectToWifi(const String& ssid, const String& password,
   return true;
 }
 
+// Watch the station link and recover it if auto-reconnect does not.
+//
+// Deliberately conservative, in this order:
+//   1. Link up              -> clear the timer, do nothing.
+//   2. Down < 2min          -> let the SDK's own auto-reconnect work.
+//   3. Down > 2min          -> WiFi.reconnect() on each check, a cheap
+//                              non-blocking nudge. Repeated, not one-shot:
+//                              an AP that comes back after an hour must be
+//                              rejoined, and this is the only thing trying.
+//   4. Down > 2h            -> ESP.restart(), the last resort.
+//
+// BEING OFFLINE IS NOT AN ERROR STATE. The alarm is cloud-independent by
+// design — RF decode, rule evaluation, siren and EEPROM arm state are all
+// local — so a device with no WiFi is still protecting the premises. It
+// loses remote arm/disarm and cloud alerts, which is worth recovering from,
+// but NOT at the price of restarting a working alarm every few minutes
+// through a long outage. Each reboot is a gap in which nothing is watched.
+//
+// Hence 2h before the restart: long past any router reboot or ISP blip, so
+// it only ever fires for a genuinely wedged radio that nudging cannot fix.
+// A reboot re-runs the connect path cleanly and reloads arm state from
+// EEPROM, so the alarm returns armed exactly as it was.
+//
+// noinline for the cont-stack reason documented on handleSensorEvent().
+__attribute__((noinline))
+void superviseWifi(unsigned long now) {
+  if (portalActive) return;  // the portal owns the radio; leave it alone
+  if (now - lastWifiCheckMs < kWifiCheckIntervalMs) return;
+  lastWifiCheckMs = now;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    if (wifiDownSinceMs != 0) {
+      Serial.printf("[wifi] link restored after %lus (IP %s)\n",
+                    (now - wifiDownSinceMs) / 1000,
+                    WiFi.localIP().toString().c_str());
+      wifiDownSinceMs = 0;
+    }
+    return;
+  }
+
+  if (wifiDownSinceMs == 0) {
+    wifiDownSinceMs = now;
+    Serial.printf("[wifi] link DOWN (status=%d) — alarm still armed locally, "
+                  "waiting for auto-reconnect\n",
+                  (int)WiFi.status());
+    return;
+  }
+
+  const unsigned long downMs = now - wifiDownSinceMs;
+  if (downMs >= kWifiDownRebootMs) {
+    Serial.printf("[wifi] down %lumin — rebooting to recover the radio\n",
+                  downMs / 60000);
+    Serial.flush();
+    ESP.restart();
+  }
+  if (downMs >= kWifiDownGraceMs) {
+    Serial.printf("[wifi] down %lumin — nudging reconnect\n", downMs / 60000);
+    WiFi.reconnect();
+  }
+}
+
 void enterPortalMode() {
   portalActive = true;
   portal.begin(&provisionStore);
@@ -540,9 +644,16 @@ void setup() {
 #else
   delay(200);
 #endif
-  Serial.println("Alarm system device booting...");
+  Serial.printf("Alarm system device booting... (last reset: %s)\n",
+                platformResetReason());
 
-
+  // Start the watchdog BEFORE anything that can block, so a hang during
+  // provisioning or the WiFi connect is caught too. 30s is deliberately
+  // generous: connectToWifi() alone budgets 15s, the mint's response wait
+  // 15s, and runSirenPairing() blocks for 10s — all legitimate, and all
+  // feed the watchdog explicitly via platformFeedWatchdog(). This only
+  // fires for a genuine hang, never for slow-but-progressing work.
+  platformWatchdogBegin(kWatchdogTimeoutSec);
 
   pinMode(kForcePortalPin, INPUT_PULLUP);
   bool forcePortal = digitalRead(kForcePortalPin) == LOW;
@@ -569,6 +680,11 @@ void setup() {
 }
 
 void loop() {
+  // Every path below returns through here, including the portal's early
+  // return, so this single call covers the whole firmware. A hang anywhere
+  // else now reboots the board within kWatchdogTimeoutSec instead of leaving
+  // it powered and dead — see platformWatchdogBegin()'s comment.
+  platformFeedWatchdog();
 
   if (portalActive) {
     portal.handle();
@@ -589,6 +705,8 @@ void loop() {
   }
 
   unsigned long now = millis();
+
+  superviseWifi(now);
 
   // The mint runs from here (CloudClient::loop() -> beginInitialConnect()),
   // and its TLS handshake is the deepest stack consumer in the whole
@@ -626,6 +744,14 @@ void loop() {
   // no-op then anyway. Only mark it done once the call has actually fired.
   if (!sirenAddressReported && cloudClient.isReady()) {
     reportSirenAddressOnce();
+  }
+
+  // Why the last boot happened. Reported once, and only once the cloud is
+  // actually up — this is the record that makes the NEXT unexplained death
+  // diagnosable instead of reconstructed from heartbeat arithmetic.
+  if (!bootReported && cloudClient.isReady()) {
+    bootReported = true;
+    cloudClient.reportBoot();
   }
 
   if (cloudClient.isReady() && now - lastHeartbeatMs >= kHeartbeatIntervalMs) {

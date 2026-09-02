@@ -72,10 +72,25 @@ class CloudClient {
   // every later alarm silently. No-op if not yet authenticated.
   void clearAlarm();
 
-  // Write current epoch seconds to /{projectId}/state/last_seen.
+  // Write device UPTIME SECONDS (millis()/1000) to
+  // /{projectId}/state/last_seen. NOT epoch — an earlier version of this
+  // comment said "epoch seconds" and it is wrong; the web UI timestamps the
+  // ARRIVAL of the update instead, so online detection works before NTP has
+  // synced (see useDeviceState.ts). The uptime value is what allowed a
+  // silent death to be dated after the fact, so keep the semantics.
   // Call every ~10s from loop() to drive the web UI's online indicator.
   // No-op if not yet authenticated.
   void reportHeartbeat();
+
+  // Write /{projectId}/state/boot = { reason, at, uptime_before }.
+  //
+  // Called once per boot, as soon as the cloud is ready. This is the whole
+  // point of the watchdog work: a device that dies unexplained comes back,
+  // says WHY it died, and the next investigation reads it from RTDB instead
+  // of reconstructing it from heartbeat arithmetic. "panic" vs "twdt" vs
+  // "brownout" separates a crash from a hang from a power fault — three
+  // very different bugs that look identical from the outside.
+  void reportBoot();
 
   // Registered once in begin(); main.cpp polls these via getters rather
   // than a callback, to keep main.cpp's control flow linear.
@@ -150,6 +165,15 @@ class CloudClient {
   unsigned long lastPollMs_ = 0;
   bool pollConfigNext_ = false;
   // 5s normal cadence, 1s when siren is active (each path seen every 2x).
+  //
+  // *** THE PARAGRAPH BELOW IS ESP8266-ONLY HISTORY. *** It described a
+  // board with ~5KB free heap, where the cloud path could starve mDNS of a
+  // 540-byte allocation. The ESP32-S3 runs this at ~258KB free / ~192KB
+  // largest block, so 5s is NOT a heap risk there and 15000 is not required.
+  // Kept because the measurement is real and still applies if the 8266 env
+  // is ever revived — but do not cite it as a constraint on current
+  // hardware. (It was mistakenly blamed for an unexplained ESP32 hang on
+  // 2026-09-02; see CLAUDE.md's "Watchdog + boot reporting".)
   //
   // This is a HEAP budget, not a latency preference. Steady-state free heap
   // with the long-lived data client is only ~5KB / ~3KB contiguous, and at a
