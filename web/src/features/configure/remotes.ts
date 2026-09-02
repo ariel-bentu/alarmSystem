@@ -38,3 +38,58 @@ export function identityFromEventRfId(rfId: string): string | null {
   if (!Number.isFinite(code)) return null;
   return formatRemoteIdentity((code >>> 4).toString(16));
 }
+
+/** Timing summary for an rfId seen in RTDB events (mirrors EventTiming). */
+export interface CandidateTiming {
+  firstSeen: number;
+  lastSeen: number;
+  count: number;
+}
+
+/** An unpaired remote inferred from the codes heard on the air. */
+export interface RemoteCandidate {
+  identity: string;
+  codes: string[]; // the full 24-bit codes seen for this identity
+  lastSeen: number;
+  count: number;
+}
+
+/**
+ * Collapse raw /events rfIds into one candidate per remote.
+ *
+ * A remote emits a DIFFERENT 24-bit code per button, so a single keyfob
+ * shows up as up to four rows in the sensors view. Grouping by the top 20
+ * bits is what makes it read as one device — and it is also why pressing
+ * any one button is enough to pair the whole remote.
+ *
+ * Codes that are not 6-digit hex (e.g. the "SIREN0" pseudo-sensor) are
+ * skipped. Identities in `pairedIdentities` are dropped.
+ */
+export function groupCandidatesByIdentity(
+  timing: Record<string, CandidateTiming>,
+  pairedIdentities: string[]
+): RemoteCandidate[] {
+  const paired = new Set(pairedIdentities.map(formatRemoteIdentity));
+  const byIdentity = new Map<string, RemoteCandidate>();
+
+  for (const [rfId, t] of Object.entries(timing)) {
+    const identity = identityFromEventRfId(rfId);
+    if (!identity || paired.has(identity)) continue;
+
+    const existing = byIdentity.get(identity);
+    if (existing) {
+      existing.codes.push(rfId);
+      existing.count += t.count;
+      existing.lastSeen = Math.max(existing.lastSeen, t.lastSeen);
+    } else {
+      byIdentity.set(identity, {
+        identity,
+        codes: [rfId],
+        lastSeen: t.lastSeen,
+        count: t.count,
+      });
+    }
+  }
+
+  return [...byIdentity.values()].sort((a, b) => b.lastSeen - a.lastSeen);
+}

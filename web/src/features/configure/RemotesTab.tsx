@@ -1,23 +1,18 @@
-import { useState, useEffect, useMemo } from "react";
-import { onValue, ref, type DataSnapshot } from "firebase/database";
+import { useState, useEffect } from "react";
+import { ref, onValue, type DataSnapshot } from "firebase/database";
 import { onSnapshot, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
 import { rtdbSync } from "@/lib/firebase";
 import { remotesCol, remoteDoc } from "@/lib/firestore";
 import { useProject } from "@/app/ProjectProvider";
 import { useT } from "@/i18n/I18nProvider";
 import type { Remote } from "@/types";
+import { isJustSeen, type EventTiming } from "./sensorRecency";
+import { formatRelative } from "./lastSeenFormat";
 import {
   formatRemoteIdentity,
-  identityFromEventRfId,
+  groupCandidatesByIdentity,
   REMOTE_BUTTON_LEGEND,
 } from "./remotes";
-
-// How long to watch /events for a button press after the user clicks Pair.
-// Matches kRemotePairWindowMs in main.cpp (30s), plus headroom for the
-// event to round-trip through RTDB.
-const PAIR_WINDOW_MS = 40_000;
-
-type PairState = "idle" | "listening" | "found" | "naming";
 
 export default function RemotesTab() {
   const t = useT();
@@ -25,14 +20,18 @@ export default function RemotesTab() {
   const projectId = project?.id ?? "";
 
   const [remotes, setRemotes] = useState<Remote[]>([]);
-  const [eventIdentities, setEventIdentities] = useState<string[]>([]);
-  const [pairState, setPairState] = useState<PairState>("idle");
-  const [candidate, setCandidate] = useState<string | null>(null);
-  const [name, setName] = useState("");
+  const [eventTiming, setEventTiming] = useState<Record<string, EventTiming>>({});
+  const [now, setNow] = useState(() => Date.now());
+  const [pairIdentity, setPairIdentity] = useState<string | null>(null);
+  const [pairName, setPairName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [listenStartMs, setListenStartMs] = useState(0);
 
-  // Paired remotes.
+  // Same 10s cadence as SensorsTab so the "just seen" dot decays visibly.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(id);
+  }, []);
+
   useEffect(() => {
     if (!projectId) return;
     const unsub = onSnapshot(remotesCol(projectId), (snap) => {
@@ -41,77 +40,61 @@ export default function RemotesTab() {
     return () => unsub();
   }, [projectId]);
 
-  // Candidate identities seen on the air. Every button press lands in
-  // /events as a full 24-bit code; identityFromEventRfId collapses the four
-  // buttons of one remote onto a single identity.
+  // Same RTDB events subscription the sensors tab uses — a remote button
+  // press lands there exactly like a sensor trigger.
   useEffect(() => {
     if (!projectId) return;
     const eventsRef = ref(rtdbSync(), `${projectId}/events`);
     const unsub = onValue(eventsRef, (snapshot: DataSnapshot) => {
-      const val = snapshot.val() ?? {};
-      const seen: string[] = [];
-      for (const rfId of Object.keys(val)) {
-        const identity = identityFromEventRfId(rfId);
-        if (identity && !seen.includes(identity)) seen.push(identity);
+      const val = snapshot.val();
+      const timing: Record<string, EventTiming> = {};
+      if (val && typeof val === "object") {
+        for (const [rfId, events] of Object.entries(
+          val as Record<string, Record<string, unknown>>
+        )) {
+          const tsKeys = Object.keys(events ?? {})
+            .map(Number)
+            .filter((n) => !Number.isNaN(n));
+          if (tsKeys.length === 0) continue;
+          timing[rfId] = {
+            firstSeen: Math.min(...tsKeys),
+            lastSeen: Math.max(...tsKeys),
+            count: tsKeys.length,
+          };
+        }
       }
-      setEventIdentities(seen);
+      setEventTiming(timing);
     });
     return () => unsub();
   }, [projectId]);
 
-  const pairedIdentities = useMemo(
-    () => new Set(remotes.map((r) => formatRemoteIdentity(r.identity))),
-    [remotes]
+  // One candidate per REMOTE, not per button: the four buttons of one keyfob
+  // are four different codes sharing a 20-bit identity.
+  const candidates = groupCandidatesByIdentity(
+    eventTiming,
+    remotes.map((r) => r.identity)
   );
-
-  // While listening, the first unpaired identity to appear is the candidate.
-  useEffect(() => {
-    if (pairState !== "listening") return;
-    const fresh = eventIdentities.find((id) => !pairedIdentities.has(id));
-    if (fresh) {
-      setCandidate(fresh);
-      setPairState("found");
-    }
-  }, [pairState, eventIdentities, pairedIdentities]);
-
-  // Give up after the window so the UI never sits on "listening" forever.
-  useEffect(() => {
-    if (pairState !== "listening") return;
-    const timer = setTimeout(() => {
-      setPairState("idle");
-      setError(t("cfg.remotes.noPress"));
-    }, PAIR_WINDOW_MS - (Date.now() - listenStartMs));
-    return () => clearTimeout(timer);
-  }, [pairState, listenStartMs, t]);
 
   const armed = project?.serverArmed === true;
 
-  const startPairing = () => {
-    setError(null);
-    setCandidate(null);
-    setName("");
-    setListenStartMs(Date.now());
-    setPairState("listening");
-  };
-
-  const savePairing = async () => {
-    if (!projectId || !candidate) return;
+  const handlePair = async () => {
+    if (!pairIdentity || !pairName.trim() || !projectId) return;
     try {
       await addDoc(remotesCol(projectId), {
-        identity: candidate,
-        name: name.trim() || candidate,
+        identity: pairIdentity,
+        name: pairName.trim(),
         pairedAt: Timestamp.now(),
         lastSeen: null,
       } as Omit<Remote, "id">);
-      setPairState("idle");
-      setCandidate(null);
-      setName("");
+      setPairIdentity(null);
+      setPairName("");
+      setError(null);
     } catch (e) {
       setError(String(e));
     }
   };
 
-  const unpair = async (remoteId: string) => {
+  const handleUnpair = async (remoteId: string) => {
     if (!projectId) return;
     try {
       await deleteDoc(remoteDoc(projectId, remoteId));
@@ -123,14 +106,12 @@ export default function RemotesTab() {
   return (
     <div>
       <p className="muted">{t("cfg.remotes.intro")}</p>
-
       {error && <p role="alert">{error}</p>}
 
-      {remotes.length === 0 && pairState === "idle" && (
+      <h3>{t("cfg.remotes.paired")}</h3>
+      {remotes.length === 0 ? (
         <p className="muted">{t("cfg.remotes.none")}</p>
-      )}
-
-      {remotes.length > 0 && (
+      ) : (
         <table className="table">
           <thead>
             <tr>
@@ -144,13 +125,14 @@ export default function RemotesTab() {
               <tr key={remote.id}>
                 <td>{remote.name}</td>
                 <td>
-                  <code>{formatRemoteIdentity(remote.identity)}</code>
+                  <span className="ltr">
+                    {formatRemoteIdentity(remote.identity)}
+                  </span>
                 </td>
                 <td>
                   <button
-                    type="button"
                     className="btn btn--sm"
-                    onClick={() => unpair(remote.id)}
+                    onClick={() => handleUnpair(remote.id)}
                   >
                     {t("cfg.remotes.unpair")}
                   </button>
@@ -161,56 +143,92 @@ export default function RemotesTab() {
         </table>
       )}
 
-      {pairState === "idle" && (
-        <>
-          <button
-            type="button"
-            className="btn"
-            onClick={startPairing}
-            disabled={armed}
-            title={armed ? t("cfg.remotes.armedBlocked") : undefined}
-          >
-            {t("cfg.remotes.pair")}
-          </button>
-          {/* The device refuses pairing while armed too; disabling here just
-              avoids offering an action that will be rejected. */}
-          {armed && <p className="muted">{t("cfg.remotes.armedBlocked")}</p>}
-        </>
+      <h3>{t("cfg.remotes.unrecognised")}</h3>
+      <p className="muted">{t("cfg.remotes.pressHint")}</p>
+      {candidates.length === 0 ? (
+        <p className="muted">{t("cfg.remotes.noCandidates")}</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{t("cfg.remotes.identity")}</th>
+              <th>{t("cfg.remotes.buttonsSeen")}</th>
+              <th>{t("cfg.remotes.lastSeen")}</th>
+              <th>{t("cfg.remotes.events")}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {candidates.map((candidate) => {
+              const justSeen = isJustSeen(candidate.lastSeen, now);
+              return (
+                <tr
+                  key={candidate.identity}
+                  className={justSeen ? "is-fresh" : undefined}
+                >
+                  <td>
+                    {justSeen && <span className="dot dot--fresh" />}
+                    <span className="ltr">{candidate.identity}</span>
+                  </td>
+                  {/* How many DISTINCT buttons we have heard. A real remote
+                      reaches 4; a single-button sensor stays at 1, which is
+                      the clearest signal that a candidate is not a remote. */}
+                  <td>{candidate.codes.length}</td>
+                  <td>{formatRelative(candidate.lastSeen, now, t)}</td>
+                  <td>{candidate.count}</td>
+                  <td>
+                    <button
+                      className="btn btn--sm btn--primary"
+                      disabled={armed}
+                      title={
+                        armed ? t("cfg.remotes.armedBlocked") : undefined
+                      }
+                      onClick={() => {
+                        setPairIdentity(candidate.identity);
+                        setPairName("");
+                      }}
+                    >
+                      {t("cfg.remotes.pair")}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
 
-      {pairState === "listening" && (
-        <p role="status">{t("cfg.remotes.pressAny")}</p>
-      )}
+      {armed && <p className="muted">{t("cfg.remotes.armedBlocked")}</p>}
 
-      {pairState === "found" && candidate && (
+      {pairIdentity && (
         <div>
-          <p role="status">
-            {t("cfg.remotes.found")} <code>{candidate}</code>
-          </p>
+          <h3>
+            {t("cfg.remotes.pairing")}{" "}
+            <span className="ltr">{pairIdentity}</span>
+          </h3>
           <label>
             {t("cfg.remotes.name")}
             <input
               type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={candidate}
+              value={pairName}
+              onChange={(e) => setPairName(e.target.value)}
+              placeholder={pairIdentity}
             />
           </label>
-          <button type="button" className="btn" onClick={savePairing}>
+          <button
+            className="btn btn--primary"
+            onClick={handlePair}
+            disabled={!pairName.trim()}
+          >
             {t("cfg.remotes.save")}
           </button>
-          <button
-            type="button"
-            className="btn btn--sm"
-            onClick={() => setPairState("idle")}
-          >
+          <button className="btn btn--sm" onClick={() => setPairIdentity(null)}>
             {t("cfg.remotes.cancel")}
           </button>
         </div>
       )}
 
-      {/* The mapping is fixed in firmware and not configurable, so it is
-          documented rather than edited. */}
+      {/* Fixed in firmware (remote_control.cpp), so documented not edited. */}
       <h3>{t("cfg.remotes.legend")}</h3>
       <table className="table">
         <tbody>

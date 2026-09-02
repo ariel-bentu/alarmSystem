@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatRemoteIdentity,
   identityFromEventRfId,
+  groupCandidatesByIdentity,
   REMOTE_BUTTON_LEGEND,
 } from "./remotes";
 
@@ -30,6 +31,47 @@ describe("identityFromEventRfId", () => {
   it("returns null for a code it cannot parse", () => {
     expect(identityFromEventRfId("SIREN0")).toBeNull();
     expect(identityFromEventRfId("")).toBeNull();
+  });
+});
+
+describe("groupCandidatesByIdentity", () => {
+  const timing = {
+    "0xE45CA2": { firstSeen: 100, lastSeen: 500, count: 2 },
+    "0xE45CA4": { firstSeen: 200, lastSeen: 900, count: 3 },
+    "0x170D09": { firstSeen: 50, lastSeen: 60, count: 1 },
+    SIREN0: { firstSeen: 1, lastSeen: 2, count: 1 },
+  };
+
+  it("collapses every button of one remote onto a single candidate", () => {
+    const out = groupCandidatesByIdentity(timing, []);
+    const e45 = out.find((c) => c.identity === "0xE45CA");
+    expect(e45).toBeDefined();
+    // Two buttons seen, so both codes are listed against the one remote.
+    expect(e45?.codes.sort()).toEqual(["0xE45CA2", "0xE45CA4"]);
+  });
+
+  it("sums event counts and takes the newest sighting across buttons", () => {
+    const e45 = groupCandidatesByIdentity(timing, []).find(
+      (c) => c.identity === "0xE45CA"
+    );
+    expect(e45?.count).toBe(5); // 2 + 3
+    expect(e45?.lastSeen).toBe(900); // newest of 500 / 900
+  });
+
+  it("drops identities already paired", () => {
+    const out = groupCandidatesByIdentity(timing, ["0xE45CA"]);
+    expect(out.find((c) => c.identity === "0xE45CA")).toBeUndefined();
+    expect(out.find((c) => c.identity === "0x170D0")).toBeDefined();
+  });
+
+  it("ignores non-hex pseudo-sensors like SIREN0", () => {
+    const out = groupCandidatesByIdentity(timing, []);
+    expect(out.some((c) => c.codes.includes("SIREN0"))).toBe(false);
+  });
+
+  it("orders most recently seen first", () => {
+    const out = groupCandidatesByIdentity(timing, []);
+    expect(out[0].identity).toBe("0xE45CA"); // lastSeen 900 beats 60
   });
 });
 
