@@ -3,7 +3,183 @@
 
 - when arming on device -> cloud should be updated (as soon as connected)
 - mass jam of rf alert
-- always sensors
 - battery/tamper with
 - battery low on device?
 
+Firmware Stability & Resilience Review
+
+  Reviewed the ESP32-S3 device firmware (firmware/edge/device/src/). The code is unusually well-documented and many failure modes
+  have already been hardened against. Below are the weaknesses I found that are not already covered, classified by severity. For
+  each I give the concrete failure scenario.
+
+  ---
+
+  VERY HIGH
+
+  1. count_in_window rule with n > 8 can NEVER fire — silent alarm failure
+
+  alarm_state.h:70, alarm_state.cpp:63-66
+
+  kMaxTriggerHistory = 8, and evaluateCondition only ever stores up to 8 timestamps:
+  if (rt.triggerCount < kMaxTriggerHistory) rt.triggerTimesMs[rt.triggerCount++] = nowMs;
+  return rt.triggerCount >= cond.n;   // cond.n is uint16_t
+  If a user configures a count_in_window rule requiring 9 or more triggers, rt.triggerCount saturates at 8 and the condition can
+  never be satisfied. The alarm silently never fires — the worst possible outcome for a security device, and it happens with a
+  perfectly valid config. The web UI likely allows entering N>8. Same ceiling applies to multi_sensor per-participant kCount.
+
+  Fix: either clamp/validate n against kMaxTriggerHistory at config parse time and surface it, or (better) track a rolling count
+  rather than a fixed history array so any N works. At minimum, log a warning when cond.n > kMaxTriggerHistory.
+
+  ---
+
+  HIGH
+
+  2. reportAlarm writes alarm_cause and siren_active but discards the poll error state; a mid-alarm heap dip drops the cloud alarm 
+  silently
+
+  cloud_client.cpp:715-755
+
+  reportAlarm is gated behind openDataClient(), which for reuse is never gated on heap (correct per the documented history). But if
+  dataClient_ was never created (auth completed at a moment when platformMaxAllocHeap() < kMinBlockForWrite, line 488, returned
+  false and dataClient_ stayed null), then every reportAlarm, reportEvent, and clearAlarm for the entire session is a permanent
+  no-op. There is no retry to create the data client later. The device runs "connected" (isReady() true) but can never write.
+  Combined with finding #3, the operator sees a live heartbeat and assumes the cloud path works.
+
+  Fix: retry openDataClient() creation on later loops when it initially failed, not only once at the auth edge
+  (cloud_client.cpp:407).
+
+  3. Heartbeat succeeds while all writes fail — "device online" is not "device functional"
+
+  cloud_client.cpp:767-786 + functions liveness
+
+  reportHeartbeat shares the same openDataClient(). If the data client exists, small writes (last_seen) will typically succeed even
+  when the device is otherwise degraded. The offline-alert system keys entirely off last_seen freshness. So a device that can
+  heartbeat but cannot write events/alarms (or whose alarm state machine is wedged) reports as perfectly healthy. The 28-hour
+  silent death this whole subsystem was built to catch had a different signature, but this leaves a real blind spot: partial
+  failure looks identical to full health.
+
+  Fix: consider a periodic self-test write to a dedicated node, or fold a "last successful event write" timestamp into the
+  heartbeat payload so the server can distinguish live-but-mute.
+
+  4. esp_task_wdt_init return value ignored; only loopTask is subscribed
+
+  platform_compat.h:79-81
+
+  esp_task_wdt_init(timeoutSec, true) and esp_task_wdt_add(nullptr) both return esp_err_t, both discarded. If the TWDT was already
+  initialized by the core (some configs do), esp_task_wdt_init returns ESP_ERR_INVALID_STATE and your timeoutSec/panic setting is
+  silently not applied — you may be running with a different timeout than the 30s you reason about. More importantly, only loopTask
+  is watched. A hang inside the FirebaseClient async task or the WiFi task (both created outside loop) would not trip this
+  watchdog — and a wedged network stack is exactly the class of failure suspected in the original death. The watchdog protects the
+  one task least likely to be the problem.
+
+  Fix: check the return codes and log them; consider whether the suspected hang is even on the watched task.
+
+  5. runSirenPairing() blocks 10s deaf to sensors — a real intrusion during pairing is missed
+
+  main.cpp:292-304
+
+  During pairing the loop spins in a while for 10s transmitting, hearing no sensors (RX is off during TX) and evaluating no rules.
+  Pairing is user-initiated, so this is somewhat acceptable — but it can be triggered remotely via the cloud pair command
+  (main.cpp:776-787) with only a coarse until expiry check that is bypassed entirely when NTP hasn't synced (nowSec > 100000UL
+  guard). A stale/duplicate pair command that slips through blinds the alarm for 10s. Worse, there's no arm-state check: pairing is
+  allowed while armed.
+
+  Fix: refuse pairing (or at least the blocking form) while armed, and don't allow the remote pair path to run when the until guard
+  can't be evaluated.
+
+  ---
+
+  MEDIUM
+
+  6. ISR can still write edgeTs_[count] after poll() reads edgeCount_ — small race window
+
+  cc1101_receiver.cpp:60-70, 115-133
+
+  poll() calls detachInterrupt() (line 124) before the memcpy, which closes the main race. Good. But the fast-path checks at lines
+  117/120-121 read edgeCount_/lastEdgeMs_ while the ISR is still attached. On ESP32 edgeCount_ is a plain volatile int with no
+  atomicity guarantee against a concurrent ISR on the other core / interrupt context; a torn read is unlikely for int but
+  lastEdgeMs_ (uint32) and the esp_timer_get_time()/1000 comparison can momentarily use inconsistent values. Effect is benign (a
+  slightly early/late drain), so MEDIUM, but the volatile-only discipline is not a substitute for a critical section on ESP32.
+
+  7. TX chip buffer sizing is a latent overflow if kChipsPerFrame/repeats change
+
+  cc1101_receiver.h:74-75, cc1101_receiver.cpp:350
+
+  txBits_ is sized (kChipsPerFrame * kMaxTxRepeats + 7)/8. renderBurst(code, repeats, txBits_, sizeof(txBits_)) is passed the size
+  and transmit clamps repeats to kMaxTxRepeats (line 348) — so today it's safe. But the safety depends entirely on that clamp
+  staying in sync with the buffer formula and on renderBurst honoring the size arg. There's no static_assert tying them together. A
+  future change to kCommandRepeats (10) or the frame layout could silently overflow. Add a static_assert and confirm renderBurst
+  truncates rather than overruns.
+
+  8. applyConfigJson keeps lastConfigJson_ as a String that grows the heap footprint permanently
+
+  cloud_client.cpp:580-583, cloud_client.h:214
+
+  lastConfigJson_ holds a full copy of the most recent config JSON for change-detection. On a device whose steady-state contiguous
+  block is the binding constraint, this pins a variable-size heap allocation for the life of the program and re-allocates on every
+  config change (potential fragmentation). Minor on ESP32 (ample heap), but it's an unbounded-by-design retained allocation keyed
+  on remote input. Consider hashing the JSON (store a uint32_t FNV like the WiFi path already uses) instead of retaining the whole
+  string.
+
+  9. time(nullptr)-based event keys collide / go backwards before NTP sync
+
+  cloud_client.cpp:680-683, reportAlarm:727
+
+  Event RTDB keys are time(nullptr)*1000. Before NTP completes, time(nullptr) returns a small/near-zero value with 1-second 
+  resolution. Multiple events in the same pre-sync second produce the same key → later events overwrite earlier ones at
+  /events/{rfId}/{ts}. And when NTP jumps the clock forward, ordering breaks. Events lost this way are silent. Given events during
+  the first ~seconds after boot (e.g. a trigger right after a watchdog reboot) this is a real, if narrow, data-loss window.
+  Consider appending millis() low bits or a monotonic counter to the key.
+
+  ---
+
+  LOW
+
+  10. mintCustomToken accumulates the whole HTTP response with response += (char)client.read() one byte at a time
+
+  cloud_client.cpp:247-250 — O(n²) String reallocation for a ~957-byte body. Harmless in practice (runs once per mint) but wasteful
+  and fragmenting; a sized reserve() or block read would be cleaner.
+
+  11. splitUrl accepts https:// with an empty path only via indexOf('/'); a URL with query but no path segment edge cases
+
+  cloud_client.cpp:114-127 — Minor; current URLs are well-formed. Not worth changing unless URLs become configurable.
+
+  12. localWebServer trigger endpoint has no auth and accepts arbitrary rfId
+
+  local_web_server.cpp:75-84 — Documented as a deliberate LAN-only, no-auth design choice. Flagging only for completeness: anyone
+  on the LAN can inject simulated triggers and arm/disarm. Consistent with the stated design decision, so LOW.
+
+  10. mintCustomToken accumulates the whole HTTP response with response += (char)client.read() one byte at a time
+
+  cloud_client.cpp:247-250 — O(n²) String reallocation for a ~957-byte body. Harmless in practice (runs once per mint) but wasteful and fragmenting; a sized
+  reserve() or block read would be cleaner.
+
+  11. splitUrl accepts https:// with an empty path only via indexOf('/'); a URL with query but no path segment edge cases
+
+  cloud_client.cpp:114-127 — Minor; current URLs are well-formed. Not worth changing unless URLs become configurable.
+
+  12. localWebServer trigger endpoint has no auth and accepts arbitrary rfId
+
+  local_web_server.cpp:75-84 — Documented as a deliberate LAN-only, no-auth design choice. Flagging only for completeness: anyone on the LAN can inject
+  simulated triggers and arm/disarm. Consistent with the stated design decision, so LOW.
+
+  13. handleStatus/renderPage still report siren as "ACTIVE" from statusSirenActive_
+
+  local_web_server.cpp:46, 54-61 — The CLAUDE.md history notes the Operations page was fixed to report configuration not a phantom ACTIVE state, but the
+  device's own local page still shows raw siren.isActive(). Cosmetic/consistency only.
+
+  ---
+
+  Notable things done RIGHT (so they aren't "fixed" by mistake)
+
+  - openDataClient() reuse deliberately not gated on heap — correct, and heavily documented why.
+  - configureFor433MhzOok() restoring all five TX-touched registers after transmit — correct RX-after-TX recovery.
+  - alarm_cause written before siren_active, with falling-edge clear of siren_active — the latch bug is genuinely handled.
+  - config_parser bounds-checks k indices against the fixed 16-slot capacity (not r.size()) — prevents the real OOB in multiSensorSatisfied.
+  - 2-hour WiFi-down reboot threshold — correctly treats offline as non-error.
+
+  ---
+
+  My top three to act on: #1 (config that silently disables the alarm), #2/#3 (a device that reports healthy while unable to write alarms), and #5
+  (remote-triggerable 10s blind window). #1 is the one I'd fix today — it's a correctness bug in the core security function, reachable through normal
+  configuration.
