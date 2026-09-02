@@ -14,6 +14,7 @@ import type {
   Member,
   Invite,
   Sensor,
+  Remote,
   Profile,
   Rule,
   Schedule,
@@ -38,6 +39,7 @@ const projectConverter = converter<Project>();
 const memberConverter = converter<Member>();
 const inviteConverter = converter<Invite>();
 const sensorConverter = converter<Sensor>();
+const remoteConverter = converter<Remote>();
 const profileConverter = converter<Profile>();
 const ruleConverter = converter<Rule>();
 const scheduleConverter = converter<Schedule>();
@@ -84,6 +86,16 @@ export const sensorDoc = (projectId: string, sensorId: string) =>
   doc(dbSync(), "projects", projectId, "sensors", sensorId).withConverter(
     sensorConverter
   ) as DocumentReference<Sensor>;
+
+export const remotesCol = (projectId: string) =>
+  collection(dbSync(), "projects", projectId, "remotes").withConverter(
+    remoteConverter
+  ) as CollectionReference<Remote>;
+
+export const remoteDoc = (projectId: string, remoteId: string) =>
+  doc(dbSync(), "projects", projectId, "remotes", remoteId).withConverter(
+    remoteConverter
+  ) as DocumentReference<Remote>;
 
 export const profilesCol = (projectId: string) =>
   collection(dbSync(), "projects", projectId, "profiles").withConverter(

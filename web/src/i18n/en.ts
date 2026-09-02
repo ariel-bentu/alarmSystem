@@ -101,6 +101,24 @@ export const en = {
   "cfg.tab.sensors": "Sensors",
   "cfg.tab.profiles": "Profiles",
   "cfg.tab.siren": "Siren",
+  "cfg.tab.remotes": "Remotes",
+
+  // Remotes tab
+  "cfg.remotes.intro":
+    "Remote controls arm, disarm and trigger SOS. They work even when the device is offline.",
+  "cfg.remotes.none": "No remotes paired yet.",
+  "cfg.remotes.pair": "Pair remote",
+  "cfg.remotes.pressAny": "Press any button on the remote…",
+  "cfg.remotes.found": "Found remote",
+  "cfg.remotes.noPress": "No button press detected. Try again.",
+  "cfg.remotes.name": "Name",
+  "cfg.remotes.identity": "Identity",
+  "cfg.remotes.save": "Save",
+  "cfg.remotes.cancel": "Cancel",
+  "cfg.remotes.unpair": "Unpair",
+  "cfg.remotes.legend": "What the buttons do",
+  "cfg.remotes.armedBlocked":
+    "Disarm the system before pairing a remote.",
 
   // Sensors tab
   "cfg.sensors.loading": "Loading sensors…",

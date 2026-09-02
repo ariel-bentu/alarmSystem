@@ -2,16 +2,18 @@ import { useState } from "react";
 import SensorsTab from "./SensorsTab";
 import ProfilesTab from "./ProfilesTab";
 import SirenTab from "./SirenTab";
+import RemotesTab from "./RemotesTab";
 import { ScrollingTabs } from "@/components/ScrollingTabs";
 import { useT } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/en";
 
-type Tab = "sensors" | "profiles" | "siren";
+type Tab = "sensors" | "profiles" | "siren" | "remotes";
 
 const TABS: { id: Tab; key: TranslationKey }[] = [
   { id: "sensors", key: "cfg.tab.sensors" },
   { id: "profiles", key: "cfg.tab.profiles" },
   { id: "siren", key: "cfg.tab.siren" },
+  { id: "remotes", key: "cfg.tab.remotes" },
 ];
 
 export default function ConfigurePage() {
@@ -72,6 +74,7 @@ export default function ConfigurePage() {
           />
         )}
         {activeTab === "siren" && <SirenTab />}
+        {activeTab === "remotes" && <RemotesTab />}
       </div>
     </div>
   );

@@ -98,6 +98,23 @@ export const he: Record<TranslationKey, string> = {
   "cfg.tab.sensors": "גלאים",
   "cfg.tab.profiles": "פרופילים",
   "cfg.tab.siren": "צופר",
+  "cfg.tab.remotes": "שלטים",
+
+  // Remotes tab
+  "cfg.remotes.intro":
+    "שלטים מדריכים, מנטרלים ומפעילים מצוקה. הם פועלים גם כשההתקן מנותק מהאינטרנט.",
+  "cfg.remotes.none": "לא הותאמו שלטים עדיין.",
+  "cfg.remotes.pair": "התאמת שלט",
+  "cfg.remotes.pressAny": "לחץ על כל לחצן בשלט…",
+  "cfg.remotes.found": "נמצא שלט",
+  "cfg.remotes.noPress": "לא זוהתה לחיצה. נסה שוב.",
+  "cfg.remotes.name": "שם",
+  "cfg.remotes.identity": "מזהה",
+  "cfg.remotes.save": "שמירה",
+  "cfg.remotes.cancel": "ביטול",
+  "cfg.remotes.unpair": "ביטול התאמה",
+  "cfg.remotes.legend": "מה עושים הלחצנים",
+  "cfg.remotes.armedBlocked": "יש לנטרל את המערכת לפני התאמת שלט.",
 
   // Sensors tab
   "cfg.sensors.loading": "טוען גלאים…",
