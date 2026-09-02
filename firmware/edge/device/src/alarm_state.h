@@ -38,6 +38,18 @@ struct Config {
   uint32_t sirenBaseAddress = 0;
   SensorConfig sensors[16];
   uint8_t sensorCount = 0;
+
+  // Paired remote-control identities (TOP 20 BITS of the 24-bit code; the
+  // bottom nibble is the button and is never stored). 0 = empty slot.
+  //
+  // Capped at 8 by the EEPROM budget, not by preference: EepromStore has
+  // exactly 64 bytes of headroom and 8 remotes cost 8*4+1 = 33. Sixteen
+  // would cost 65 and overflow it — see EepromStore::kReservedBytes, whose
+  // size has a documented heap/stack history. Do not raise this cap without
+  // reading that comment.
+  static constexpr uint8_t kMaxRemotes = 8;
+  uint32_t remotes[kMaxRemotes] = {};
+  uint8_t remoteCount = 0;
 };
 
 // Config is persisted verbatim to EEPROM by EepromStore, so its size is part
@@ -45,7 +57,9 @@ struct Config {
 // followed Condition::kLen — measured 2416 bytes before and after. If this
 // ever fails, bump EepromStore::kMagic so stale config is discarded rather
 // than misread as the new layout.
-static_assert(sizeof(Config) == 2416, "EEPROM layout changed - bump kMagic");
+// Was 2416 before `remotes`/`remoteCount` were added (8 * uint32_t + uint8_t
+// + 3 bytes trailing padding = 36). Measured, not predicted.
+static_assert(sizeof(Config) == 2452, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the
 // Telegram alert can name it. The device knows rfIds, not sensor or rule

@@ -112,6 +112,51 @@ void test_decode_rejects_pre_siren_address_magic() {
       EepromStore::decode(buffer, sizeof(buffer), &armedOut, &localWebOut, &configOut));
 }
 
+void test_round_trips_paired_remotes() {
+  Config config;
+  config.remoteCount = 2;
+  config.remotes[0] = 0xE45CA;
+  config.remotes[1] = 0x1234A;
+
+  uint8_t buffer[EepromStore::kReservedBytes];
+  size_t written = EepromStore::encode(false, true, config, buffer, sizeof(buffer));
+  TEST_ASSERT_GREATER_THAN(0, written);
+
+  bool armedOut = true;
+  bool localWebOut = false;
+  Config configOut;
+  TEST_ASSERT_TRUE(
+      EepromStore::decode(buffer, written, &armedOut, &localWebOut, &configOut));
+
+  TEST_ASSERT_EQUAL(2, configOut.remoteCount);
+  TEST_ASSERT_EQUAL_HEX32(0xE45CA, configOut.remotes[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x1234A, configOut.remotes[1]);
+}
+
+// The whole record must still fit the reserved region. kReservedBytes is
+// sized with only 64 bytes of headroom and its sizing has a documented
+// heap/stack history — 8 remotes (33 bytes) fit; raising the cap would not.
+void test_record_still_fits_reserved_region() {
+  TEST_ASSERT_LESS_OR_EQUAL(EepromStore::kReservedBytes,
+                            EepromStore::kRecordBytes);
+}
+
+// Adding remotes changed sizeof(Config) again, so the previous magic must
+// now be rejected too — same reasoning as the pre-siren-address case above.
+void test_decode_rejects_pre_remotes_magic() {
+  Config config;
+  uint8_t buffer[EepromStore::kReservedBytes];
+  EepromStore::encode(true, true, config, buffer, sizeof(buffer));
+  const uint32_t previousMagic = 0xA1A2B3B6;
+  memcpy(buffer, &previousMagic, sizeof(previousMagic));
+
+  bool armedOut = false;
+  bool localWebOut = false;
+  Config configOut;
+  TEST_ASSERT_FALSE(
+      EepromStore::decode(buffer, sizeof(buffer), &armedOut, &localWebOut, &configOut));
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_encode_decode_round_trips_armed_localweb_and_config);
@@ -120,6 +165,9 @@ void setup() {
   RUN_TEST(test_decode_rejects_old_pre_localweb_magic);
   RUN_TEST(test_siren_base_address_round_trips);
   RUN_TEST(test_decode_rejects_pre_siren_address_magic);
+  RUN_TEST(test_round_trips_paired_remotes);
+  RUN_TEST(test_record_still_fits_reserved_region);
+  RUN_TEST(test_decode_rejects_pre_remotes_magic);
   UNITY_END();
 }
 

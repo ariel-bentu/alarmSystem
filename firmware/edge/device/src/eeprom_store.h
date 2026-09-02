@@ -21,10 +21,17 @@ class EepromStore {
   // Small headroom so a modest Config change doesn't require an EEPROM
   // layout migration; still an order of magnitude below the old 4096.
   static constexpr size_t kReservedBytes = kRecordBytes + 64;
-  // Bumped from 0xA1A2B3B5 — adding Config::sirenBaseAddress changed
-  // sizeof(Config), so records written by earlier firmware must be rejected
-  // rather than misread. A magic mismatch is decode()'s rejection mechanism.
-  static constexpr uint32_t kMagic = 0xA1A2B3B6;
+  // Bumped from 0xA1A2B3B6 — adding Config::remotes/remoteCount changed
+  // sizeof(Config) (2416 -> 2452), so records written by earlier firmware
+  // must be rejected rather than misread. A magic mismatch is decode()'s
+  // rejection mechanism. (The previous bump, 0xA1A2B3B5 -> 0xA1A2B3B6, was
+  // for Config::sirenBaseAddress.)
+  //
+  // Cost: on the first boot after flashing, stored config is discarded and
+  // the device starts disarmed with an empty config, then re-pulls from the
+  // cloud. Paired remotes survive because they are re-pushed from Firestore;
+  // a device with no WiFi at that moment has none until it reconnects once.
+  static constexpr uint32_t kMagic = 0xA1A2B3B7;
 
   bool begin();
   bool load(bool* armed, bool* localWebEnabled, Config* config);
