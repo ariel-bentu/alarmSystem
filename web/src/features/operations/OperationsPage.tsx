@@ -13,7 +13,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { set } from "firebase/database";
-import { db } from "@/lib/firebase";
+import { dbSync } from "@/lib/firebase";
 import { useProject } from "@/app/ProjectProvider";
 import {
   sensorsCol,
@@ -30,6 +30,12 @@ import { useAlarmState } from "./useAlarmState";
 import SchedulesPanel from "./SchedulesPanel";
 import { causeLabel } from "./alarmState";
 import { bootSeverity, bootReasonKey, isRecentBoot } from "./bootReason";
+import {
+  armedBadgeState,
+  isArmButtonEnabled,
+  isDisarmButtonEnabled,
+  isProfileActive,
+} from "./armGridReadiness";
 import type { Sensor, Profile } from "@/types";
 
 type Side = "device" | "server";
@@ -42,7 +48,7 @@ const BOOT_NOTICE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export default function OperationsPage() {
   const t = useT();
-  const { project, role } = useProject();
+  const { project, role, loading: projectLoading } = useProject();
   const projectId = project?.id;
   const {
     armed: deviceArmed,
@@ -73,6 +79,10 @@ export default function OperationsPage() {
 
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  // Distinct from `profiles.length > 0`: a project with no profiles yet is
+  // loaded-and-empty, not still-loading, and must not leave the server card
+  // stuck showing an unknown state forever.
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [alwaysRuleCount, setAlwaysRuleCount] = useState(0);
   // Which control has a write in flight, not merely THAT one does: the write
   // takes a visible round-trip, so the pressed button has to say so itself.
@@ -98,8 +108,10 @@ export default function OperationsPage() {
 
   useEffect(() => {
     if (!projectId) return;
+    setProfilesLoaded(false);
     const unsub = onSnapshot(profilesCol(projectId), (snap) => {
       setProfiles(snap.docs.map((d) => d.data()));
+      setProfilesLoaded(true);
     });
     return unsub;
   }, [projectId]);
@@ -166,7 +178,7 @@ export default function OperationsPage() {
     setPending(`${side}:${profileId ?? "off"}`);
     try {
       const field = side === "device" ? "isActiveOnDevice" : "isActiveOnServer";
-      const batch = writeBatch(db);
+      const batch = writeBatch(dbSync());
       for (const p of profiles) {
         const shouldBeActive = p.id === profileId;
         if (Boolean(p[field]) !== shouldBeActive) {
@@ -235,21 +247,43 @@ export default function OperationsPage() {
     }
   };
 
-  if (!project) return <p>{t("ops.noProject")}</p>;
+  // "No project selected" is a real, actionable state — but only once we know
+  // there is genuinely no project. While the doc is still being fetched it is
+  // simply unknown, and saying so would flash a wrong answer on every load.
+  if (!project) {
+    return projectLoading ? null : <p>{t("ops.noProject")}</p>;
+  }
 
+  // `stateKnown` false means the grid is painted before the device's arm state
+  // has arrived. The buttons still render — the user came here to press one,
+  // and showing the layout immediately lets them find it while the rest loads.
+  // What is withheld is any CLAIM about current state: no button is marked
+  // active, because highlighting Disarmed on an armed house is a lie the user
+  // would act on.
+  //
+  // Disarm stays live regardless. It is the one control whose value is highest
+  // exactly when you have just walked in and the page is still loading, and it
+  // is safe to press blind: armSide() writes commands/armed=false AND an
+  // explicit commands/siren=false, so disarming an already-disarmed system is
+  // idempotent and still silences a sounding siren. Waiting would be the
+  // dangerous choice, not the cautious one.
   const ArmGrid = ({
     side,
     activeId,
+    stateKnown,
   }: {
     side: Side;
     activeId: string | null;
+    stateKnown: boolean;
   }) => (
     <div className="arm-grid">
       <button
-        className={`arm-btn${activeId === null ? " is-active" : ""}`}
+        className={`arm-btn${
+          isProfileActive({ stateKnown, activeId, id: null }) ? " is-active" : ""
+        }`}
         onClick={() => void armSide(side, null)}
-        disabled={!canArm || busy}
-        aria-pressed={activeId === null}
+        disabled={!isDisarmButtonEnabled({ canArm, busy, stateKnown })}
+        aria-pressed={stateKnown ? activeId === null : undefined}
       >
         {pending === `${side}:off` ? (
           <span className="spinner" aria-hidden="true" />
@@ -259,20 +293,20 @@ export default function OperationsPage() {
         {t("ops.disarmed")}
       </button>
       {availableProfiles.map((p) => {
-        const isAlarming =
-          alarm.active && alarm.side === side && activeId === p.id;
+        const isActive = isProfileActive({ stateKnown, activeId, id: p.id });
+        const isAlarming = alarm.active && alarm.side === side && isActive;
         const isPending = pending === `${side}:${p.id}`;
         return (
           <button
             key={p.id}
             className={
               "arm-btn" +
-              (activeId === p.id ? " is-active" : "") +
+              (isActive ? " is-active" : "") +
               (isAlarming ? " is-alarming" : "")
             }
             onClick={() => void armSide(side, p.id)}
-            disabled={!canArm || busy}
-            aria-pressed={activeId === p.id}
+            disabled={!isArmButtonEnabled({ canArm, busy, stateKnown })}
+            aria-pressed={stateKnown ? activeId === p.id : undefined}
           >
             {isPending ? (
               <span className="spinner" aria-hidden="true" />
@@ -326,11 +360,28 @@ export default function OperationsPage() {
     </div>
   );
 
-  const StateBadge = ({ armed }: { armed: boolean }) => (
-    <span className={`badge ${armed ? "badge--ok" : ""}`}>
-      {armed ? t("ops.armed") : t("ops.disarmed")}
-    </span>
-  );
+  // `armed: null` means "not known yet" — the RTDB subscription has not
+  // delivered its first value. That is deliberately NOT rendered as Disarmed:
+  // claiming disarmed while the house may be armed is the one wrong answer
+  // here, so the badge says nothing until it knows.
+  const StateBadge = ({
+    armed,
+    loading = false,
+  }: {
+    armed: boolean | null;
+    loading?: boolean;
+  }) => {
+    const state = armedBadgeState({ loading, armed });
+    return (
+      <span className={`badge ${state === "armed" ? "badge--ok" : ""}`}>
+        {state === "unknown"
+          ? "—"
+          : state === "armed"
+            ? t("ops.armed")
+            : t("ops.disarmed")}
+      </span>
+    );
+  };
 
   return (
     <div>
@@ -382,10 +433,12 @@ export default function OperationsPage() {
         </div>
       )}
 
-      {rtdbLoading ? (
-        <p>{t("ops.loadingDeviceState")}</p>
-      ) : (
-        <>
+      {/* No loading gate around the page body. The arm grid and SOS are what
+          the user came for, so they paint immediately and fill in state as it
+          arrives, rather than making someone watch a spinner while standing at
+          the door. Only the parts that genuinely depend on device state hold
+          back — see StateBadge and ArmGrid's stateKnown. */}
+      <>
           <section className="card">
             <div className="card__header">
               {/* The "Device" title only earns its place next to a "Server"
@@ -394,9 +447,13 @@ export default function OperationsPage() {
               {role === "admin" && (
                 <h2 className="card__title">{t("ops.device")}</h2>
               )}
-              <StateBadge armed={Boolean(deviceArmed)} />
+              <StateBadge armed={deviceArmed} loading={rtdbLoading} />
             </div>
-            <ArmGrid side="device" activeId={activeDeviceId} />
+            <ArmGrid
+              side="device"
+              activeId={activeDeviceId}
+              stateKnown={!rtdbLoading}
+            />
             {alwaysRuleCount > 0 && (
               <p className="muted">
                 {t("ops.alwaysRules", { count: String(alwaysRuleCount) })}
@@ -413,9 +470,19 @@ export default function OperationsPage() {
             <section className="card">
               <div className="card__header">
                 <h2 className="card__title">{t("ops.server")}</h2>
-                <StateBadge armed={serverArmedEffective} />
+                {/* Server state comes from the profile subscription, not RTDB,
+                    so it is known as soon as profiles load — a different
+                    condition from the device card's. */}
+                <StateBadge
+                  armed={serverArmedEffective}
+                  loading={!profilesLoaded}
+                />
               </div>
-              <ArmGrid side="server" activeId={activeServerId} />
+              <ArmGrid
+                side="server"
+                activeId={activeServerId}
+                stateKnown={profilesLoaded}
+              />
             </section>
           )}
 
@@ -445,9 +512,13 @@ export default function OperationsPage() {
             ) : (
               <p className="row">
                 <span>
-                  {sirenActive
-                    ? `🚨 ${t("ops.sirenSounding")}`
-                    : t("ops.sirenEnabledQuiet")}
+                  {/* "Quiet" is a claim about the siren, so it waits for the
+                      subscription rather than defaulting to reassuring. */}
+                  {rtdbLoading
+                    ? "—"
+                    : sirenActive
+                      ? `🚨 ${t("ops.sirenSounding")}`
+                      : t("ops.sirenEnabledQuiet")}
                 </span>
                 {role === "admin" && sirenActive && (
                   <button
@@ -460,8 +531,7 @@ export default function OperationsPage() {
               </p>
             )}
           </section>
-        </>
-      )}
+      </>
     </div>
   );
 }

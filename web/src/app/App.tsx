@@ -4,17 +4,20 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthProvider";
 import { ProjectProvider, useProject } from "./ProjectProvider";
-import { DEV_SIMULATOR } from "@/lib/firebase";
+import { DEV_SIMULATOR } from "@/lib/devFlags";
 
 // Feature pages (created by tracks). Each is a default export.
 import SignInPage from "@/features/auth/SignInPage";
-import OperationsPage from "@/features/operations/OperationsPage";
 import { AppLayout } from "./AppLayout";
 import { useT } from "@/i18n/I18nProvider";
 
-// Operations is the landing route and stays in the main bundle. The rest are
-// split out: most sessions never open Configure, Members or Settings, and the
-// app previously shipped all of it as one 868KB chunk.
+// Every authed page is lazy, Operations included. It is the landing route and
+// used to be imported statically, but it reaches Firestore and RTDB — so that
+// one static edge dragged ~150KB (brotli) of SDK onto the first-paint path,
+// where the only thing that can actually render is the sign-in screen. Behind
+// lazy() it loads in parallel with the auth handshake instead, and a signed-out
+// visitor never pays for it at all.
+const OperationsPage = lazy(() => import("@/features/operations/OperationsPage"));
 const CreateProjectPage = lazy(() => import("@/features/setup/CreateProjectPage"));
 const SettingsPage = lazy(() => import("@/features/setup/SettingsPage"));
 const MembersPage = lazy(() => import("@/features/setup/MembersPage"));

@@ -11,7 +11,7 @@ import {
   updateDoc,
   Timestamp,
 } from "firebase/firestore";
-import { rtdb } from "@/lib/firebase";
+import { rtdbSync } from "@/lib/firebase";
 import {
   sensorsCol,
   sensorDoc,
@@ -119,7 +119,7 @@ export default function SensorsTab() {
   // Subscribe to RTDB events. For each rfId, derive first/last seen + count.
   useEffect(() => {
     if (!projectId) return;
-    const eventsRef = ref(rtdb, `${projectId}/events`);
+    const eventsRef = ref(rtdbSync(), `${projectId}/events`);
     const unsub = onValue(eventsRef, (snapshot: DataSnapshot) => {
       const val = snapshot.val();
       const timing: Record<string, EventTiming> = {};

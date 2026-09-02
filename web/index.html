@@ -14,10 +14,60 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Without these the two woff2 files are only discovered after the CSS
+         has downloaded and parsed, which on a cold mobile load delays the
+         first readable text by a whole round trip. Preloading starts them in
+         parallel with the stylesheet. crossorigin is required even though the
+         fonts are same-origin: font fetches are CORS-mode, and omitting it
+         downloads each file a second time rather than reusing the preload. -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/heebo-hebrew.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/heebo-latin.woff2"
+      crossorigin
+    />
+
     <title>Alarm System</title>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Painted from the HTML itself, before any JS parses, so a cold load
+         shows the app's own colours instead of a white flash. React replaces
+         it on mount. Colours are inlined rather than taken from tokens.css
+         because this must render before that stylesheet arrives; they mirror
+         --bg / --surface / --border, and light-dark() keeps the placeholder
+         from flashing dark on a light device (the app sets color-scheme on
+         :root, so it is declared here too for the same reason). -->
+    <div id="root">
+      <div
+        style="
+          color-scheme: light dark;
+          min-height: 100vh;
+          background: light-dark(#f6f7f9, #0f1115);
+          padding: 16px;
+          box-sizing: border-box;
+        "
+      >
+        <div
+          style="
+            max-width: 720px;
+            margin: 0 auto;
+            border: 1px solid light-dark(#d8dce3, #2b303b);
+            background: light-dark(#ffffff, #171a21);
+            border-radius: 14px;
+            height: 96px;
+          "
+        ></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

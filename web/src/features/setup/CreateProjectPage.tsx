@@ -4,18 +4,26 @@
 // (that write is server-owned). Displays the raw API key once.
 import { useState } from "react";
 import { setDoc, Timestamp, doc } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/lib/firebase";
+import { dbSync, getFns } from "@/lib/firebase";
 import { useAuth } from "@/app/AuthProvider";
 import { useProject } from "@/app/ProjectProvider";
 import { generateApiKey, hashApiKey } from "./apiKey";
 import { useT } from "@/i18n/I18nProvider";
 import type { Project } from "@/types";
 
-const grantTenantAccess = httpsCallable<
-  { projectId: string; email: string; role: "admin" | "user" },
-  { status: string }
->(functions, "grantTenantAccess");
+// Bound on call rather than at module scope — see MembersPage for the reason.
+async function grantTenantAccess(args: {
+  projectId: string;
+  email: string;
+  role: "admin" | "user";
+}) {
+  const fns = await getFns();
+  const { httpsCallable } = await import("firebase/functions");
+  return httpsCallable<typeof args, { status: string }>(
+    fns,
+    "grantTenantAccess"
+  )(args);
+}
 
 export default function CreateProjectPage() {
   const t = useT();
@@ -42,7 +50,7 @@ export default function CreateProjectPage() {
       const memberEmail = (user.email ?? "").toLowerCase();
 
       // Generate a project doc ID
-      const projectRef = doc(db, "projects", crypto.randomUUID());
+      const projectRef = doc(dbSync(), "projects", crypto.randomUUID());
       const projectId = projectRef.id;
 
       const project: Omit<Project, "id"> = {
@@ -70,7 +78,7 @@ export default function CreateProjectPage() {
 
       // Index the device key hash -> projectId so the device can authenticate
       // with just its API key (no projectId needed). The hash is not secret.
-      await setDoc(doc(db, "deviceKeys", apiKeyHash), { projectId });
+      await setDoc(doc(dbSync(), "deviceKeys", apiKeyHash), { projectId });
 
       // Server-owned: writes members/{email} + users/{email}.tenants[projectId].
       await grantTenantAccess({

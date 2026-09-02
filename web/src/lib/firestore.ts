@@ -8,7 +8,7 @@ import {
   FirestoreDataConverter,
   QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { dbSync } from "./firebase";
 import type {
   Project,
   Member,
@@ -45,77 +45,77 @@ const eventConverter = converter<AlarmEvent>();
 const userConverter = converter<UserDoc>();
 
 export const usersDoc = (email: string) =>
-  doc(db, "users", email.toLowerCase()).withConverter(
+  doc(dbSync(), "users", email.toLowerCase()).withConverter(
     userConverter
   ) as DocumentReference<UserDoc>;
 
 export const projectsCol = () =>
-  collection(db, "projects").withConverter(projectConverter) as CollectionReference<Project>;
+  collection(dbSync(), "projects").withConverter(projectConverter) as CollectionReference<Project>;
 
 export const projectDoc = (projectId: string) =>
-  doc(db, "projects", projectId).withConverter(projectConverter) as DocumentReference<Project>;
+  doc(dbSync(), "projects", projectId).withConverter(projectConverter) as DocumentReference<Project>;
 
 export const membersCol = (projectId: string) =>
-  collection(db, "projects", projectId, "members").withConverter(
+  collection(dbSync(), "projects", projectId, "members").withConverter(
     memberConverter
   ) as CollectionReference<Member>;
 
 export const memberDoc = (projectId: string, userId: string) =>
-  doc(db, "projects", projectId, "members", userId).withConverter(
+  doc(dbSync(), "projects", projectId, "members", userId).withConverter(
     memberConverter
   ) as DocumentReference<Member>;
 
 export const invitesCol = (projectId: string) =>
-  collection(db, "projects", projectId, "invites").withConverter(
+  collection(dbSync(), "projects", projectId, "invites").withConverter(
     inviteConverter
   ) as CollectionReference<Invite>;
 
 export const inviteDoc = (projectId: string, inviteId: string) =>
-  doc(db, "projects", projectId, "invites", inviteId).withConverter(
+  doc(dbSync(), "projects", projectId, "invites", inviteId).withConverter(
     inviteConverter
   ) as DocumentReference<Invite>;
 
 export const sensorsCol = (projectId: string) =>
-  collection(db, "projects", projectId, "sensors").withConverter(
+  collection(dbSync(), "projects", projectId, "sensors").withConverter(
     sensorConverter
   ) as CollectionReference<Sensor>;
 
 export const sensorDoc = (projectId: string, sensorId: string) =>
-  doc(db, "projects", projectId, "sensors", sensorId).withConverter(
+  doc(dbSync(), "projects", projectId, "sensors", sensorId).withConverter(
     sensorConverter
   ) as DocumentReference<Sensor>;
 
 export const profilesCol = (projectId: string) =>
-  collection(db, "projects", projectId, "profiles").withConverter(
+  collection(dbSync(), "projects", projectId, "profiles").withConverter(
     profileConverter
   ) as CollectionReference<Profile>;
 
 export const profileDoc = (projectId: string, profileId: string) =>
-  doc(db, "projects", projectId, "profiles", profileId).withConverter(
+  doc(dbSync(), "projects", projectId, "profiles", profileId).withConverter(
     profileConverter
   ) as DocumentReference<Profile>;
 
 export const rulesCol = (projectId: string, profileId: string) =>
-  collection(db, "projects", projectId, "profiles", profileId, "rules").withConverter(
+  collection(dbSync(), "projects", projectId, "profiles", profileId, "rules").withConverter(
     ruleConverter
   ) as CollectionReference<Rule>;
 
 export const ruleDoc = (projectId: string, profileId: string, ruleId: string) =>
-  doc(db, "projects", projectId, "profiles", profileId, "rules", ruleId).withConverter(
+  doc(dbSync(), "projects", projectId, "profiles", profileId, "rules", ruleId).withConverter(
     ruleConverter
   ) as DocumentReference<Rule>;
 
 export const schedulesCol = (projectId: string) =>
-  collection(db, "projects", projectId, "schedules").withConverter(
+  collection(dbSync(), "projects", projectId, "schedules").withConverter(
     scheduleConverter
   ) as CollectionReference<Schedule>;
 
 export const scheduleDoc = (projectId: string, scheduleId: string) =>
-  doc(db, "projects", projectId, "schedules", scheduleId).withConverter(
+  doc(dbSync(), "projects", projectId, "schedules", scheduleId).withConverter(
     scheduleConverter
   ) as DocumentReference<Schedule>;
 
 export const eventsCol = (projectId: string) =>
-  collection(db, "projects", projectId, "events").withConverter(
+  collection(dbSync(), "projects", projectId, "events").withConverter(
     eventConverter
   ) as CollectionReference<AlarmEvent>;

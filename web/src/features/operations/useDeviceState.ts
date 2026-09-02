@@ -1,13 +1,7 @@
 // Hook: subscribes to RTDB state/armed, state/siren_active, state/last_seen,
 // and state/boot.
 import { useState, useEffect } from "react";
-import { onValue } from "firebase/database";
-import {
-  stateArmedRef,
-  stateSirenRef,
-  stateLastSeenRef,
-  stateBootRef,
-} from "@/lib/rtdb";
+import { getRtdb } from "@/lib/firebase";
 import type { RtdbBoot } from "@/types";
 
 interface DeviceState {
@@ -60,41 +54,60 @@ export function useDeviceState(projectId: string | undefined): DeviceState {
       if (armedResolved && sirenResolved) setLoading(false);
     };
 
-    const unsubArmed = onValue(stateArmedRef(projectId), (snap) => {
-      setArmed(snap.val() ?? false);
-      armedResolved = true;
-      checkReady();
-    });
+    // The RTDB SDK is loaded on demand, so the four subscriptions can only be
+    // attached once it resolves. Unmounting before that must still cancel
+    // them: `cancelled` covers the window before they exist, and `unsubs` the
+    // window after.
+    let cancelled = false;
+    let unsubs: (() => void)[] = [];
 
-    const unsubSiren = onValue(stateSirenRef(projectId), (snap) => {
-      setSirenActive(snap.val() ?? false);
-      sirenResolved = true;
-      checkReady();
-    });
+    void (async () => {
+      await getRtdb();
+      const { onValue } = await import("firebase/database");
+      const {
+        stateArmedRef,
+        stateSirenRef,
+        stateLastSeenRef,
+        stateBootRef,
+      } = await import("@/lib/rtdb");
+      if (cancelled) return;
 
-    const unsubLastSeen = onValue(stateLastSeenRef(projectId), (snap) => {
-      // The value is device uptime (seconds) — not wall-clock. We timestamp
-      // the *arrival* of the update so online detection works before NTP sync.
-      if (snap.val() !== null) setLastSeen(Date.now());
-    });
+      unsubs = [
+        onValue(stateArmedRef(projectId), (snap) => {
+          setArmed(snap.val() ?? false);
+          armedResolved = true;
+          checkReady();
+        }),
 
-    const unsubBoot = onValue(stateBootRef(projectId), (snap) => {
-      const val = snap.val();
-      setBoot(
-        val && typeof val === "object" && typeof val.reason === "string"
-          ? (val as RtdbBoot)
-          : null
-      );
-    });
+        onValue(stateSirenRef(projectId), (snap) => {
+          setSirenActive(snap.val() ?? false);
+          sirenResolved = true;
+          checkReady();
+        }),
 
-    // Deliberately NOT part of checkReady(): a device that has never
-    // reported a boot (older firmware, or one that has not reached the cloud
-    // yet) would otherwise leave the whole page stuck loading.
+        onValue(stateLastSeenRef(projectId), (snap) => {
+          // The value is device uptime (seconds) — not wall-clock. We timestamp
+          // the *arrival* of the update so online detection works before NTP sync.
+          if (snap.val() !== null) setLastSeen(Date.now());
+        }),
+
+        // Deliberately NOT part of checkReady(): a device that has never
+        // reported a boot (older firmware, or one that has not reached the
+        // cloud yet) would otherwise leave the whole page stuck loading.
+        onValue(stateBootRef(projectId), (snap) => {
+          const val = snap.val();
+          setBoot(
+            val && typeof val === "object" && typeof val.reason === "string"
+              ? (val as RtdbBoot)
+              : null
+          );
+        }),
+      ];
+    })();
+
     return () => {
-      unsubArmed();
-      unsubSiren();
-      unsubLastSeen();
-      unsubBoot();
+      cancelled = true;
+      unsubs.forEach((u) => u());
     };
   }, [projectId]);
 

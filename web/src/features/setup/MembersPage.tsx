@@ -4,18 +4,27 @@
 // they've never logged in). No pending-invite acceptance step.
 import { useEffect, useState } from "react";
 import { getDocs } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
 import { useAuth } from "@/app/AuthProvider";
 import { useProject } from "@/app/ProjectProvider";
-import { functions } from "@/lib/firebase";
+import { getFns } from "@/lib/firebase";
 import { membersCol } from "@/lib/firestore";
 import { useT } from "@/i18n/I18nProvider";
 import type { Member, Role } from "@/types";
 
-const grantTenantAccess = httpsCallable<
-  { projectId: string; email: string; role: Role },
-  { status: string }
->(functions, "grantTenantAccess");
+// Bound on call rather than at module scope, so firebase/functions loads only
+// when an admin actually grants access.
+async function grantTenantAccess(args: {
+  projectId: string;
+  email: string;
+  role: Role;
+}) {
+  const fns = await getFns();
+  const { httpsCallable } = await import("firebase/functions");
+  return httpsCallable<typeof args, { status: string }>(
+    fns,
+    "grantTenantAccess"
+  )(args);
+}
 
 export default function MembersPage() {
   const t = useT();
