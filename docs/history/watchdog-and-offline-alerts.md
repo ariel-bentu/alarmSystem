@@ -1,4 +1,9 @@
-# Watchdog + boot reporting (2026-09-02) — cause NOT yet identified
+# Watchdog + boot reporting (2026-09-02) — watchdog PROVEN, hang still open
+
+**Status:** the watchdog is hardware-proven (it fired and recovered the
+device on 2026-09-02 19:51:37 — see "FIRST CAPTURED OCCURRENCE" below).
+What actually hangs the device is still unidentified, but it is now known
+to be on `loopTask` and to be bounded to seconds rather than a day.
 
 **A board was found dead after 9h16m uptime: powered, LED on, off WiFi, off
 the LAN web server, and with its USB serial port GONE from the host.** A
@@ -96,6 +101,50 @@ do not read it as an ESP32 constraint.**
 
 **Still unknown:** what actually hung it. The next occurrence will say so in
 `state/boot.reason` plus a panic backtrace on the serial console.
+
+### FIRST CAPTURED OCCURRENCE — `reason=twdt` (2026-09-02 19:51:37 IDT)
+
+**The watchdog fired and the device recovered by itself.** Read from RTDB
+before flashing new firmware, which is the only reason it survived:
+
+```
+state/boot = { reason: "twdt", at: 1788367897000 }   # 2026-09-02 19:51:37 IDT
+state/last_seen = 2745                               # matched elapsed time exactly
+```
+
+**What this establishes:**
+
+1. **The watchdog works on real hardware.** It had been committed but never
+   hardware-tested. The 28h and 31.76h deaths happened because *nothing*
+   rebooted the board; this time the hang was caught and the device was back
+   in seconds instead of dead for a day. Treat the watchdog as proven.
+2. **The hang is on (or starves) `loopTask`.** This narrows the search a
+   lot. The scope-limit note above worried the real hang might live in the
+   FirebaseClient async task or the WiFi driver, where the TWDT would never
+   see it. It fired, so that whole branch is now less likely.
+3. **It is not purely time-based.** The device had been up only ~70 minutes
+   (since an esptool reset at 18:51), versus 28-31h for the two silent
+   deaths. Any theory requiring a ~1.2-day timer is wrong.
+
+**Timeline of the surrounding outage**, reconstructed from `/events` keys:
+
+```
+2026-09-01 08:32:21   last event before the outage
+        ...           31.76 HOURS of silence (2nd occurrence; ~28h the 1st time)
+2026-09-02 16:17:41   events resume on their own
+2026-09-02 18:51      esptool reset (during debugging)
+2026-09-02 19:51:37   TWDT reboot  <-- captured here
+```
+
+**Trap that destroyed evidence once already:** resetting or reflashing the
+board overwrites `state/boot` on the next boot. During the 2026-09-02
+investigation an `esptool` reset was issued *before* reading RTDB, which
+lost that boot's reason permanently. **Always read
+`/{projectId}/state/boot` BEFORE touching the hardware.**
+
+**Still unknown:** what specifically wedged `loopTask`. The watchdog now
+bounds the damage to seconds, so this is no longer a
+premises-unprotected-for-a-day bug — but the underlying hang is not fixed.
 
 ### Device offline alerts (2026-09-02)
 
