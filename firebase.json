@@ -2,7 +2,35 @@
   "hosting": {
     "public": "web/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "comment": "ORDER MATTERS, AND IT IS LAST-MATCH-WINS. This is the opposite of `rewrites`, where the FIRST matching rule applies, and it is not stated in the docs — it was established by deploying and reading the live headers. So the broad catch-all goes FIRST and the specific immutable rules go LAST; putting `**` at the end silently flattened every asset to no-cache.",
+    "headers": [
+      {
+        "comment": "Every navigation URL. no-cache means 'revalidate before use', NOT 'do not store' — an unchanged file still costs only a 304, but a new deploy is picked up on the very next visit instead of up to an hour later, which is what makes the service worker's update banner appear promptly. A literal '/index.html' source does NOT work: the SPA rewrite serves '/' and '/configure' from index.html without their request paths ever being '/index.html', so those responses kept Firebase's default max-age=3600. Overridden below for hashed assets.",
+        "source": "**",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "comment": "Vite stamps a content hash into every filename under /assets, so a given URL can never change contents. Cache for a year and skip revalidation entirely.",
+        "source": "/assets/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "comment": "Fonts are versioned by hand but are equally immutable in practice.",
+        "source": "/fonts/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      }
+    ]
   },
   "firestore": {
     "rules": "firestore.rules",

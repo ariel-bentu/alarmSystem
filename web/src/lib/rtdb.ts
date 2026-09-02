@@ -1,7 +1,7 @@
 // Typed Realtime Database path helpers. All device-facing paths are namespaced
 // under projectId. Feature tracks (operations, simulator) import these.
 import { ref, DatabaseReference } from "firebase/database";
-import { rtdb } from "./firebase";
+import { rtdbSync } from "./firebase";
 
 export const statePath = (projectId: string) => `${projectId}/state`;
 export const stateArmedPath = (projectId: string) => `${projectId}/state/armed`;
@@ -19,27 +19,27 @@ export const eventPath = (
 ) => `${projectId}/events/${sensorRfId}/${timestamp}`;
 
 export const stateRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, statePath(projectId));
+  ref(rtdbSync(), statePath(projectId));
 export const stateArmedRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, stateArmedPath(projectId));
+  ref(rtdbSync(), stateArmedPath(projectId));
 export const stateSirenRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, stateSirenPath(projectId));
+  ref(rtdbSync(), stateSirenPath(projectId));
 export const commandsArmedRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, commandsArmedPath(projectId));
+  ref(rtdbSync(), commandsArmedPath(projectId));
 export const commandsSirenRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, commandsSirenPath(projectId));
+  ref(rtdbSync(), commandsSirenPath(projectId));
 export const configRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, configPath(projectId));
+  ref(rtdbSync(), configPath(projectId));
 export const eventRef = (
   projectId: string,
   sensorRfId: string,
   timestamp: number
-): DatabaseReference => ref(rtdb, eventPath(projectId, sensorRfId, timestamp));
+): DatabaseReference => ref(rtdbSync(), eventPath(projectId, sensorRfId, timestamp));
 
 export const stateLastSeenPath = (projectId: string) =>
   `${projectId}/state/last_seen`;
 export const stateLastSeenRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, stateLastSeenPath(projectId));
+  ref(rtdbSync(), stateLastSeenPath(projectId));
 
 // Why the device last booted: { reason, at }. Written once per boot by the
 // firmware (CloudClient::reportBoot). `reason` is "power_on" for an ordinary
@@ -48,14 +48,14 @@ export const stateLastSeenRef = (projectId: string): DatabaseReference =>
 // looks identical to one that never left.
 export const stateBootPath = (projectId: string) => `${projectId}/state/boot`;
 export const stateBootRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, stateBootPath(projectId));
+  ref(rtdbSync(), stateBootPath(projectId));
 
 // What tripped the alarm. Written by the device ({rfId, ct, at}) and by the
 // server ({label, at}) — see features/operations/alarmState.ts.
 export const stateAlarmCausePath = (projectId: string) =>
   `${projectId}/state/alarm_cause`;
 export const stateAlarmCauseRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, stateAlarmCausePath(projectId));
+  ref(rtdbSync(), stateAlarmCausePath(projectId));
 
 export const commandsPairPath = (projectId: string) =>
   `${projectId}/commands/pair`;
@@ -63,6 +63,6 @@ export const stateSirenBasePath = (projectId: string) =>
   `${projectId}/state/siren_base`;
 
 export const commandsPairRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, commandsPairPath(projectId));
+  ref(rtdbSync(), commandsPairPath(projectId));
 export const stateSirenBaseRef = (projectId: string): DatabaseReference =>
-  ref(rtdb, stateSirenBasePath(projectId));
+  ref(rtdbSync(), stateSirenBasePath(projectId));

@@ -54,18 +54,19 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "src") },
   },
   build: {
-    // Firebase is by far the largest dependency and changes far less often
-    // than app code; splitting it keeps it cached across app deploys.
     rollupOptions: {
       output: {
+        // Only app+auth are grouped. Firestore, RTDB and Functions are
+        // deliberately absent: naming them here would fuse them into one
+        // always-loaded chunk and undo the lazy accessors in lib/firebase.ts,
+        // no matter what the import graph says. Left alone, Rollup emits each
+        // as its own async chunk behind the dynamic import that needs it.
+        //
+        // app+auth stay grouped because resolving auth state blocks the first
+        // paint, and they change far less often than app code — so keeping
+        // them in one chunk means a deploy does not invalidate them.
         manualChunks: {
-          firebase: [
-            "firebase/app",
-            "firebase/auth",
-            "firebase/firestore",
-            "firebase/database",
-            "firebase/functions",
-          ],
+          "firebase-app": ["firebase/app", "firebase/auth"],
           react: ["react", "react-dom", "react-router-dom"],
         },
       },

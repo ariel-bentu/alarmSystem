@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { onValue } from "firebase/database";
 import { collection, addDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { set } from "firebase/database";
-import { db } from "@/lib/firebase";
+import { dbSync } from "@/lib/firebase";
 import { commandsPairRef, stateSirenBaseRef } from "@/lib/rtdb";
 import { buildPairCommand, formatSirenAddress } from "./sirenPairing";
 import { useProject } from "@/app/ProjectProvider";
@@ -80,7 +80,7 @@ export default function SirenTab() {
   const handleConfirmYes = async () => {
     if (!projectId) return;
     try {
-      await addDoc(collection(db, "projects", projectId, "sirens"), {
+      await addDoc(collection(dbSync(), "projects", projectId, "sirens"), {
         pairedAt: Timestamp.now(),
         baseAddress: pairedAddress,
       });

@@ -8,8 +8,7 @@ import {
   useState,
   ReactNode,
 } from "react";
-import { getDoc } from "firebase/firestore";
-import { projectDoc } from "@/lib/firestore";
+import { ensureServices } from "@/lib/firebase";
 import type { Project, Role } from "@/types";
 import { useAuth } from "./AuthProvider";
 
@@ -77,8 +76,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // Keep a valid selection as tenants change. Preference order: whatever is
   // already selected, then the persisted choice, then the first membership.
   // Any candidate that is no longer a membership is discarded.
+  // Selection is pure synchronous bookkeeping over the tenants map, so it does
+  // NOT touch `loading` — it used to set it true and false in the same pass,
+  // which meant the flag was never observably true and consumers rendered
+  // "no project selected" during the gap before the doc arrived. `loading`
+  // now tracks the one thing that is actually asynchronous: the project fetch.
   useEffect(() => {
-    setLoading(true);
     setSelectedId((prev) => {
       const isMember = (id: string | null): id is string =>
         !!id && memberships.some((m) => m.projectId === id);
@@ -92,19 +95,38 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       storeProjectId(fallback);
       return fallback;
     });
-    setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userDoc]);
 
+  // Firestore and RTDB are loaded on demand (see lib/firebase), so the SDK and
+  // the path helpers have to be resolved before the doc can be read. This is
+  // also the app's single warm-up point: awaiting ensureServices() here means
+  // every authed route below can keep using the synchronous path helpers.
   useEffect(() => {
     if (!selectedId) {
       setProject(null);
+      // No project to fetch. Only settled once the user doc has actually
+      // arrived — before that, "no memberships" is just an unanswered question.
+      setLoading(!userDoc);
       return;
     }
-    void getDoc(projectDoc(selectedId)).then((s) =>
-      setProject(s.exists() ? s.data() : null)
-    );
-  }, [selectedId]);
+    // Guards against a stale response overwriting a newer project selection.
+    let current = true;
+    setLoading(true);
+    void (async () => {
+      await ensureServices();
+      const { getDoc } = await import("firebase/firestore");
+      const { projectDoc } = await import("@/lib/firestore");
+      const s = await getDoc(projectDoc(selectedId));
+      if (current) {
+        setProject(s.exists() ? s.data() : null);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [selectedId, userDoc]);
 
   const role =
     memberships.find((m) => m.projectId === selectedId)?.role ?? null;
@@ -117,6 +139,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // Re-read the current project doc (e.g. after editing settings).
   const reloadProject = async () => {
     if (!selectedId) return;
+    await ensureServices();
+    const { getDoc } = await import("firebase/firestore");
+    const { projectDoc } = await import("@/lib/firestore");
     const s = await getDoc(projectDoc(selectedId));
     setProject(s.exists() ? s.data() : null);
   };

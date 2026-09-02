@@ -9,7 +9,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 import { useProject } from "./ProjectProvider";
-import { DEV_SIMULATOR } from "@/lib/firebase";
+import { DEV_SIMULATOR } from "@/lib/devFlags";
 import { useDeviceState } from "@/features/operations/useDeviceState";
 import { useOnlineStatus } from "@/lib/useOnlineStatus";
 import { ScrollingTabs } from "@/components/ScrollingTabs";
@@ -25,22 +25,30 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const online = useOnlineStatus();
   const location = useLocation();
 
-  const links: { to: string; key: TranslationKey }[] = [
-    { to: "/", key: "nav.operations" },
-    ...(role === "admin"
-      ? ([{ to: "/configure", key: "nav.configure" }] as const)
-      : []),
-    { to: "/explore", key: "nav.explore" },
-    ...(role === "admin"
-      ? ([
-          { to: "/members", key: "nav.members" },
-          { to: "/settings", key: "nav.settings" },
-        ] as const)
-      : []),
-    ...(DEV_SIMULATOR
-      ? ([{ to: "/simulator", key: "nav.simulator" }] as const)
-      : []),
-  ];
+  // role is null until memberships resolve, and `null !== "admin"` is
+  // indistinguishable from "definitely not an admin" — so building the nav
+  // eagerly rendered the three-tab non-admin set first, then swapped in the
+  // six-tab admin set a moment later. The tabs an admin is reaching for moved
+  // under their thumb mid-tap. Nothing is emitted until the answer is known.
+  const roleKnown = role !== null;
+  const links: { to: string; key: TranslationKey }[] = !roleKnown
+    ? []
+    : [
+        { to: "/", key: "nav.operations" },
+        ...(role === "admin"
+          ? ([{ to: "/configure", key: "nav.configure" }] as const)
+          : []),
+        { to: "/explore", key: "nav.explore" },
+        ...(role === "admin"
+          ? ([
+              { to: "/members", key: "nav.members" },
+              { to: "/settings", key: "nav.settings" },
+            ] as const)
+          : []),
+        ...(DEV_SIMULATOR
+          ? ([{ to: "/simulator", key: "nav.simulator" }] as const)
+          : []),
+      ];
 
   return (
     <div>
@@ -68,17 +76,26 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
         <nav className="app-header__nav">
           <ScrollingTabs activeKey={location.pathname} ariaLabel={t("app.title")}>
-            {links.map((l) => (
-              <NavLink
-                key={l.to}
-                to={l.to}
-                end={l.to === "/"}
-                className="tab"
-                role="tab"
-              >
-                {t(l.key)}
-              </NavLink>
-            ))}
+            {roleKnown ? (
+              links.map((l) => (
+                <NavLink
+                  key={l.to}
+                  to={l.to}
+                  end={l.to === "/"}
+                  className="tab"
+                  role="tab"
+                >
+                  {t(l.key)}
+                </NavLink>
+              ))
+            ) : (
+              // Holds the row's height while the role resolves. Without it the
+              // header would collapse and then grow, trading a content shift
+              // for a layout one. aria-hidden so it is never announced.
+              <span className="tab" aria-hidden="true" style={{ visibility: "hidden" }}>
+                {t("nav.operations")}
+              </span>
+            )}
           </ScrollingTabs>
         </nav>
       </header>

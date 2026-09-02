@@ -18,8 +18,7 @@ import {
   onAuthStateChanged,
   User,
 } from "firebase/auth";
-import { httpsCallable } from "firebase/functions";
-import { auth, functions } from "@/lib/firebase";
+import { auth, getFns } from "@/lib/firebase";
 import type { UserDoc } from "@/types";
 
 type AccessStatus = "checking" | "ok" | "denied";
@@ -41,10 +40,15 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const provisionUser = httpsCallable<void, ProvisionResult>(
-  functions,
-  "provisionUser"
-);
+// Resolved lazily rather than at module scope: this module is on the
+// first-paint path (it owns the auth handshake), and binding the callable
+// eagerly would pull firebase/functions into the initial bundle for a call
+// that only happens after someone is actually signed in.
+async function provisionUser() {
+  const fns = await getFns();
+  const { httpsCallable } = await import("firebase/functions");
+  return httpsCallable<void, ProvisionResult>(fns, "provisionUser")();
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
