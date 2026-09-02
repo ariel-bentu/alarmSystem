@@ -4,6 +4,7 @@ import { onSnapshot, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
 import { rtdbSync } from "@/lib/firebase";
 import { remotesCol, remoteDoc } from "@/lib/firestore";
 import { useProject } from "@/app/ProjectProvider";
+import { useDeviceState } from "@/features/operations/useDeviceState";
 import { useT } from "@/i18n/I18nProvider";
 import type { Remote } from "@/types";
 import { isJustSeen, type EventTiming } from "./sensorRecency";
@@ -18,6 +19,7 @@ export default function RemotesTab() {
   const t = useT();
   const { project } = useProject();
   const projectId = project?.id ?? "";
+  const { armed: deviceArmed } = useDeviceState(projectId);
 
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [eventTiming, setEventTiming] = useState<Record<string, EventTiming>>({});
@@ -75,7 +77,11 @@ export default function RemotesTab() {
     remotes.map((r) => r.identity)
   );
 
-  const armed = project?.serverArmed === true;
+  // The DEVICE's arm state, live from RTDB — not project.serverArmed, which
+  // is the separate server-side flag AND is a one-shot getDoc that goes
+  // stale (see OperationsPage). Pairing is refused by the device based on
+  // its own arm state, so the UI has to check the same thing.
+  const armed = deviceArmed === true;
 
   const handlePair = async () => {
     if (!pairIdentity || !pairName.trim() || !projectId) return;
@@ -145,6 +151,9 @@ export default function RemotesTab() {
 
       <h3>{t("cfg.remotes.unrecognised")}</h3>
       <p className="muted">{t("cfg.remotes.pressHint")}</p>
+      {/* Shown ABOVE the table, not only as a disabled-button tooltip: a
+          button that does nothing on click reads as broken. */}
+      {armed && <p role="status">{t("cfg.remotes.armedBlocked")}</p>}
       {candidates.length === 0 ? (
         <p className="muted">{t("cfg.remotes.noCandidates")}</p>
       ) : (
@@ -197,8 +206,6 @@ export default function RemotesTab() {
           </tbody>
         </table>
       )}
-
-      {armed && <p className="muted">{t("cfg.remotes.armedBlocked")}</p>}
 
       {pairIdentity && (
         <div>
