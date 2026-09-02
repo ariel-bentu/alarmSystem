@@ -109,7 +109,15 @@ export interface ServerActions {
 export interface DeviceInfo {
   name: string;
   apiKeyHash: string;
+  // Server wall-clock time of the last heartbeat, stamped by onHeartbeat.
+  // The RTDB value the device writes is UPTIME, not epoch, so this is the
+  // only field from which "how long has it been silent" can be computed.
   lastSeen: Timestamp | null;
+  // Set when an offline alert has been sent, cleared when the device
+  // returns. Latches the alert so one outage sends one message, and marks
+  // when the outage was noticed so the recovery message can report its
+  // length. Absent (not null) when online — see deviceLiveness.ts.
+  offlineAlertSentAt?: Timestamp;
 }
 
 export interface Project {

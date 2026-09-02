@@ -6,6 +6,8 @@ import {
   formatAlarm,
   formatArmState,
   formatDeadSensor,
+  formatDeviceOffline,
+  formatDeviceBackOnline,
   formatStatus,
   StatusInfo,
 } from "./telegram";
@@ -47,6 +49,29 @@ describe("telegram formatters", () => {
     });
     it("handles fractional hours", () => {
       expect(formatDeadSensor("PIR", 48)).toBe("💤 PIR has not reported in 48h");
+    });
+  });
+
+  describe("formatDeviceOffline", () => {
+    it("calls out the armed case explicitly", () => {
+      // Armed + offline is the dangerous combination: nothing is watching.
+      expect(formatDeviceOffline("6m", true)).toBe(
+        "📵 Alarm device offline while ARMED — no heartbeat for 6m"
+      );
+    });
+
+    it("omits the arm state when disarmed", () => {
+      expect(formatDeviceOffline("3h", false)).toBe(
+        "📵 Alarm device offline — no heartbeat for 3h"
+      );
+    });
+  });
+
+  describe("formatDeviceBackOnline", () => {
+    it("reports how long the outage lasted", () => {
+      expect(formatDeviceBackOnline("1d 4h")).toBe(
+        "✅ Alarm device back online — was offline for 1d 4h"
+      );
     });
   });
 
