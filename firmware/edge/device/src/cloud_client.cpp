@@ -244,9 +244,34 @@ bool CloudClient::mintCustomToken() {
   Serial.printf("[%8lu] response first byte (+%lums)\n", millis(),
                 millis() - waitStart);
 
+  // Bounded and watchdog-fed, like the wait loop above. available() going
+  // 0 is NOT a reliable terminator mid-response: a body arriving in TLS
+  // records with a gap between them can momentarily read 0 while the peer is
+  // still sending, and conversely a half-closed socket can keep this loop
+  // alive. Unbounded and unfed, either shape stalls loop() until the
+  // watchdog fires.
+  //
+  // Reserved up front rather than grown one char at a time: the response is
+  // ~957 bytes and `response += char` reallocates repeatedly, which both
+  // wastes time here and fragments the heap the TLS client is about to need.
   String response;
-  while (client.available()) {
-    response += (char)client.read();
+  response.reserve(1280);
+  unsigned long readStart = millis();
+  while (client.connected() || client.available()) {
+    while (client.available()) {
+      response += (char)client.read();
+    }
+    // Whole body already in hand — stop before the timeout rather than
+    // waiting for the peer to drop a Connection: close socket.
+    if (response.indexOf("\r\n\r\n") >= 0) break;
+    platformFeedWatchdog();
+    delay(1);
+    if (millis() - readStart > kMintResponseTimeoutMs) {
+      Serial.printf("[%8lu] response read: TIMED OUT (+%lums, %u bytes)\n",
+                    millis(), millis() - readStart, response.length());
+      client.stop();
+      return false;
+    }
   }
   client.stop();
 
@@ -499,6 +524,12 @@ bool CloudClient::openDataClient() {
     dataSslClient_ = nullptr;
     return false;
   }
+  // MUST be set here, on the one and only client, before any operation runs.
+  // Without these the library falls back to its own 30s socket timeouts,
+  // which equals the watchdog budget — see kSyncTimeoutSec for the full
+  // reasoning. This is the fix for the intermittent "device gets stuck".
+  dataClient_->setSyncReadTimeout(kSyncTimeoutSec);
+  dataClient_->setSyncSendTimeout(kSyncTimeoutSec);
   return true;
 }
 
@@ -627,9 +658,9 @@ bool CloudClient::consumePairCommand(uint32_t* nonce, uint32_t* untilEpochSec) {
   return true;
 }
 
-void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
+bool CloudClient::reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
                               const char* value) {
-  if (!isReady()) return;  // no buffering v1 — drop if not connected/authed
+  if (!isReady()) return false;  // no buffering v1 — drop if not connected/authed
 
   // Hard floor. BearSSL needs a ~3424-byte contiguous block for the
   // handshake this write triggers; attempting it with less does not fail
@@ -641,7 +672,7 @@ void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
     Serial.printf("cloud: reportEvent %s DROPPED — no data client (%u "
                   "contiguous bytes free)\n",
                   rfId, platformMaxAllocHeap());
-    return;
+    return false;
   }
 
   // KNOWN LIMITATION (ESP8266 heap fragmentation) — see the note at the top
@@ -658,7 +689,7 @@ void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
     Serial.printf("cloud: reportEvent %s SKIPPED — %u contiguous bytes free, "
                   "need %u (heap fragmentation; see cloud_client.cpp)\n",
                   rfId, block, kMinBlockForEventWrite);
-    return;
+    return false;
   }
   Serial.printf("cloud: reportEvent %s (heap %u maxblock %u)\n", rfId,
                 ESP.getFreeHeap(), block);
@@ -700,6 +731,7 @@ void CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
                   ESP.getFreeHeap());
   }
   closeDataClient();
+  return ok;
 }
 
 void CloudClient::reportArmedState(bool armed, const char* source) {

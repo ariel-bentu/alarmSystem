@@ -223,4 +223,28 @@ describe("buildRtdbConfig — always-on rules", () => {
     const config = buildRtdbConfig([], sensors, false, 120, true, [], []);
     expect(config.m).toBeUndefined();
   });
+
+  // The siren address is echoed back so a device whose EEPROM was wiped can
+  // re-adopt the address its physical siren is still paired to, rather than
+  // generating a new one the siren has never heard.
+  it("emits the siren base address as a number in s", () => {
+    const config = buildRtdbConfig(
+      [], sensors, false, 120, true, [], [], "0xA1B2C0"
+    );
+    expect(config.s).toBe(0xa1b2c0);
+  });
+
+  it("omits s when the project has no siren address", () => {
+    const config = buildRtdbConfig([], sensors, false, 120, true, [], []);
+    expect(config.s).toBeUndefined();
+  });
+
+  // RTDB rejects NaN outright, so an unparseable value must be dropped rather
+  // than sent — the same contract m has.
+  it("omits s when the stored address is unparseable", () => {
+    const config = buildRtdbConfig(
+      [], sensors, false, 120, true, [], [], "not-hex"
+    );
+    expect(config.s).toBeUndefined();
+  });
 });

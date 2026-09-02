@@ -201,6 +201,36 @@ void test_clamps_excess_remotes_to_capacity() {
   TEST_ASSERT_EQUAL(Config::kMaxRemotes, out.remoteCount);
 }
 
+// The siren address echoed back by the cloud, so a device whose EEPROM was
+// wiped can re-adopt the address its physical siren is still paired to.
+void test_parses_siren_base_address() {
+  const char* json =
+      "{\"a\":false,\"d\":120,\"e\":true,\"s\":10597056}";  // 0xA1B2C0
+  Config out;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &out));
+  TEST_ASSERT_EQUAL_HEX32(0xA1B2C0, out.sirenBaseAddress);
+}
+
+// An absent s means "the cloud has no siren address", never a parse failure.
+// The device treats 0 as "nothing to adopt" and keeps whatever it has.
+void test_absent_s_means_no_siren_address() {
+  const char* json = "{\"a\":false,\"d\":120,\"e\":true}";
+  Config out;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &out));
+  TEST_ASSERT_EQUAL_HEX32(0, out.sirenBaseAddress);
+}
+
+// REGRESSION: s is parsed before the r/c early return, exactly as m is. A
+// project with no rules must still be able to recover its siren address —
+// parsing s after that return would silently strand such a device.
+void test_siren_address_parsed_when_r_and_c_absent() {
+  const char* json = "{\"a\":true,\"d\":60,\"e\":true,\"s\":10597056}";
+  Config out;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &out));
+  TEST_ASSERT_EQUAL(0, out.sensorCount);
+  TEST_ASSERT_EQUAL_HEX32(0xA1B2C0, out.sirenBaseAddress);
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_valid_config_round_trip_with_all_condition_types);
@@ -216,6 +246,9 @@ void setup() {
   RUN_TEST(test_parses_remote_identities);
   RUN_TEST(test_absent_m_means_zero_remotes);
   RUN_TEST(test_clamps_excess_remotes_to_capacity);
+  RUN_TEST(test_parses_siren_base_address);
+  RUN_TEST(test_absent_s_means_no_siren_address);
+  RUN_TEST(test_siren_address_parsed_when_r_and_c_absent);
   UNITY_END();
 }
 

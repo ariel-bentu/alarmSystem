@@ -67,6 +67,9 @@ function toRtdbCondition(
  * @param sirenEnabled - Whether the device should sound the siren
  * @param remotes - Paired remote controls, pushed so the device can act on
  *   them with no cloud connection
+ * @param sirenBaseAddress - The device's own siren identity ("0x..."), echoed
+ *   back so a device whose EEPROM was wiped can re-adopt it rather than
+ *   generating a new address the physical siren is not paired to
  */
 export function buildRtdbConfig(
   rules: Rule[],
@@ -75,7 +78,8 @@ export function buildRtdbConfig(
   sirenDurationSec: number,
   sirenEnabled = true,
   alwaysRules: Rule[] = [],
-  remotes: Remote[] = []
+  remotes: Remote[] = [],
+  sirenBaseAddress?: string
 ): RtdbConfig {
   const sensorMap = new Map<string, Sensor>();
   for (const s of sensors) {
@@ -154,5 +158,24 @@ export function buildRtdbConfig(
     r,
     c,
     ...(m.length > 0 ? { m } : {}),
+    ...sirenKey(sirenBaseAddress),
   };
+}
+
+/**
+ * The `s` (siren base address) key, or {} when there is nothing usable to
+ * send. Shared with onProfileChange's thin-config path so both config shapes
+ * carry the siren address identically — a project with no active profile must
+ * still be able to drive its siren, exactly as with `m`.
+ *
+ * Firestore holds the "0x..." string; the device-facing config carries a
+ * number. Unparseable values are dropped rather than sent as NaN, which RTDB
+ * would reject outright.
+ */
+export function sirenKey(
+  sirenBaseAddress?: string
+): { s: number } | Record<string, never> {
+  if (!sirenBaseAddress) return {};
+  const s = parseInt(sirenBaseAddress, 16);
+  return Number.isFinite(s) && s > 0 ? { s } : {};
 }
