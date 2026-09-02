@@ -1,5 +1,9 @@
-// Cloud Function: scheduleTick
-// Trigger: every minute.
+// Task: scheduleTick — fire due schedule edges.
+//
+// Runs every minute, dispatched from doSchedule.ts's single scheduler job
+// (see the table there). NOT an onSchedule() of its own: Cloud Scheduler
+// allows only 3 free jobs per BILLING ACCOUNT, so every periodic task in
+// this project is a plain async function invoked by the one dispatcher.
 //
 // Fires due schedule edges by writing exactly the fields a human pressing a
 // button in Operations writes — the scheduler gets no private path to the
@@ -9,20 +13,15 @@
 // Cost: an idle minute is two collection-group queries matching zero
 // documents, which is what the precomputed nextArmAt/nextDisarmAt fields
 // exist to buy. Do not replace them with a full scan.
-//
-// This is the 2nd of Cloud Scheduler's 3 free jobs per BILLING ACCOUNT
-// (deadSensorCheck is the other).
 
-import { onSchedule } from "firebase-functions/v2/scheduler";
 import { Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
 import { Schedule, Profile } from "./types";
 import { decideEdge, EdgeKind } from "./scheduleDecision";
 import { nextArmInstant, nextDisarmInstant } from "./nextOccurrence";
 
-export const scheduleTick = onSchedule(
-  { schedule: "every 1 minutes", region: "europe-west1" },
-  async (_event) => {
+export async function scheduleTick(): Promise<void> {
+  {
     const now = new Date();
     const nowTs = Timestamp.fromDate(now);
 
@@ -64,7 +63,7 @@ export const scheduleTick = onSchedule(
       }
     }
   }
-);
+}
 
 /**
  * Apply an edge. Writes the same fields OperationsPage.armSide writes:

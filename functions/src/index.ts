@@ -6,8 +6,11 @@ export { onProfileChange, onRuleChange, onProjectConfigChange } from "./onProfil
 export { onScheduleChange } from "./onScheduleChange";
 export { onArmStateChange } from "./onArmStateChange";
 export { onServerArmChange } from "./onServerArmChange";
-export { deadSensorCheck } from "./deadSensorCheck";
-export { scheduleTick } from "./scheduleTick";
+export { onHeartbeat } from "./onHeartbeat";
+// The ONLY scheduled function. scheduleTick, deadSensorCheck and the device
+// liveness check are plain functions dispatched from its table — see
+// doSchedule.ts before adding any periodic work.
+export { doSchedule } from "./doSchedule";
 export { telegramWebhook } from "./telegramWebhook";
 export { provisionUser } from "./provisionUser";
 export { grantTenantAccess } from "./grantTenantAccess";

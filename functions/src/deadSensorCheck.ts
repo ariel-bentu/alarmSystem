@@ -1,8 +1,12 @@
-// Cloud Function: deadSensorCheck
-// Trigger: scheduled daily at noon.
+// Task: deadSensorCheck — daily at noon.
 //
-// Two daily maintenance jobs share this one schedule, rather than deploying a
-// second scheduled function to walk the same project list:
+// Dispatched from doSchedule.ts's single scheduler job (see the table
+// there), not an onSchedule() of its own — Cloud Scheduler allows only 3
+// free jobs per BILLING ACCOUNT, so every periodic task here is a plain
+// async function the one dispatcher invokes.
+//
+// Two daily maintenance jobs share this one entry, rather than walking the
+// same project list twice:
 //
 //  1. Dead-sensor alerts. For each project + sensor: if lastSeen older than
 //     sensor.deadSensorAlertDays and no alert has been sent yet this silence
@@ -11,16 +15,14 @@
 //     trigger).
 //  2. RTDB event retention — see eventCleanup.ts.
 
-import { onSchedule } from "firebase-functions/v2/scheduler";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "./admin";
 import { Project, Sensor } from "./types";
 import { sendTelegram, formatDeadSensor } from "./telegram";
 import { cleanupProjectEvents, cutoffFrom } from "./eventCleanup";
 
-export const deadSensorCheck = onSchedule(
-  { schedule: "every day 12:00", region: "europe-west1" },
-  async (_event) => {
+export async function deadSensorCheck(): Promise<void> {
+  {
     const now = Date.now();
 
     const projectsSnap = await db.collection("projects").get();
@@ -72,4 +74,4 @@ export const deadSensorCheck = onSchedule(
       }
     }
   }
-);
+}
