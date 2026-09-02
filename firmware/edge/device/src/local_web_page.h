@@ -59,6 +59,7 @@ const char LOCAL_WEB_PAGE_HTML[] PROGMEM = R"HTML(
   <button onclick="pairSiren()">Pair siren (10s)</button>
   <button onclick="sirenTest()">Sound siren (test)</button>
   <button class="disarm" onclick="sirenSilence()">Silence siren</button>
+  <button onclick="pairRemote()">Pair remote (30s)</button>
   <p class="note" id="pairNote"></p>
 </div>
 <script>
@@ -100,6 +101,20 @@ const char LOCAL_WEB_PAGE_HTML[] PROGMEM = R"HTML(
         pairNote(t);
       });
     }).catch(function() { pairNote('Pairing request failed (network error)'); });
+  }
+  function pairRemote() {
+    pairNote('Opening pairing window...');
+    fetch('/pair-remote', { method: 'POST' }).then(function(r) {
+      return r.text().then(function(t) {
+        pairNote(t);
+        // Poll /status so the outcome (paired / refused) lands in the note
+        // without the user needing a serial console.
+        setTimeout(function() {
+          fetch('/status').then(function(s) { return s.json(); })
+            .then(function(j) { pairNote('Pairing: ' + j.remote_pair); });
+        }, 2000);
+      });
+    }).catch(function() { pairNote('Pair remote failed (network error)'); });
   }
   function sirenTest() {
     pairNote('Sounding the siren...');

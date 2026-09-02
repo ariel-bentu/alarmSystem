@@ -10,6 +10,7 @@ void LocalWebServer::begin() {
   webServer_.on("/trigger", HTTP_POST, [this]() { handleTrigger(); });
   webServer_.on("/pair-siren", HTTP_POST, [this]() { handlePairSiren(); });
   webServer_.on("/siren-test", HTTP_POST, [this]() { handleSirenTest(); });
+  webServer_.on("/pair-remote", HTTP_POST, [this]() { handlePairRemote(); });
 }
 
 void LocalWebServer::start() {
@@ -56,7 +57,9 @@ void LocalWebServer::handleStatus() {
   json += statusArmed_ ? "true" : "false";
   json += ",\"siren\":";
   json += statusSirenActive_ ? "true" : "false";
-  json += "}";
+  json += ",\"remote_pair\":\"";
+  json += remotePairStatus_;
+  json += "\"}";
   webServer_.send(200, "application/json", json);
 }
 
@@ -93,4 +96,13 @@ void LocalWebServer::handlePairSiren() {
   pendingPair_ = true;
   webServer_.send(200, "text/plain",
                    "Pairing for 10s - press SET on the siren now");
+}
+
+void LocalWebServer::handlePairRemote() {
+  pendingRemotePair_ = true;
+  // main.cpp decides whether the window actually opens (it refuses while
+  // armed) and overwrites remotePairStatus_ accordingly on the next loop.
+  webServer_.send(200, "text/plain",
+                   "Pairing window requested - press any button on the "
+                   "remote within 30s");
 }

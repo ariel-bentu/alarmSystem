@@ -273,6 +273,39 @@ void applyArmedCommand(bool newArmed) {
 __attribute__((noinline))
 bool handleRemotePacket(uint32_t code, unsigned long now) {
   uint32_t identity = remoteIdentityOf(code);
+
+  // Pairing window: the first code heard here is adopted. Checked before the
+  // paired-lookup so a fresh remote can be learned; an ALREADY paired one
+  // falls through to normal dispatch rather than being swallowed.
+  if (remotePairUntilMs != 0) {
+    if ((long)(now - remotePairUntilMs) >= 0) {
+      remotePairUntilMs = 0;  // window expired
+      localWebServer.setRemotePairStatus("expired");
+    } else {
+      RemotePairResult result = remotePair(&config, identity, armed);
+      remotePairUntilMs = 0;  // one decision per window, whatever the outcome
+      switch (result) {
+        case RemotePairResult::Paired:
+          eepromStore.save(armed, localWebEnabled, config);
+          cloudClient.reportEvent("REMOTE", "paired", false, 0);
+          Serial.printf("[remote] paired 0x%05X\n", (unsigned)identity);
+          localWebServer.setRemotePairStatus("paired");
+          return true;
+        case RemotePairResult::AlreadyPaired:
+          localWebServer.setRemotePairStatus("already paired");
+          break;  // fall through to normal dispatch below
+        case RemotePairResult::RefusedArmed:
+          localWebServer.setRemotePairStatus("refused: system armed");
+          Serial.println("[remote] pairing refused — system is armed");
+          break;
+        case RemotePairResult::Full:
+          localWebServer.setRemotePairStatus("refused: no free slots");
+          Serial.println("[remote] pairing refused — all 8 slots used");
+          break;
+      }
+    }
+  }
+
   if (!remoteIsPaired(config, identity)) return false;
 
   RemoteAction action = remoteActionFor(remoteNibbleOf(code));
@@ -889,6 +922,29 @@ void loop() {
       // path produced NO notification at all before that function existed.
       armedBySource = "local";
       applyArmedCommand(newArmedFromWeb);
+    }
+
+    // Expire the window here too, not only on the next decoded packet: if
+    // nobody presses anything, handleRemotePacket never runs and the status
+    // would sit on "waiting" forever.
+    if (remotePairUntilMs != 0 && (long)(now - remotePairUntilMs) >= 0) {
+      remotePairUntilMs = 0;
+      localWebServer.setRemotePairStatus("expired — no button pressed");
+      Serial.println("[remote] pairing window expired");
+    }
+
+    if (localWebServer.hasPendingRemotePair()) {
+      localWebServer.clearPendingRemotePair();
+      // Refused up front as well as in remotePair(), so the window never
+      // opens while armed rather than opening and rejecting the press.
+      if (armed) {
+        localWebServer.setRemotePairStatus("refused: system armed");
+        Serial.println("[remote] pair request refused — system is armed");
+      } else {
+        remotePairUntilMs = now + kRemotePairWindowMs;
+        localWebServer.setRemotePairStatus("waiting for a button press");
+        Serial.println("[remote] pairing window open for 30s");
+      }
     }
 
     if (localWebServer.hasPendingTrigger()) {

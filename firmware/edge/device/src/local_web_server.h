@@ -30,6 +30,15 @@ class LocalWebServer {
   bool hasPendingSirenTest() const { return pendingSirenTest_; }
   void clearPendingSirenTest() { pendingSirenTest_ = false; }
 
+  // Opens the remote-pairing window. Unlike siren pairing this is
+  // receive-only, so main.cpp just sets a deadline — nothing blocks.
+  bool hasPendingRemotePair() const { return pendingRemotePair_; }
+  void clearPendingRemotePair() { pendingRemotePair_ = false; }
+
+  // Last pairing outcome, surfaced on the page and /status so the user can
+  // tell "waiting" from "refused: system armed" without a serial console.
+  void setRemotePairStatus(const char* status) { remotePairStatus_ = status; }
+
  private:
   void handleRoot();
   void handleStatus();
@@ -38,6 +47,7 @@ class LocalWebServer {
   void handleTrigger();
   void handlePairSiren();
   void handleSirenTest();
+  void handlePairRemote();
   String renderPage();
 
   WebServerClass webServer_{80};
@@ -53,4 +63,7 @@ class LocalWebServer {
 
   bool pendingPair_ = false;
   bool pendingSirenTest_ = false;
+
+  bool pendingRemotePair_ = false;
+  String remotePairStatus_ = "idle";
 };
