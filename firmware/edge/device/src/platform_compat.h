@@ -73,11 +73,41 @@ inline void platformWatchdogBegin(uint32_t timeoutSec) {
   // pair. Verified by reading the installed header directly
   // (framework-arduinoespressif32/tools/sdk/esp32s3/include/esp_system/
   // include/esp_task_wdt.h); the v5 form does not compile here.
+  //
+  // The TWDT is ALREADY RUNNING before this is called: the core builds with
+  // CONFIG_ESP_TASK_WDT=y and CONFIG_ESP_TASK_WDT_TIMEOUT_S=5, so the IDF
+  // initialises it at boot with a 5s period. This API's documented behaviour
+  // is to UPDATE the timeout and panic flag when already initialised (it
+  // does not list ESP_ERR_INVALID_STATE among its returns — that is only
+  // returned by deinit/add/reset when the TWDT is NOT initialised), so the
+  // call below raises 5s -> timeoutSec rather than being rejected.
+  //
+  // That is load-bearing and was previously assumed rather than checked, so
+  // both codes are now inspected and the effective configuration is printed
+  // once at boot. If a future core changes this behaviour, the log line says
+  // so immediately instead of leaving the firmware on a 5s budget while the
+  // comments claim 30 — which would reboot the device during the legitimate
+  // multi-second waits at boot (WiFi association, the mint) and look exactly
+  // like the boot-loop this watchdog exists to prevent.
+  //
   // panic=true so a timeout reboots via the panic handler, which prints a
   // backtrace first — that backtrace is the point, since it names the hung
   // call site on the next boot.
-  esp_task_wdt_init(timeoutSec, /*panic=*/true);
-  esp_task_wdt_add(nullptr);  // nullptr = the CURRENT task, i.e. loopTask
+  esp_err_t initErr = esp_task_wdt_init(timeoutSec, /*panic=*/true);
+  esp_err_t addErr = esp_task_wdt_add(nullptr);  // nullptr = CURRENT task
+
+  if (initErr != ESP_OK || addErr != ESP_OK) {
+    // Not fatal: an unwatched device still runs the alarm, and refusing to
+    // boot over a failed watchdog would be a worse trade than losing the
+    // hang protection. But it must be visible, not silent.
+    Serial.printf("[wdt] SETUP FAILED init=%d(%s) add=%d(%s) — hangs will "
+                  "NOT be recovered\n",
+                  (int)initErr, esp_err_to_name(initErr), (int)addErr,
+                  esp_err_to_name(addErr));
+    return;
+  }
+  Serial.printf("[wdt] loopTask watched, timeout %us, panic on timeout\n",
+                (unsigned)timeoutSec);
 }
 
 // Why the last boot happened, in one short human-readable word. Written to

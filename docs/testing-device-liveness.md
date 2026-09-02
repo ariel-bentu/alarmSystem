@@ -39,7 +39,14 @@ firebase functions:list --project alarm-system-100 | grep -c scheduled   # expec
 
 ```
 Alarm system device booting... (last reset: power_on)
+[wdt] loopTask watched, timeout 30s, panic on timeout
 ```
+
+⚠️ **Check that `[wdt]` line.** The IDF starts the task watchdog at boot with
+a 5s period (`CONFIG_ESP_TASK_WDT_TIMEOUT_S=5`) and our call raises it to 30s.
+If it instead prints `[wdt] SETUP FAILED …`, the firmware is running on the
+5s budget while every comment claims 30 — which would reboot the device
+during a slow WiFi association and look exactly like a boot loop.
 
 then, once the cloud is up: `cloud: reportBoot reason=power_on ok (code 0)`
 
@@ -84,6 +91,12 @@ response wait (15s), or siren pairing (10s, blocking). Specifically:
   10s window.
 - Let a mint fail (e.g. briefly block internet) and confirm the retry path
   does not trip the watchdog.
+- **Boot with the AP out of range or the password wrong**, so
+  `connectToWifi()` runs its full 15s timeout and then its blocking
+  diagnostic scan. It must print the timeout diagnosis and fall through to
+  the setup portal, NOT reboot. `delay()` is `vTaskDelay` and does not feed
+  the watchdog, so these paths call `platformFeedWatchdog()` explicitly —
+  this test is what proves that is sufficient.
 
 ## 3. WiFi supervision
 

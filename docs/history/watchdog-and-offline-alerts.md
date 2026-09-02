@@ -40,6 +40,33 @@ same session. Reconstructing this from two RTDB nodes is exactly the work
 `esp_task_wdt_config_t` / `esp_task_wdt_reconfigure()` form does NOT compile
 here. Verified by reading the installed header, not assumed.
 
+**The TWDT is already running before we touch it.** The core builds with
+`CONFIG_ESP_TASK_WDT=y` and `CONFIG_ESP_TASK_WDT_TIMEOUT_S=5`, so the IDF
+initialises it at boot on a **5s** period. This API's documented behaviour is
+to *update* the timeout when already initialised (`ESP_ERR_INVALID_STATE` is
+NOT among `esp_task_wdt_init`'s returns — only `deinit`/`add`/`reset` return
+it, and only when the TWDT is *not* initialised), so our call raises 5s → 30s
+rather than being rejected.
+
+That was originally assumed rather than checked, and the return codes were
+discarded. Both are now inspected and the effective configuration is printed
+once at boot (`[wdt] loopTask watched, timeout 30s…`). If a future core
+changes this, the log says so instead of silently leaving the firmware on a
+5s budget while every comment claims 30 — which would reboot the board during
+the legitimate multi-second boot waits and present as a boot loop.
+
+**`delay()` does NOT feed the TWDT.** On ESP32 it is `vTaskDelay`, which
+blocks the task without resetting the watchdog. `connectToWifi()`'s 15s wait
+loop and both of its blocking `WiFi.scanNetworks()` calls therefore call
+`platformFeedWatchdog()` explicitly. Without that, a slow-but-working AP
+would reboot the device mid-association — the watchdog causing exactly the
+boot loop it exists to prevent.
+
+**Scope limit, worth knowing:** only `loopTask` is subscribed. A hang inside
+FirebaseClient's async task or the WiFi driver would NOT trip this watchdog,
+and a wedged network stack is a live suspect for the original death. The
+watchdog is still worth having, but it does not cover every failure mode.
+
 Also: `platformFeedWatchdog()` was `yield()` on ESP32, and its comment
 claimed the TWDT is satisfied by yielding. That is false once a task is
 subscribed — the TWDT tracks an explicit per-task reset, and a task can

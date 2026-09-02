@@ -395,7 +395,11 @@ bool connectToWifi(const String& ssid, const String& password,
   // ambiguity: if it still fails, the near AP really is refusing us.
 #if defined(ARDUINO_ARCH_ESP32)
   int best = -1, bestRssi = -127;
+  // Blocking scan, seconds long — feed the task watchdog either side. This
+  // one runs on EVERY boot, not just the failure path.
+  platformFeedWatchdog();
   int found = WiFi.scanNetworks(false, true);
+  platformFeedWatchdog();
   for (int i = 0; i < found; i++) {
     if (WiFi.SSID(i) == ssid && WiFi.RSSI(i) > bestRssi) {
       bestRssi = WiFi.RSSI(i);
@@ -444,7 +448,12 @@ bool connectToWifi(const String& ssid, const String& password,
       // "no networks" and produces a confidently wrong diagnosis.
       WiFi.disconnect(false, false);
       delay(100);
+      // A synchronous scan blocks for seconds without yielding to the task
+      // watchdog. Feed on both sides so the DIAGNOSTIC path cannot itself
+      // reset the board and hide the diagnosis it exists to print.
+      platformFeedWatchdog();
       int n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/true);
+      platformFeedWatchdog();
       if (n < 0) {
         Serial.printf("  scan did not complete (rc=%d) — cannot diagnose\n", n);
         WiFi.scanDelete();
@@ -487,6 +496,12 @@ bool connectToWifi(const String& ssid, const String& password,
 #endif
       return false;
     }
+    // Feed explicitly. delay() is vTaskDelay on ESP32 — it blocks the task
+    // WITHOUT resetting the task watchdog, so this 15s loop would otherwise
+    // trip it and reboot the device mid-association. That would boot-loop on
+    // a slow-but-working AP: exactly the failure the watchdog is meant to
+    // protect against, caused by the watchdog itself.
+    platformFeedWatchdog();
     delay(250);
   }
   Serial.print("WiFi connected, IP: ");
