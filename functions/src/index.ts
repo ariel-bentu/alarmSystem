@@ -2,7 +2,7 @@
 
 export { onSensorEvent } from "./onSensorEvent";
 export { onAlarm } from "./onAlarm";
-export { onProfileChange, onRuleChange, onProjectConfigChange } from "./onProfileChange";
+export { onProfileChange, onRuleChange, onProjectConfigChange, onRemoteChange } from "./onProfileChange";
 export { onScheduleChange } from "./onScheduleChange";
 export { onArmStateChange } from "./onArmStateChange";
 export { onDeviceArmStateChange } from "./onDeviceArmStateChange";

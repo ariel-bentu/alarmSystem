@@ -36,6 +36,53 @@ export const onDeviceArmStateChange = onValueWritten(
     const commandsArmed = commandsSnap.exists()
       ? commandsSnap.val() === true
       : null;
+
+    // When the device disarms by a source that bypassed the web intent channel
+    // (remote control, local web UI), commands/armed is still true and
+    // isActiveOnDevice on the profile is still true, so the web UI shows
+    // "Armed" even though the device is disarmed. Sync Firestore here so the
+    // UI reflects reality.
+    if (!armed && commandsArmed === true) {
+      const profilesSnap = await db
+        .collection(`projects/${projectId}/profiles`)
+        .where("isActiveOnDevice", "==", true)
+        .get();
+      const batch = db.batch();
+      for (const doc of profilesSnap.docs) {
+        batch.update(doc.ref, { isActiveOnDevice: false });
+      }
+      await Promise.all([
+        batch.commit(),
+        rtdb.ref(`${projectId}/commands/armed`).set(false),
+      ]);
+    }
+
+    // When the device arms via remote (bypassing the web), commands/armed is
+    // false but state/armed just flipped true. Restore isActiveOnDevice on the
+    // last profile the web armed with (stored in commands/armedProfileId by
+    // onArmStateChange) so the UI grid highlights the right profile.
+    if (armed && commandsArmed === false) {
+      const profileIdSnap = await rtdb
+        .ref(`${projectId}/commands/armedProfileId`)
+        .get();
+      const profileId = profileIdSnap.exists()
+        ? String(profileIdSnap.val())
+        : null;
+      const writes: Promise<unknown>[] = [
+        // Keep commands/armed in sync so a subsequent web disarm sees a
+        // false→false no-op and actually delivers the command to the device.
+        rtdb.ref(`${projectId}/commands/armed`).set(true),
+      ];
+      if (profileId) {
+        writes.push(
+          db
+            .doc(`projects/${projectId}/profiles/${profileId}`)
+            .update({ isActiveOnDevice: true })
+        );
+      }
+      await Promise.all(writes);
+    }
+
     if (shouldSuppressDeviceArmNotification(commandsArmed, armed)) return;
 
     // Written by the device in the same update as state/armed, and written

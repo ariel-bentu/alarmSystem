@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { ref, onValue, type DataSnapshot } from "firebase/database";
-import { onSnapshot, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
+import {
+  onSnapshot,
+  getDocs,
+  addDoc,
+  deleteDoc,
+  Timestamp,
+} from "firebase/firestore";
 import { rtdbSync } from "@/lib/firebase";
 import { remotesCol, remoteDoc } from "@/lib/firestore";
 import { useProject } from "@/app/ProjectProvider";
@@ -99,6 +105,16 @@ export default function RemotesTab() {
   // its own arm state, so the UI has to check the same thing.
   const armed = deviceArmed === true;
 
+  // Re-read after a write. The onSnapshot subscription above should already
+  // deliver this, but a write followed by an unchanged list reads as a
+  // failed save — so the refresh is explicit rather than trusted, matching
+  // what SensorsTab does after pairing.
+  const refreshRemotes = async () => {
+    if (!projectId) return;
+    const snap = await getDocs(remotesCol(projectId));
+    setRemotes(snap.docs.map((d) => d.data()));
+  };
+
   const handlePair = async () => {
     if (!pairIdentity || !pairName.trim() || !projectId) return;
     try {
@@ -108,6 +124,7 @@ export default function RemotesTab() {
         pairedAt: Timestamp.now(),
         lastSeen: null,
       } as Omit<Remote, "id">);
+      await refreshRemotes();
       closePairForm();
       setError(null);
     } catch (e) {
@@ -119,6 +136,7 @@ export default function RemotesTab() {
     if (!projectId) return;
     try {
       await deleteDoc(remoteDoc(projectId, remoteId));
+      await refreshRemotes();
     } catch (e) {
       setError(String(e));
     }

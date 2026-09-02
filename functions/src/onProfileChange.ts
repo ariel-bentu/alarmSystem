@@ -25,6 +25,15 @@ export const onRuleChange = onDocumentWritten(
   }
 );
 
+// Trigger on remote control changes — adding or removing a remote must reach the device
+export const onRemoteChange = onDocumentWritten(
+  { document: "projects/{projectId}/remotes/{remoteId}", region: "europe-west1" },
+  async (event) => {
+    const projectId = event.params.projectId;
+    await rebuildConfig(projectId);
+  }
+);
+
 // Trigger on project-level changes that affect the device config (e.g. sirenEnabled)
 export const onProjectConfigChange = onDocumentWritten(
   { document: "projects/{projectId}", region: "europe-west1" },

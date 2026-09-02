@@ -787,6 +787,7 @@ void CloudClient::reportAlarmLabel(const char* label) {
   JsonDocument doc;
   doc["label"] = label;
   doc["at"] = nowMs;
+  doc["side"] = "device";
   String json;
   serializeJson(doc, json);
 

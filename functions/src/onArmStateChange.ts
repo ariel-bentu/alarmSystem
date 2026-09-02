@@ -7,7 +7,7 @@
 
 import { onValueWritten } from "firebase-functions/v2/database";
 import { Timestamp } from "firebase-admin/firestore";
-import { db } from "./admin";
+import { db, rtdb } from "./admin";
 import { Project, AlarmEvent, Profile } from "./types";
 import { sendTelegram, formatArmState } from "./telegram";
 
@@ -23,10 +23,19 @@ export const onArmStateChange = onValueWritten(
     const projectId = event.params.projectId;
     const armed = after === true;
 
+    // If state/armed already matches, this write is a sync from
+    // onDeviceArmStateChange (remote arm/disarm restoring consistency), not a
+    // fresh user action. Skip timeline + Telegram to avoid duplicating the
+    // entry that onDeviceArmStateChange already wrote.
+    const stateSnap = await rtdb.ref(`${projectId}/state/armed`).get();
+    const stateArmed = stateSnap.exists() ? stateSnap.val() === true : false;
+    if (stateArmed === armed) return;
+
     // Name the profile that is active on the device, when armed. Resolved
     // BEFORE the event write and regardless of Telegram config: the timeline
     // needs it too, and an arm/disarm row with no name is unreadable.
     let profileName: string | undefined;
+    let profileId: string | undefined;
     if (armed) {
       const profSnap = await db
         .collection(`projects/${projectId}/profiles`)
@@ -35,6 +44,9 @@ export const onArmStateChange = onValueWritten(
         .get();
       if (!profSnap.empty) {
         profileName = (profSnap.docs[0].data() as Profile).displayName;
+        profileId = profSnap.docs[0].id;
+        // Store so onDeviceArmStateChange can restore it on remote re-arm.
+        await rtdb.ref(`${projectId}/commands/armedProfileId`).set(profileId);
       }
     }
 

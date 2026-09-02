@@ -15,10 +15,11 @@
 export type AlarmSide = "device" | "server";
 
 export interface AlarmCause {
-  rfId?: string; // device-written: the sensor that fired
-  ct?: number; // device-written: condition type index
-  label?: string; // server-written: rule name, or sensor name if unnamed
-  at?: number; // epoch ms the cause was written
+  rfId?: string;   // device-written: the sensor that fired
+  ct?: number;     // device-written: condition type index
+  label?: string;  // device or server written: display label
+  side?: string;   // device-written for label causes (e.g. SOS): "device"
+  at?: number;     // epoch ms the cause was written
 }
 
 /** Narrow an untrusted RTDB value, dropping wrong-typed fields. */
@@ -29,6 +30,7 @@ export function parseAlarmCause(value: unknown): AlarmCause | null {
   if (typeof v.rfId === "string") cause.rfId = v.rfId;
   if (typeof v.ct === "number") cause.ct = v.ct;
   if (typeof v.label === "string") cause.label = v.label;
+  if (typeof v.side === "string") cause.side = v.side;
   if (typeof v.at === "number") cause.at = v.at;
   return cause;
 }
@@ -37,7 +39,9 @@ export function parseAlarmCause(value: unknown): AlarmCause | null {
 export function alarmSide(cause: AlarmCause | null): AlarmSide | null {
   if (!cause) return null;
   if (cause.rfId?.trim()) return "device";
-  if (cause.label?.trim()) return "server";
+  // Device-written label causes (e.g. SOS) carry side="device" explicitly;
+  // absent that field, a label-only cause is server-originated.
+  if (cause.label?.trim()) return cause.side === "device" ? "device" : "server";
   return null;
 }
 
