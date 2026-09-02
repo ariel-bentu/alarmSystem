@@ -5,6 +5,7 @@ import {
   formatSensorAlert,
   formatAlarm,
   formatArmState,
+  formatArmStateBySource,
   formatDeadSensor,
   formatDeviceOffline,
   formatDeviceBackOnline,
@@ -40,6 +41,24 @@ describe("telegram formatters", () => {
     });
     it("formats disarmed", () => {
       expect(formatArmState(false)).toBe("🔓 System disarmed");
+    });
+  });
+
+  describe("formatArmStateBySource", () => {
+    it("names the remote as the disarm source", () => {
+      expect(formatArmStateBySource(false, "remote")).toBe("🔓 Disarmed by remote");
+    });
+    it("names the local web UI as the disarm source", () => {
+      expect(formatArmStateBySource(false, "local")).toBe(
+        "🔓 Disarmed from local web UI"
+      );
+    });
+    it("names the remote when arming", () => {
+      expect(formatArmStateBySource(true, "remote")).toBe("🔒 Armed by remote");
+    });
+    it("falls back to a generic message for an unknown source", () => {
+      expect(formatArmStateBySource(false, null)).toBe("🔓 Device disarmed");
+      expect(formatArmStateBySource(true, "wat")).toBe("🔒 Device armed");
     });
   });
 

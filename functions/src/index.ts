@@ -5,6 +5,7 @@ export { onAlarm } from "./onAlarm";
 export { onProfileChange, onRuleChange, onProjectConfigChange } from "./onProfileChange";
 export { onScheduleChange } from "./onScheduleChange";
 export { onArmStateChange } from "./onArmStateChange";
+export { onDeviceArmStateChange } from "./onDeviceArmStateChange";
 export { onServerArmChange } from "./onServerArmChange";
 export { onHeartbeat } from "./onHeartbeat";
 // The ONLY scheduled function. scheduleTick, deadSensorCheck and the device

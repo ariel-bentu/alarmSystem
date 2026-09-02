@@ -68,6 +68,21 @@ export function formatArmState(
     : `🔒 ${what} armed`;
 }
 
+// Names WHO armed/disarmed when the change originated on the device rather
+// than in the web app. "Who disarmed my house" is the security-relevant
+// question a fixed-code remote cannot answer any other way — a replayed
+// disarm cannot be prevented, so it must at least be attributed.
+export function formatArmStateBySource(
+  armed: boolean,
+  source: string | null
+): string {
+  const icon = armed ? "🔒" : "🔓";
+  const verb = armed ? "Armed" : "Disarmed";
+  if (source === "remote") return `${icon} ${verb} by remote`;
+  if (source === "local") return `${icon} ${verb} from local web UI`;
+  return `${icon} Device ${verb.toLowerCase()}`;
+}
+
 export function formatDeadSensor(sensorName: string, hoursSilent: number): string {
   return `💤 ${sensorName} has not reported in ${hoursSilent}h`;
 }
