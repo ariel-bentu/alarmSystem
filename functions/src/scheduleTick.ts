@@ -19,6 +19,7 @@ import { db, rtdb } from "./admin";
 import { Schedule, Profile } from "./types";
 import { decideEdge, EdgeKind } from "./scheduleDecision";
 import { nextArmInstant, nextDisarmInstant } from "./nextOccurrence";
+import { planAdvance } from "./scheduleAdvance";
 
 export async function scheduleTick(): Promise<void> {
   {
@@ -59,7 +60,14 @@ export async function scheduleTick(): Promise<void> {
           await fireEdge(projectId, schedule, edge);
         }
 
-        await advance(projectId, doc.ref, schedule, decision === "fire", now);
+        await advance(
+          projectId,
+          doc.ref,
+          schedule,
+          edge,
+          decision === "fire",
+          now
+        );
       }
     }
   }
@@ -105,29 +113,56 @@ async function fireEdge(
   }
 }
 
-/** Recompute this schedule's next fire times after an edge is handled. */
+/**
+ * Recompute this schedule's next fire time after an edge is handled.
+ *
+ * ONLY the edge that just fired is advanced. Advancing both was a real bug:
+ * a schedule of arm 16:23 / disarm 16:26 armed correctly, then rewrote
+ * nextDisarmAt to the NEXT DAY, so the 16:26 disarm never became due and the
+ * house stayed armed for 24 hours with no warning logged anywhere.
+ *
+ * The cause is that nextDisarmInstant() anchors to `armAt`. Once the arm has
+ * fired, `armAt` is tomorrow's arm, so the disarm derived from it is
+ * tomorrow's too — discarding the disarm still owed by the cycle that just
+ * started. Advancing one edge at a time keeps the pending edge of an
+ * in-flight cycle intact.
+ */
 async function advance(
   projectId: string,
   ref: FirebaseFirestore.DocumentReference,
   schedule: Schedule,
+  edge: EdgeKind,
   fired: boolean,
   now: Date
 ): Promise<void> {
   const projectSnap = await db.doc(`projects/${projectId}`).get();
   const tz = (projectSnap.data()?.timezone as string) || "UTC";
 
+  // Recompute both, but only WRITE the one that was handled — see
+  // planAdvance() for why that asymmetry is load-bearing.
   const armAt = nextArmInstant(schedule, tz, now);
   const disarmAt = nextDisarmInstant(schedule, tz, armAt, now);
 
-  const update: Record<string, unknown> = {
-    nextArmAt: armAt ? Timestamp.fromDate(armAt) : null,
-    nextDisarmAt: disarmAt ? Timestamp.fromDate(disarmAt) : null,
-  };
-  if (fired) update.lastFiredAt = Timestamp.fromDate(now);
+  const storedOther =
+    edge === "arm" ? schedule.nextDisarmAt : schedule.nextArmAt;
 
-  // A one-time schedule with nothing left ahead disables itself, so it stops
-  // matching the tick's query instead of lingering as a dead row.
-  if (!armAt && !disarmAt) update.enabled = false;
+  const plan = planAdvance({
+    edge,
+    nextArmAt: armAt,
+    nextDisarmAt: disarmAt,
+    storedOtherEdgeMs: storedOther ? storedOther.toMillis() : null,
+    nowMs: now.getTime(),
+  });
+
+  const update: Record<string, unknown> = {};
+  if (plan.writeArm) {
+    update.nextArmAt = armAt ? Timestamp.fromDate(armAt) : null;
+  }
+  if (plan.writeDisarm) {
+    update.nextDisarmAt = disarmAt ? Timestamp.fromDate(disarmAt) : null;
+  }
+  if (fired) update.lastFiredAt = Timestamp.fromDate(now);
+  if (plan.disable) update.enabled = false;
 
   await ref.update(update);
 }
