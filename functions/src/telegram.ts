@@ -2,6 +2,7 @@
 
 import { BatteryStatus } from "./types";
 import { Timestamp } from "firebase-admin/firestore";
+import { parseArmSource } from "./deviceArmNotify";
 
 /**
  * Send a message via Telegram Bot API using global fetch (Node 20).
@@ -72,14 +73,30 @@ export function formatArmState(
 // than in the web app. "Who disarmed my house" is the security-relevant
 // question a fixed-code remote cannot answer any other way — a replayed
 // disarm cannot be prevented, so it must at least be attributed.
+//
+// `remoteName` is the paired remote's user-given name when the identity in
+// state/armed_by resolved to one. Passed in rather than looked up here so
+// this stays a pure formatter, and so the Telegram message and the timeline
+// row cannot disagree about which remote it was.
+//
+// NOTE: matches on the PARSED source kind, not on `source === "remote"`.
+// The device now sends "remote:E45CA", which an equality check would miss —
+// silently downgrading every remote arm/disarm to the generic "Device
+// armed", i.e. losing exactly the attribution this function exists for.
 export function formatArmStateBySource(
   armed: boolean,
-  source: string | null
+  source: string | null,
+  remoteName?: string | null
 ): string {
   const icon = armed ? "🔒" : "🔓";
   const verb = armed ? "Armed" : "Disarmed";
-  if (source === "remote") return `${icon} ${verb} by remote`;
-  if (source === "local") return `${icon} ${verb} from local web UI`;
+  const kind = parseArmSource(source).kind;
+  if (kind === "remote") {
+    return remoteName
+      ? `${icon} ${verb} by ${remoteName}`
+      : `${icon} ${verb} by remote`;
+  }
+  if (kind === "local") return `${icon} ${verb} from local web UI`;
   return `${icon} Device ${verb.toLowerCase()}`;
 }
 

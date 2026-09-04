@@ -16,6 +16,10 @@ class RelaySiren {
   // driven — the device still works as an alarm with no siren paired.
   void begin(uint8_t relayPin, Cc1101Receiver* radio, uint32_t baseAddress);
   void setBaseAddress(uint32_t baseAddress);
+  // The user's "may this siren make noise" preference, kept in sync with
+  // Config::sirenEnabled. Gates the ack beep that turnOff() would otherwise
+  // emit on every disarm — see siren_policy.h.
+  void setEnabled(bool enabled) { enabled_ = enabled; }
   void turnOn(uint16_t durationSec, unsigned long nowMs);
   void turnOff();
   void tick(unsigned long nowMs);
@@ -27,6 +31,9 @@ class RelaySiren {
   uint8_t relayPin_ = 0;
   Cc1101Receiver* radio_ = nullptr;
   uint32_t baseAddress_ = 0;
+  // Defaults true to match Config::sirenEnabled's default: a device that has
+  // not yet loaded config must not be silently muted.
+  bool enabled_ = true;
   bool active_ = false;
   unsigned long offAtMs_ = 0;
   bool autoOff_ = false;

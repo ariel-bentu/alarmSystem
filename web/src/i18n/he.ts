@@ -252,6 +252,13 @@ export const he: Record<TranslationKey, string> = {
   "explore.eventType.alarm": "אזעקה",
   "explore.eventType.armed": "דריכה",
   "explore.eventType.disarmed": "נטרול",
+  // מציין באיזה שלט בוצעה הדריכה/הנטרול.
+  "explore.remoteSubject": "שלט {name}",
+  "explore.eventSource.remote": "שלט",
+  // אירועי בקר, לא אירועי גלאי.
+  "explore.eventType.device_restart": "הופעל מחדש",
+  "explore.eventType.device_offline": "מנותק",
+  "explore.eventType.device_online": "חזר לפעולה",
 
   // ---- Members ----
   "members.title": "משתמשים",

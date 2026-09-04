@@ -72,6 +72,18 @@ Config config;
 // see the design doc's Security section.
 const char* armedBySource = "cloud";
 
+// Backing store for the "remote:XXXXX" form of the above, which names WHICH
+// remote rather than just "a remote". The cloud resolves the identity to the
+// remote's user-given name (parseArmSource in deviceArmNotify.ts); the device
+// deliberately does not know names, so renaming one needs no device round-trip
+// and the thin RTDB config stays unchanged.
+//
+// File-scope, not a local: armedBySource is a BORROWED pointer that
+// applyArmedCommand() dereferences after handleRemotePacket() has returned,
+// so a stack buffer here would dangle. 20 bytes covers "remote:" + 5 hex
+// digits + NUL with room to spare.
+char remoteArmedBySource[20];
+
 // Non-blocking remote pairing window; 0 = closed. Deliberately NOT modelled
 // on runSirenPairing(), which blocks the loop for 10s and leaves the alarm
 // deaf to sensors. Remote pairing is receive-only, so it needs no blocking
@@ -341,15 +353,23 @@ bool handleRemotePacket(uint32_t code, unsigned long now) {
   Serial.printf("[remote] 0x%05X button=0x%X action=%d\n", (unsigned)identity,
                 remoteNibbleOf(code), (int)action);
 
+  // "remote:E45CA" rather than a bare "remote", so the cloud can say WHICH
+  // remote disarmed the house instead of just that one did. Formatted once
+  // here for both arm and disarm; %05X matches how identities are printed
+  // above and stored in Firestore ("0xE45CA", compared case-insensitively
+  // with the prefix stripped — see parseArmSource).
+  snprintf(remoteArmedBySource, sizeof(remoteArmedBySource), "remote:%05X",
+           (unsigned)identity);
+
   switch (action) {
     case RemoteAction::Arm:
       // Arms with whatever config is currently loaded. The remote does NOT
       // select a profile — see the design doc.
-      armedBySource = "remote";
+      armedBySource = remoteArmedBySource;
       applyArmedCommand(true);
       break;
     case RemoteAction::Disarm:
-      armedBySource = "remote";
+      armedBySource = remoteArmedBySource;
       applyArmedCommand(false);
       break;
     case RemoteAction::Sos:
@@ -430,6 +450,9 @@ void applyPendingConfigUpdate() {
   }
   config = newConfig;
   alarmState.setConfig(config);
+  // Keep the siren's copy of the preference current, or a disarm would still
+  // emit its ack beep after the user switched the siren off in the UI.
+  siren.setEnabled(config.sirenEnabled);
   // Push a newly adopted address into the live siren. begin() captured
   // whatever was in EEPROM at boot (possibly nothing), so without this the
   // adopted address would sit in config and not reach the radio until the
@@ -818,6 +841,9 @@ void onNormalOperation() {
                    "before generating one");
   }
   siren.begin(kRelayPin, radioReady ? &cc1101 : nullptr, config.sirenBaseAddress);
+  // From EEPROM, before the first cloud poll: a device that boots with the
+  // siren disabled must be silent immediately, not only once a config arrives.
+  siren.setEnabled(config.sirenEnabled);
 
   // NTP sync (configTime()) is deferred until cloud settles — see
   // startNtpSyncIfNeeded(). Harmless either way (mDNS/NTP/CC1101 timing

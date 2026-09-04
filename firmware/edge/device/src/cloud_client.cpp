@@ -325,14 +325,21 @@ void CloudClient::startAppAndStreams() {
   // Allocate the long-lived SSL/async clients now — after the mint's TLS
   // handshake has completed and released its buffers. See their
   // declarations in cloud_client.h for why they are not plain members.
-  // Only the auth client is long-lived — FirebaseApp owns it and needs it
-  // for token refresh. The data client is created per operation by
-  // openDataClient() and destroyed immediately after, so its TLS buffers do
-  // not sit on the heap between uses. Holding it permanently left only
-  // ~4.3KB contiguous, below what BearSSL needs to open the connection an
-  // event write requires, so every event was dropped.
-  authSslClient_ = new WiFiClientSecure();
-  authClient_ = new AsyncClient(*authSslClient_);
+  // FirebaseApp owns the auth client and needs it for token refresh.
+  //
+  // (This comment used to claim the DATA client is created per operation and
+  // destroyed immediately after. That is no longer true and was left stale:
+  // closeDataClient() is an empty no-op and the data client is kept for the
+  // life of the program, because destroying it caused an Exception 29 reset.
+  // See openDataClient()'s comment for the measurements.)
+  //
+  // Guarded because this function runs a SECOND time after forceReauth():
+  // allocating unconditionally would `new` straight over the live pointers,
+  // leaking ~7KB of TLS buffers per recovery on a device that is expected to
+  // run for months. The clients are stateless enough to re-initializeApp()
+  // against, and deleting them is not an option (see forceReauth()).
+  if (!authSslClient_) authSslClient_ = new WiFiClientSecure();
+  if (!authClient_) authClient_ = new AsyncClient(*authSslClient_);
 
   CustomToken customToken(firebaseWebApiKey_, customTokenJwt_.c_str(), 3000);
   initializeApp(*authClient_, app_, getAuth(customToken));
@@ -346,6 +353,12 @@ void CloudClient::startAppAndStreams() {
   // bring-up/testing phase, since these connections carry the device's auth
   // token.
   authSslClient_->setInsecure();
+  // Same 120s-handshake trap as the data client — see openDataClient(). This
+  // one matters too: FirebaseApp reconnects this socket on every token
+  // refresh (~hourly), and app_.loop() is called from OUR loop(), so a stalled
+  // refresh handshake blocks the same task the watchdog is watching.
+  authSslClient_->setHandshakeTimeout(kHandshakeTimeoutSec);
+  authSslClient_->setTimeout(kSocketTimeoutSec);
   // 1024-byte buffers: below the 16KB TLS record maximum, so this relies on
   // the server honouring the max_fragment_length extension (Google's
   // frontends do). The mint itself still uses 2048/2048 since it runs
@@ -397,6 +410,53 @@ bool CloudClient::beginInitialConnect() {
   return true;
 }
 
+// Tear the auth session down far enough that loop()'s existing mint-retry
+// path can rebuild it from scratch.
+//
+// What is deliberately NOT done here: deleting authSslClient_/authClient_.
+// FirebaseApp::loop() walks a global client vector by address, and freeing
+// clients out from under it produced an Exception 29 (StoreProhibited)
+// reset — see openDataClient()'s comment for the full measurement. That
+// hazard is exactly as real on this path, and a recovery routine that
+// crashes the board is worse than the hang it is recovering from. The
+// clients are reusable, so they are kept and handed to initializeApp()
+// again by startAppAndStreams().
+//
+// deinitializeApp() only clears the token/auth state and resets the event
+// flags (verified by reading FirebaseApp.h:676) — it does not touch the
+// client vector or sData, so it is safe to call here and re-initialize
+// afterwards on the same object.
+void CloudClient::forceReauth() {
+  deinitializeApp(app_);
+
+  // Back to square one, which re-arms the retry block at the top of loop().
+  tokenMinted_ = false;
+  appReady_ = false;
+  customTokenJwt_ = String();
+
+  // mintAttempted_ = false makes the retry fire on the NEXT iteration rather
+  // than waiting out a backoff: the supervisor already burned 15 minutes of
+  // silence deciding this was necessary, so there is nothing left to be
+  // polite about.
+  mintAttempted_ = false;
+  // Not reset: mintFailureCount_. If the mint endpoint is genuinely
+  // unreachable, the existing 3s->30s backoff should stay backed off rather
+  // than restarting fast every time the supervisor re-fires.
+
+  // The data client is deliberately left in place too, for the SAME reason
+  // as the auth client. It looks tempting to drop it here — its TLS session
+  // was authenticated with the token we just discarded — but closeDataClient()
+  // is an empty no-op precisely because deleting this object crashed the
+  // board (Exception 29 / StoreProhibited on the second event, at 11,424
+  // bytes free, so never a memory shortage). It is created once and kept for
+  // the life of the program.
+  //
+  // Not dropping it is also harmless: RTDB auth is carried per REQUEST as a
+  // query parameter from app_'s current token, not pinned to the TCP
+  // session, so the existing connection starts sending the NEW token as soon
+  // as the re-mint completes.
+}
+
 void CloudClient::loop(bool sirenActive) {
   if (!tokenMinted_) {
     // Retry-with-backoff: this is also where the FIRST mint attempt
@@ -438,6 +498,59 @@ void CloudClient::loop(bool sirenActive) {
     }
   }
   appReady_ = nowReady;
+
+  // Fed BEFORE the log below reads notReadyForMs(), otherwise the first line
+  // of every outage reports 0s — the supervisor would not yet have recorded
+  // when the outage started.
+  authSupervisor_.noteReady(appReady_, (uint32_t)millis());
+
+  // Make the silent window audible. reportHeartbeat() only prints while
+  // isReady(), i.e. exactly when nothing is wrong — during the outage this
+  // fix exists for, the serial console went completely quiet and there was
+  // no way to tell a dead auth session from a dead board. Print a countdown
+  // instead, rate-limited to once a minute so it traces the outage without
+  // flooding a console being used for anything else.
+  if (!appReady_) {
+    unsigned long now = millis();
+    if (lastNotReadyLogMs_ == 0 || now - lastNotReadyLogMs_ >= 60000UL) {
+      lastNotReadyLogMs_ = now;
+      Serial.printf("cloud: NOT ready for %lus (re-mint at %lus, wifi %s)\n",
+                    (unsigned long)(authSupervisor_.notReadyForMs(now) / 1000),
+                    (unsigned long)(kReauthGraceMs / 1000),
+                    WiFi.status() == WL_CONNECTED ? "up" : "DOWN");
+    }
+  } else {
+    lastNotReadyLogMs_ = 0;
+  }
+
+  // Watch for an auth session that has died and will not come back.
+  //
+  // THE BUG THIS FIXES: tokenMinted_ used to be a one-way latch. Once the
+  // first mint succeeded it was never cleared, so the retry block at the top
+  // of this function — guarded by `if (!tokenMinted_)` — could never run
+  // again. If ready() went false for good (custom token expired, refresh
+  // rejected, TLS session lost), the `return` below fired every iteration
+  // forever: no heartbeat, no events, no alarm reporting, and no recovery
+  // short of a power cycle.
+  //
+  // The task watchdog cannot catch this. It watches for a BLOCKED loopTask,
+  // and this failure leaves loopTask perfectly healthy — feeding the
+  // watchdog, decoding RF, serving the LAN UI, silently cloud-dead. Observed
+  // in the field as 28h and 31.76h silences, and caught live on 2026-09-04
+  // after 10.6h of uptime with the watchdog never firing.
+  //
+  // The alarm itself is unaffected while this happens (rules and siren are
+  // local by design), but the premises are unmonitored REMOTELY, and the
+  // offline alert is the only thing that would have told anyone.
+  if (authSupervisor_.shouldForceReauth((uint32_t)millis(),
+                                        WiFi.status() == WL_CONNECTED)) {
+    Serial.printf("cloud: auth dead for %lus — forcing re-mint (heap %u)\n",
+                  (unsigned long)(authSupervisor_.notReadyForMs(millis()) / 1000),
+                  ESP.getFreeHeap());
+    forceReauth();
+    return;  // next iteration takes the !tokenMinted_ path and re-mints
+  }
+
   if (!appReady_) return;  // still authenticating
 
   // Poll /config and /commands alternately on the single shared data client.
@@ -515,6 +628,29 @@ bool CloudClient::openDataClient() {
   dataSslClient_ = new WiFiClientSecure();
   if (!dataSslClient_) return false;
   dataSslClient_->setInsecure();
+  // THE WATCHDOG-REBOOT FIX. Both of these default far above the watchdog
+  // budget, and neither is covered by setSyncReadTimeout/setSyncSendTimeout —
+  // those bound reads and writes on an ESTABLISHED socket, not the connect
+  // that precedes them.
+  //
+  //   handshake_timeout defaults to 120000 ms — DOUBLE kWatchdogTimeoutSec.
+  //   _timeout          defaults to  30000 ms.
+  //
+  // ssl_client.cpp's handshake loop spins on `vTaskDelay(2)` until
+  // handshake_timeout expires. vTaskDelay yields to FreeRTOS but does NOT
+  // reset the TWDT — the same trap as FirebaseClient's sys_idle()/delay(0)
+  // documented on kSyncTimeoutSec. So a TLS handshake to a silent or
+  // packet-dropping peer blocks loop() for up to two minutes with nothing
+  // feeding the watchdog, and the board reboots at 60s with reason=twdt.
+  //
+  // Observed on hardware 2026-09-04: two twdt reboots 45 minutes apart, on a
+  // build that already had the sync-read/write timeouts capped at 5s.
+  //
+  // NOTE the units differ, which is an easy way to get this wrong:
+  // setHandshakeTimeout() takes SECONDS, setTimeout() takes SECONDS on
+  // ESP32 (it stores seconds * 1000 internally).
+  dataSslClient_->setHandshakeTimeout(kHandshakeTimeoutSec);
+  dataSslClient_->setTimeout(kSocketTimeoutSec);
 #if PLATFORM_HAS_SET_BUFFER_SIZES
   dataSslClient_->setBufferSizes(1024, 1024);
 #endif
@@ -575,8 +711,24 @@ void CloudClient::applyCommandsJson(const String& json) {
   }
   if (doc["siren"].is<bool>()) {
     bool v = doc["siren"].as<bool>();
-    if (!hadSirenValue_ || v != lastSirenValue_) {
+    if (!hadSirenValue_) {
+      // FIRST poll after boot. Adopt the value as the known state WITHOUT
+      // acting on it.
+      //
+      // Acting on it caused an audible beep on every power-on: the siren is
+      // already off at boot, but a stored "siren": false looked like a fresh
+      // false and drove turnOff(), which transmits kCmdDisarm — and the siren
+      // answers that with a short ack beep. There was nothing to turn off.
+      //
+      // A stored `true` is deliberately not honoured either: it means a siren
+      // command was in flight when the device last died, and re-sounding the
+      // siren because a board rebooted is far worse than missing a stale
+      // command. A genuine false->true after this point still fires normally.
       hadSirenValue_ = true;
+      lastSirenValue_ = v;
+      Serial.printf("cloud: commands.siren = %s (adopted at boot, not applied)\n",
+                    v ? "true" : "false");
+    } else if (v != lastSirenValue_) {
       lastSirenValue_ = v;
       pendingSiren_ = v;
       hasPendingSiren_ = true;

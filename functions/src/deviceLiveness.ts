@@ -11,7 +11,7 @@
 
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
-import { Project } from "./types";
+import { AlarmEvent, EventType, Project } from "./types";
 import {
   sendTelegram,
   formatDeviceOffline,
@@ -69,6 +69,12 @@ export async function checkDeviceLiveness(nowMs: number): Promise<void> {
         await projectDoc.ref.update({
           "device.offlineAlertSentAt": Timestamp.fromMillis(nowMs),
         });
+        await recordLifecycleEvent(
+          project.id,
+          "device_offline",
+          armed ? `Offline ${silence} while armed` : `Offline ${silence}`,
+          nowMs
+        );
         console.log(
           `deviceLiveness: project=${project.id} OFFLINE ${silence} armed=${armed}`
         );
@@ -88,6 +94,12 @@ export async function checkDeviceLiveness(nowMs: number): Promise<void> {
         await projectDoc.ref.update({
           "device.offlineAlertSentAt": FieldValue.delete(),
         });
+        await recordLifecycleEvent(
+          project.id,
+          "device_online",
+          `Back online after ${outage}`,
+          nowMs
+        );
         console.log(
           `deviceLiveness: project=${project.id} BACK ONLINE after ${outage}`
         );
@@ -95,5 +107,42 @@ export async function checkDeviceLiveness(nowMs: number): Promise<void> {
     } catch (err) {
       console.error(`deviceLiveness failed for project=${project.id}`, err);
     }
+  }
+}
+
+/**
+ * Add a controller-lifecycle row to the timeline.
+ *
+ * Called AFTER the Telegram send and the latch update, and swallowing its own
+ * errors, because the alert is the load-bearing part: a Firestore hiccup here
+ * must not un-latch the alert and re-send it every minute, nor bubble out and
+ * abort the loop before the remaining projects are checked.
+ *
+ * `description` goes in sensorName, which is this schema's "what this event is
+ * about" field — the same way arm/disarm rows carry a profile name and boot
+ * rows carry a reset reason.
+ */
+async function recordLifecycleEvent(
+  projectId: string,
+  eventType: EventType,
+  description: string,
+  nowMs: number
+): Promise<void> {
+  const alarmEvent: Omit<AlarmEvent, "id"> = {
+    sensorId: "",
+    rfId: "",
+    sensorName: description,
+    eventType,
+    batteryLow: false,
+    rssi: 0,
+    timestamp: Timestamp.fromMillis(nowMs),
+  };
+  try {
+    await db.collection(`projects/${projectId}/events`).add(alarmEvent);
+  } catch (err) {
+    console.warn(
+      `deviceLiveness: could not record ${eventType} for project=${projectId}`,
+      err
+    );
   }
 }

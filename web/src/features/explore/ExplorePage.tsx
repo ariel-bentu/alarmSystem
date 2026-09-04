@@ -11,6 +11,7 @@ import {
 import { useProject } from "@/app/ProjectProvider";
 import { eventsCol } from "@/lib/firestore";
 import { rangeCutoff } from "./timeRange";
+import { eventSubject } from "./eventSubject";
 import { ScrollingTabs } from "@/components/ScrollingTabs";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { groupItemsByDay } from "@/features/configure/groupSensorsByDay";
@@ -28,7 +29,26 @@ const MAX_EVENTS = 500;
 // Events that came from a physical RF packet, and therefore have a real
 // battery flag and signal strength. Arm/disarm originate in the app.
 const RADIO_EVENTS = new Set(["trigger", "tamper", "battery_low", "alarm"]);
-const isRadioEvent = (eventType: string) => RADIO_EVENTS.has(eventType);
+
+// Controller lifecycle rather than sensor activity: restart, offline, back
+// online. Rendered muted, since "the box rebooted" is context for the events
+// around it rather than an event on the premises.
+const SYSTEM_EVENTS = new Set([
+  "device_restart",
+  "device_offline",
+  "device_online",
+]);
+const isSystemEvent = (eventType: string) => SYSTEM_EVENTS.has(eventType);
+
+// Whether to show battery/RSSI columns for a row.
+//
+// Membership in RADIO_EVENTS is necessary but NOT sufficient: an "alarm" row
+// written by onAlarm describes a rule firing, not a packet, and carries
+// rssi: 0 with no battery reading. Showing "No" and "0" there would invent
+// measurements that were never taken — the same reasoning the arm/disarm
+// comment below already makes. So require an actual sensor as well.
+const hasRadioData = (ev: AlarmEvent) =>
+  RADIO_EVENTS.has(ev.eventType) && Boolean(ev.rfId);
 
 export default function ExplorePage() {
   const t = useT();
@@ -130,7 +150,10 @@ export default function ExplorePage() {
                     {group.items.map((ev, i) => {
                       const ts = ev.timestamp.toMillis();
                       return (
-                        <tr key={ev.id}>
+                        <tr
+                          key={ev.id}
+                          className={isSystemEvent(ev.eventType) ? "muted" : undefined}
+                        >
                           {/* The date is already in the heading above, so rows
                               show only a time. The newest event overall gets
                               relative phrasing — it is the one being checked. */}
@@ -139,12 +162,14 @@ export default function ExplorePage() {
                               ? formatRelative(ts, now, t)
                               : timeOfDay(ts)}
                           </td>
-                          {/* Arm/disarm events are about a profile, not a
-                              sensor, so sensorName carries the profile name.
-                              Rows written before that was stored have it
-                              empty, hence the fallback. */}
+                          {/* sensorName is "what this event is about": a
+                              sensor, a profile, a remote's name, or a raw
+                              reset reason. eventSubject() translates and
+                              decorates it per event type — see there. Rows
+                              written before it was stored are empty, hence
+                              the System fallback. */}
                           <td>
-                            {ev.sensorName || (
+                            {eventSubject(ev.eventType, ev.sensorName, t) || (
                               <span className="muted">{t("explore.system")}</span>
                             )}
                           </td>
@@ -156,14 +181,14 @@ export default function ExplorePage() {
                               and "0" would invent data that was never
                               measured. */}
                           <td>
-                            {isRadioEvent(ev.eventType)
+                            {hasRadioData(ev)
                               ? ev.batteryLow
                                 ? t("common.yes")
                                 : t("common.no")
                               : "—"}
                           </td>
                           <td>
-                            {isRadioEvent(ev.eventType) ? (
+                            {hasRadioData(ev) ? (
                               <span className="ltr">{ev.rssi}</span>
                             ) : (
                               "—"

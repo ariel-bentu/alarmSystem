@@ -18,7 +18,12 @@ export type EventType =
   | "battery_low"
   | "alarm"
   | "armed"
-  | "disarmed";
+  | "disarmed"
+  // Controller lifecycle. Mirrors functions/src/types.ts — keep the two in
+  // step. Rendered as system rows: no battery, no RSSI, muted styling.
+  | "device_restart"
+  | "device_offline"
+  | "device_online";
 
 // ---- Firestore documents ----
 
