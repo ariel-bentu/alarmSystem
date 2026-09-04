@@ -12,6 +12,13 @@ to be on `loopTask` and to be bounded to seconds rather than a day.
 > `loopTask` perfectly healthy, so the watchdog can never see it. That is
 > the one that best explains the 28h and 31.76h outages. See
 > [cloud-auth-silent-death](cloud-auth-silent-death.md).
+>
+> **FAULT #1 NOW EXPLAINED (2026-09-04, later the same day).** The
+> `loopTask` hang this document opened is no longer unidentified: the TLS
+> handshake timeout defaults to **120s, double the 60s watchdog**, and its
+> wait loop uses `vTaskDelay(2)`, which does not feed the TWDT. See
+> [tls-handshake-watchdog-reboot](tls-handshake-watchdog-reboot.md).
+> Everything below about the watchdog itself still stands.
 
 **A board was found dead after 9h16m uptime: powered, LED on, off WiFi, off
 the LAN web server, and with its USB serial port GONE from the host.** A
