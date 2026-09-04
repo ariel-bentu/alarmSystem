@@ -18,7 +18,7 @@ import {
   onAuthStateChanged,
   User,
 } from "firebase/auth";
-import { auth, getFns } from "@/lib/firebase";
+import { auth, getFns, ensureServices } from "@/lib/firebase";
 import type { UserDoc } from "@/types";
 
 type AccessStatus = "checking" | "ok" | "denied";
@@ -77,6 +77,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
+        // Start Firestore and RTDB NOW, alongside the provision call rather
+        // than after it. ProjectProvider awaits ensureServices() before its
+        // first read, and that used to be the earliest either SDK was touched
+        // — so evaluating both chunks and opening the Firestore channel and
+        // the RTDB websocket all queued up behind provisionUser's round trip
+        // (measured at ~530ms, of which ~440ms is server time). Warming here
+        // overlaps that latency with work every signed-in session needs
+        // regardless of the outcome.
+        //
+        // Deliberately not awaited: provisioning must not wait on the SDKs,
+        // and ensureServices() memoises its promise, so ProjectProvider's
+        // later await joins this same in-flight work instead of redoing it.
+        //
+        // The catch is required, not defensive noise: an unawaited rejection
+        // here would be an unhandled promise rejection. Swallowing it is
+        // correct because this is only a warm-up — if a service genuinely
+        // cannot initialise, ProjectProvider's own await surfaces the failure
+        // at the point where it actually blocks something.
+        void ensureServices().catch(() => {});
         await runProvision();
       } else {
         setUserDoc(null);

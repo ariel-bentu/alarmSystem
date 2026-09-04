@@ -97,3 +97,73 @@ a {
     padding: var(--sp-3);
   }
 }
+
+/* Full-screen loading / gate states (auth resolving, access check, project
+   fetch). These render BEFORE AppLayout, so there is no header above them and
+   none of the safe-area padding it carries — plain `.app-main` text landed
+   flush against the top of the viewport, which on a notched phone puts it
+   under the status bar clock. Centring both axes keeps it clear of the notch
+   and the home indicator without depending on a chrome that is not mounted
+   yet; the safe-area insets stay as a floor for landscape, where the notch
+   moves to the side. */
+.app-loading {
+  /* svh, not vh: on mobile Safari 100vh is the tallest-possible viewport, so
+     the collapsing URL bar would push the centred text below the fold. */
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  padding-block-start: max(var(--sp-4), env(safe-area-inset-top, 0px));
+  padding-block-end: max(var(--sp-4), env(safe-area-inset-bottom, 0px));
+  padding-inline-start: max(var(--sp-4), env(safe-area-inset-left, 0px));
+  padding-inline-end: max(var(--sp-4), env(safe-area-inset-right, 0px));
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Larger than the inline button spinner: this one is alone on the screen
+   rather than sitting next to a label, so it carries the whole signal. */
+.app-loading .spinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-width: 3px;
+  color: var(--accent);
+}
+
+/* Lazy route chunk loading, inside AppLayout. Centred horizontally and given
+   enough height not to collapse the page as the chunk swaps in, but NOT
+   full-viewport: the header is already above it. */
+.route-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  min-height: 40vh;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.route-loading .spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-width: 3px;
+  color: var(--accent);
+}
+
+/* The gate's terminal states (access denied, no projects) put a card in this
+   same centred container. As a flex item the card would otherwise shrink to
+   its longest word, so give it the normal reading width and let it stay
+   left-aligned inside — only the card's placement is centred, not its prose.
+   The bottom margin `.card` carries for stacked layouts would also break the
+   vertical centring here, where it is the only child. */
+.app-loading .card {
+  inline-size: 100%;
+  max-inline-size: 26rem;
+  margin-block-end: 0;
+  text-align: start;
+}

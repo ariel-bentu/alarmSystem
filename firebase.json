@@ -29,6 +29,16 @@
             "value": "public, max-age=31536000, immutable"
           }
         ]
+      },
+      {
+        "comment": "The Workbox runtime the service worker importScripts() at startup. It is content-hashed like everything under /assets, but it is emitted at the ROOT, so the /assets/** rule above misses it and the `**` catch-all left it no-cache — costing a network revalidation (measured 387ms, then 116ms from cache) on every service worker boot. sw.js itself must stay no-cache (it is the update trigger and is NOT hashed); only the hashed runtime is safe to pin.",
+        "source": "/workbox-*.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
       }
     ]
   },
