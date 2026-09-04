@@ -15,6 +15,7 @@
 #include <FirebaseClient.h>
 
 #include "alarm_state.h"
+#include "auth_supervisor.h"
 #include "config_parser.h"
 
 class CloudClient {
@@ -155,6 +156,14 @@ class CloudClient {
   // can stay a cheap const getter for main.cpp.
   bool appReady_ = false;
 
+  // Decides when an un-ready app has been un-ready for too long to be
+  // recovering on its own, and must be re-minted from scratch. Pure logic,
+  // native-tested in test/test_auth_supervisor — see auth_supervisor.h for
+  // the field failure that made it necessary.
+  AuthSupervisor authSupervisor_;
+  // Rate-limits the "NOT ready" trace to once a minute; 0 = not logging.
+  unsigned long lastNotReadyLogMs_ = 0;
+
   // TWO SSL clients, not four — this is the shape spike_mint proved works on
   // this board (mint + RTDB auth + write + read, all succeeding).
   //
@@ -288,8 +297,12 @@ class CloudClient {
   void applyCommandsJson(const String& json);
   void applyConfigJson(const String& json);
   // Factored out of begin() so the mint-retry path in loop() can perform the
-  // same post-mint setup without duplicating it.
+  // same post-mint setup without duplicating it. Safe to call more than once
+  // — forceReauth() drives it a second time.
   void startAppAndStreams();
+  // Discard the dead auth session so loop()'s mint-retry path rebuilds it.
+  // See its definition for what is deliberately NOT freed, and why.
+  void forceReauth();
   // Data client lifecycle — see their definitions for why it is transient.
   bool openDataClient();
   void closeDataClient();

@@ -149,6 +149,7 @@ measured, what was ruled out, and the traps that wasted time.
 | [siren-hub-free](docs/history/siren-hub-free.md) | Clean-room EV1527 that actually drives the siren; pairing and command codes |
 | [alarm-cause-telegram](docs/history/alarm-cause-telegram.md) | Naming what caused an alarm; the `siren_active` latch bug |
 | [watchdog-and-offline-alerts](docs/history/watchdog-and-offline-alerts.md) | The 28h silent death, watchdog, boot reporting, offline alerts |
+| [cloud-auth-silent-death](docs/history/cloud-auth-silent-death.md) | Dead auth session the watchdog cannot see; why `tokenMinted_` was a one-way latch |
 
 **Testing guide:** `docs/testing-device-liveness.md` — what to verify for the
 watchdog / offline-alert work (untested on hardware as of 2026-09-02).

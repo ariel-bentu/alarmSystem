@@ -5,6 +5,14 @@ device on 2026-09-02 19:51:37 — see "FIRST CAPTURED OCCURRENCE" below).
 What actually hangs the device is still unidentified, but it is now known
 to be on `loopTask` and to be bounded to seconds rather than a day.
 
+> **PARTLY SUPERSEDED (2026-09-04).** The sentence above — "known to be on
+> `loopTask`" — generalised from a single TWDT capture and was wrong as a
+> statement about the LONG silences. There are **two distinct faults**. A
+> second one was caught live on 2026-09-04: a dead auth session that leaves
+> `loopTask` perfectly healthy, so the watchdog can never see it. That is
+> the one that best explains the 28h and 31.76h outages. See
+> [cloud-auth-silent-death](cloud-auth-silent-death.md).
+
 **A board was found dead after 9h16m uptime: powered, LED on, off WiFi, off
 the LAN web server, and with its USB serial port GONE from the host.** A
 power-cycle revived it; by then it had been silent ~28 hours. This section
