@@ -252,6 +252,34 @@ class CloudClient {
   // UI are all local and must not be held hostage by a slow socket.
   static constexpr uint32_t kSyncTimeoutSec = 5;
 
+  // TLS CONNECT budget — a DIFFERENT bound from kSyncTimeoutSec above, and
+  // the one that was missing.
+  //
+  // setSyncReadTimeout/setSyncSendTimeout govern reads and writes on an
+  // ESTABLISHED socket. They do NOT cover the connect that precedes them:
+  // FirebaseClient's SlotManager::connect() calls straight through to
+  // WiFiClientSecure::connect(), whose Arduino-ESP32 defaults are
+  //
+  //     handshake_timeout = 120000 ms   (DOUBLE the 60s watchdog)
+  //     _timeout          =  30000 ms
+  //
+  // and ssl_client.cpp's handshake loop spins on vTaskDelay(2), which yields
+  // to FreeRTOS WITHOUT resetting the TWDT — the identical trap to
+  // sys_idle()/delay(0) described above. A handshake to a silent or
+  // packet-dropping peer therefore blocks loop() for up to two minutes and
+  // the board reboots at 60s with reason=twdt, having done nothing wrong.
+  //
+  // This was the cause of the twdt reboots observed on hardware 2026-09-04,
+  // two of them 45 minutes apart, on a build that ALREADY capped the sync
+  // read/write timeouts at 5s. Capping those was necessary but not
+  // sufficient — the connect phase was never covered.
+  //
+  // 10s: comfortably above a healthy handshake (observed ~900ms in the mint
+  // path) and well under the 60s budget, leaving room for the poll's own
+  // read/write timeouts on top. Both setters take SECONDS on ESP32.
+  static constexpr uint32_t kHandshakeTimeoutSec = 10;
+  static constexpr uint32_t kSocketTimeoutSec = 10;
+
   // Last-seen polled values. SSE delivered only changes; polling re-reads
   // the same value every few seconds, so these suppress no-op updates that
   // would otherwise re-apply commands and rewrite EEPROM continuously.

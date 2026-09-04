@@ -353,6 +353,12 @@ void CloudClient::startAppAndStreams() {
   // bring-up/testing phase, since these connections carry the device's auth
   // token.
   authSslClient_->setInsecure();
+  // Same 120s-handshake trap as the data client — see openDataClient(). This
+  // one matters too: FirebaseApp reconnects this socket on every token
+  // refresh (~hourly), and app_.loop() is called from OUR loop(), so a stalled
+  // refresh handshake blocks the same task the watchdog is watching.
+  authSslClient_->setHandshakeTimeout(kHandshakeTimeoutSec);
+  authSslClient_->setTimeout(kSocketTimeoutSec);
   // 1024-byte buffers: below the 16KB TLS record maximum, so this relies on
   // the server honouring the max_fragment_length extension (Google's
   // frontends do). The mint itself still uses 2048/2048 since it runs
@@ -622,6 +628,29 @@ bool CloudClient::openDataClient() {
   dataSslClient_ = new WiFiClientSecure();
   if (!dataSslClient_) return false;
   dataSslClient_->setInsecure();
+  // THE WATCHDOG-REBOOT FIX. Both of these default far above the watchdog
+  // budget, and neither is covered by setSyncReadTimeout/setSyncSendTimeout —
+  // those bound reads and writes on an ESTABLISHED socket, not the connect
+  // that precedes them.
+  //
+  //   handshake_timeout defaults to 120000 ms — DOUBLE kWatchdogTimeoutSec.
+  //   _timeout          defaults to  30000 ms.
+  //
+  // ssl_client.cpp's handshake loop spins on `vTaskDelay(2)` until
+  // handshake_timeout expires. vTaskDelay yields to FreeRTOS but does NOT
+  // reset the TWDT — the same trap as FirebaseClient's sys_idle()/delay(0)
+  // documented on kSyncTimeoutSec. So a TLS handshake to a silent or
+  // packet-dropping peer blocks loop() for up to two minutes with nothing
+  // feeding the watchdog, and the board reboots at 60s with reason=twdt.
+  //
+  // Observed on hardware 2026-09-04: two twdt reboots 45 minutes apart, on a
+  // build that already had the sync-read/write timeouts capped at 5s.
+  //
+  // NOTE the units differ, which is an easy way to get this wrong:
+  // setHandshakeTimeout() takes SECONDS, setTimeout() takes SECONDS on
+  // ESP32 (it stores seconds * 1000 internally).
+  dataSslClient_->setHandshakeTimeout(kHandshakeTimeoutSec);
+  dataSslClient_->setTimeout(kSocketTimeoutSec);
 #if PLATFORM_HAS_SET_BUFFER_SIZES
   dataSslClient_->setBufferSizes(1024, 1024);
 #endif
@@ -682,8 +711,24 @@ void CloudClient::applyCommandsJson(const String& json) {
   }
   if (doc["siren"].is<bool>()) {
     bool v = doc["siren"].as<bool>();
-    if (!hadSirenValue_ || v != lastSirenValue_) {
+    if (!hadSirenValue_) {
+      // FIRST poll after boot. Adopt the value as the known state WITHOUT
+      // acting on it.
+      //
+      // Acting on it caused an audible beep on every power-on: the siren is
+      // already off at boot, but a stored "siren": false looked like a fresh
+      // false and drove turnOff(), which transmits kCmdDisarm — and the siren
+      // answers that with a short ack beep. There was nothing to turn off.
+      //
+      // A stored `true` is deliberately not honoured either: it means a siren
+      // command was in flight when the device last died, and re-sounding the
+      // siren because a board rebooted is far worse than missing a stale
+      // command. A genuine false->true after this point still fires normally.
       hadSirenValue_ = true;
+      lastSirenValue_ = v;
+      Serial.printf("cloud: commands.siren = %s (adopted at boot, not applied)\n",
+                    v ? "true" : "false");
+    } else if (v != lastSirenValue_) {
       lastSirenValue_ = v;
       pendingSiren_ = v;
       hasPendingSiren_ = true;

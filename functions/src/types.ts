@@ -14,7 +14,15 @@ export type EventType =
   | "battery_low"
   | "alarm"
   | "armed"
-  | "disarmed";
+  | "disarmed"
+  // Controller lifecycle, not sensor activity. These have no rfId, battery or
+  // RSSI — the UI renders them as system rows (see isRadioEvent in
+  // ExplorePage). Added because a device that crashed, went offline and came
+  // back left NO trace in the timeline: diagnosing the 2026-09-04 outage meant
+  // reconstructing it from raw RTDB nodes and heartbeat arithmetic.
+  | "device_restart"
+  | "device_offline"
+  | "device_online";
 
 export interface Condition {
   type: ConditionType;

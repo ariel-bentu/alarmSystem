@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "siren_address.h"
+#include "siren_policy.h"
 
 void RelaySiren::begin(uint8_t relayPin, Cc1101Receiver* radio,
                        uint32_t baseAddress) {
@@ -37,7 +38,14 @@ void RelaySiren::turnOff() {
   // MUST transmit, not merely drop the pin: an RF siren sounds until it is
   // told to stop, so a silent expiry would leave it sounding until switched
   // off by hand.
-  sendCommand(SirenAddress::kCmdDisarm);
+  //
+  // ...but ONLY when it is actually sounding, or when the siren is enabled.
+  // The siren answers this command with a short ack beep, so transmitting it
+  // on an idle siren whose owner has turned the siren OFF is exactly the
+  // noise they asked not to hear. See siren_policy.h for the full rule.
+  if (shouldTransmitSirenStop(enabled_, active_)) {
+    sendCommand(SirenAddress::kCmdDisarm);
+  }
   active_ = false;
   autoOff_ = false;
 }

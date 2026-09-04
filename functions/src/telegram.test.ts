@@ -60,6 +60,30 @@ describe("telegram formatters", () => {
       expect(formatArmStateBySource(false, null)).toBe("🔓 Device disarmed");
       expect(formatArmStateBySource(true, "wat")).toBe("🔒 Device armed");
     });
+    it("still recognises a remote that carries an identity", () => {
+      // Regression guard: this used to be `source === "remote"`, which the
+      // device's new "remote:XXXXX" form would miss — downgrading every
+      // remote arm/disarm to "Device armed" and losing the attribution that
+      // is a replayable fixed-code remote's only mitigation.
+      expect(formatArmStateBySource(false, "remote:E45CA")).toBe(
+        "🔓 Disarmed by remote"
+      );
+    });
+    it("names the specific remote when the identity resolved to one", () => {
+      expect(formatArmStateBySource(false, "remote:E45CA", "Front door fob")).toBe(
+        "🔓 Disarmed by Front door fob"
+      );
+      expect(formatArmStateBySource(true, "remote:E45CA", "Front door fob")).toBe(
+        "🔒 Armed by Front door fob"
+      );
+    });
+    it("falls back to the generic remote wording for an unpaired identity", () => {
+      // A remote removed in the UI can still transmit; that must read as
+      // "by remote", not as a crash or a blank name.
+      expect(formatArmStateBySource(false, "remote:E45CA", null)).toBe(
+        "🔓 Disarmed by remote"
+      );
+    });
   });
 
   describe("formatDeadSensor", () => {

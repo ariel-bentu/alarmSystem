@@ -8,6 +8,7 @@ export { onArmStateChange } from "./onArmStateChange";
 export { onDeviceArmStateChange } from "./onDeviceArmStateChange";
 export { onServerArmChange } from "./onServerArmChange";
 export { onHeartbeat } from "./onHeartbeat";
+export { onBoot } from "./onBoot";
 // The ONLY scheduled function. scheduleTick, deadSensorCheck and the device
 // liveness check are plain functions dispatched from its table — see
 // doSchedule.ts before adding any periodic work.

@@ -257,6 +257,17 @@ export const en = {
   "explore.eventType.alarm": "Alarm",
   "explore.eventType.armed": "Armed",
   "explore.eventType.disarmed": "Disarmed",
+  // Names WHICH remote armed/disarmed. {name} is the remote's user-given
+  // name; the word around it is translated so the database can stay
+  // language-neutral.
+  "explore.remoteSubject": "Remote {name}",
+  // Shown when the identity matched no paired remote (e.g. one removed in the
+  // UI but still transmitting).
+  "explore.eventSource.remote": "Remote",
+  // Controller lifecycle, not sensor activity.
+  "explore.eventType.device_restart": "Restarted",
+  "explore.eventType.device_offline": "Went offline",
+  "explore.eventType.device_online": "Back online",
 
   // ---- Members ----
   "members.title": "Members",

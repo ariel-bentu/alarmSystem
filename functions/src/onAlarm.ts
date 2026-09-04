@@ -8,8 +8,9 @@
 // shapes and why the device's differs.
 
 import { onValueWritten } from "firebase-functions/v2/database";
+import { Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
-import { Project, Rule, Sensor } from "./types";
+import { AlarmEvent, Project, Rule, Sensor } from "./types";
 import { sendTelegram, formatAlarm } from "./telegram";
 import { isCauseFresh, parseCause, resolveCauseLabel } from "./alarmCause";
 
@@ -24,13 +25,37 @@ export const onAlarm = onValueWritten(
 
     const projectId = event.params.projectId;
 
+    // Resolved BEFORE the Telegram gate below: the timeline row must be
+    // written whether or not this project has Telegram configured. The alarm
+    // that actually sounded the siren is the single most important thing the
+    // event list can show, and it was previously missing from it entirely —
+    // only sensor triggers and arm/disarm were ever mirrored.
+    const label = await resolveLabel(projectId);
+
+    try {
+      const alarmEvent: Omit<AlarmEvent, "id"> = {
+        sensorId: "",
+        rfId: "",
+        // The cause if we could name one ("Front door", "SOS (remote)"),
+        // otherwise blank — which the UI renders as the muted "System".
+        sensorName: label ?? "",
+        eventType: "alarm",
+        batteryLow: false,
+        rssi: 0,
+        timestamp: Timestamp.now(),
+      };
+      await db.collection(`projects/${projectId}/events`).add(alarmEvent);
+    } catch (err) {
+      // Never let a timeline write cost the actual alarm notification.
+      console.warn(`onAlarm: could not record event for project=${projectId}`, err);
+    }
+
     const projectDoc = await db.doc(`projects/${projectId}`).get();
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
 
     if (!project.telegramBotToken || !project.telegramChatId) return;
 
-    const label = await resolveLabel(projectId);
     const message = label ? formatAlarm(label) : "🚨 Alarm triggered!";
 
     await sendTelegram(project.telegramBotToken, project.telegramChatId, message);
