@@ -25,21 +25,35 @@ const ConfigurePage = lazy(() => import("@/features/configure/ConfigurePage"));
 const ExplorePage = lazy(() => import("@/features/explore/ExplorePage"));
 const SimulatorPage = lazy(() => import("@/features/simulator/SimulatorPage"));
 
+// Full-screen state shown before AppLayout exists. These render without the
+// app header, so they cannot inherit its safe-area padding — see .app-loading
+// in styles/base.css for why they are centred rather than top-aligned.
+// role=status announces the wait to a screen reader; the spinner is decorative
+// and hidden from it, since the text already says what is happening.
+function LoadingScreen({ label }: { label: string }) {
+  return (
+    <div className="app-loading" role="status">
+      <span className="spinner" aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function Gate() {
   const t = useT();
   const { user, userDoc, access, loading: authLoading, signOut } = useAuth();
   const { memberships, loading: projLoading } = useProject();
 
-  if (authLoading) return <div className="app-main">{t("common.loading")}</div>;
+  if (authLoading) return <LoadingScreen label={t("common.loading")} />;
   if (!user) return <SignInPage />;
   if (access === "checking")
-    return <div className="app-main">{t("auth.checkingAccess")}</div>;
+    return <LoadingScreen label={t("auth.checkingAccess")} />;
 
   // Uninvited account: authenticated with Google but not provisioned. Nothing
   // was written to the DB. Offer a way out.
   if (access === "denied") {
     return (
-      <div className="app-main">
+      <div className="app-loading">
         <div className="card">
           <h1>{t("auth.accessDenied")}</h1>
           <p>{t("auth.accessDeniedBody", { email: user.email ?? "" })}</p>
@@ -51,14 +65,14 @@ function Gate() {
     );
   }
 
-  if (projLoading) return <div className="app-main">{t("common.loading")}</div>;
+  if (projLoading) return <LoadingScreen label={t("common.loading")} />;
 
   // Allowed but no projects yet. System admins can create one; others wait for
   // an invite to assign them to a project.
   if (memberships.length === 0) {
     if (userDoc?.isSystemAdmin) return <CreateProjectPage />;
     return (
-      <div className="app-main">
+      <div className="app-loading">
         <div className="card">
           <h1>{t("auth.noProjects")}</h1>
           <p>{t("auth.noProjectsBody")}</p>
@@ -72,7 +86,18 @@ function Gate() {
 
   return (
     <AppLayout>
-      <Suspense fallback={<p>{t("common.loading")}</p>}>
+      {/* Route-chunk fallback. Unlike the gate states above this renders
+          INSIDE AppLayout, under a real header — so it centres within the
+          remaining space rather than the whole viewport, which would push it
+          below the fold. */}
+      <Suspense
+        fallback={
+          <div className="route-loading" role="status">
+            <span className="spinner" aria-hidden="true" />
+            <span>{t("common.loading")}</span>
+          </div>
+        }
+      >
         <Routes>
         <Route path="/" element={<OperationsPage />} />
         <Route path="/configure" element={<ConfigurePage />} />
