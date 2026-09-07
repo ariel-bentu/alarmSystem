@@ -30,8 +30,14 @@ export interface Condition {
   window_sec?: number;
   delay_sec?: number;
   // multi_sensor only: per-sensor trigger counts required inside window_sec.
-  // Missing entries default to 1. All sensors of the rule must be satisfied (AND).
+  // Missing entries default to 1. A sensor is "satisfied" once it reaches its
+  // own count within the window.
   counts?: Record<string, number>;
+  // multi_sensor only: how many of the rule's sensors must be satisfied for
+  // it to fire ("2 of 3"). ABSENT means all of them — the original AND — so
+  // rules predating this field need no migration. Clamped, never trusted
+  // raw: see quorumOf() in alarmLogic.ts.
+  quorum?: number;
 }
 
 export interface Rule {
@@ -204,6 +210,10 @@ export interface RtdbRawEvent {
 // y: delay_sec (entry_delay)
 // k: counts, keyed by index-into-r (as string) — required trigger count per
 //    participant, always explicit for every participant including self
+// q: multi_sensor quorum — how many participants must reach their own count
+//    ("2 of 3"). Omitted when it equals the participant count, which is the
+//    AND every rule used to have, so the common payload is unchanged. The
+//    firmware reads an absent q as 0, meaning "all" (Condition::q).
 // x: always-on — 1 when the rule fires regardless of arm state. Omitted when
 //    false so the common payload is unchanged (the device polls this every 5s).
 export interface RtdbCondition {
@@ -212,6 +222,7 @@ export interface RtdbCondition {
   w?: number;
   y?: number;
   k?: Record<string, number>;
+  q?: number;
   x?: 1;
 }
 
@@ -243,6 +254,17 @@ export interface RtdbConfig {
   s?: number;
 }
 
+// Who caused an arm/disarm. The cloud sources (app/schedule/telegram) come
+// from commands/armed_via, written by whoever set commands/armed; the device
+// ones (remote/local/cloud) from state/armed_by via parseArmSource.
+export type ArmSource =
+  | "app"
+  | "schedule"
+  | "telegram"
+  | "remote"
+  | "local"
+  | "cloud";
+
 export interface AlarmEvent {
   id: string;
   sensorId: string;
@@ -252,4 +274,11 @@ export interface AlarmEvent {
   batteryLow: boolean;
   rssi: number;
   timestamp: Timestamp;
+  // Arm/disarm rows only, and ABSENT on rows written before this field
+  // existed. sensorName alone is ambiguous — it holds a PROFILE name on a
+  // cloud arm but a REMOTE's name on a device one, and the UI rendered every
+  // unrecognised value as "Remote <name>", inventing remotes that were never
+  // used. Optional rather than backfilled: historical rows genuinely cannot
+  // be attributed, and the UI degrades them to a plain name.
+  armSource?: ArmSource;
 }

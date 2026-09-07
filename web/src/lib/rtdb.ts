@@ -11,6 +11,13 @@ export const commandsArmedPath = (projectId: string) =>
   `${projectId}/commands/armed`;
 export const commandsSirenPath = (projectId: string) =>
   `${projectId}/commands/siren`;
+// Who is about to write commands/armed. Set BEFORE it, so onArmStateChange —
+// which triggers on commands/armed — always finds the source already there.
+// Mirrors state/armed_by, the device's equivalent, for the same reason: the
+// function sees only the boolean and cannot otherwise tell an app arm from a
+// scheduled one.
+export const commandsArmedViaPath = (projectId: string) =>
+  `${projectId}/commands/armed_via`;
 export const configPath = (projectId: string) => `${projectId}/config`;
 export const eventPath = (
   projectId: string,
@@ -28,6 +35,8 @@ export const commandsArmedRef = (projectId: string): DatabaseReference =>
   ref(rtdbSync(), commandsArmedPath(projectId));
 export const commandsSirenRef = (projectId: string): DatabaseReference =>
   ref(rtdbSync(), commandsSirenPath(projectId));
+export const commandsArmedViaRef = (projectId: string): DatabaseReference =>
+  ref(rtdbSync(), commandsArmedViaPath(projectId));
 export const configRef = (projectId: string): DatabaseReference =>
   ref(rtdbSync(), configPath(projectId));
 export const eventRef = (

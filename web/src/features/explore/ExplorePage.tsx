@@ -164,12 +164,19 @@ export default function ExplorePage() {
                           </td>
                           {/* sensorName is "what this event is about": a
                               sensor, a profile, a remote's name, or a raw
-                              reset reason. eventSubject() translates and
-                              decorates it per event type — see there. Rows
-                              written before it was stored are empty, hence
-                              the System fallback. */}
+                              reset reason. armSource says WHICH of those an
+                              arm/disarm row carries — without it a profile
+                              name was rendered as a remote. eventSubject()
+                              translates and decorates per event type — see
+                              there. Rows written before it was stored are
+                              empty, hence the System fallback. */}
                           <td>
-                            {eventSubject(ev.eventType, ev.sensorName, t) || (
+                            {eventSubject(
+                              ev.eventType,
+                              ev.sensorName,
+                              t,
+                              ev.armSource
+                            ) || (
                               <span className="muted">{t("explore.system")}</span>
                             )}
                           </td>

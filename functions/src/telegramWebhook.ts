@@ -52,12 +52,15 @@ export const telegramWebhook = onRequest(
     switch (cmd) {
       case "arm": {
         await db.doc(`projects/${projectId}`).update({ serverArmed: true });
+        // Before commands/armed, so the timeline names Telegram as the source.
+        await rtdb.ref(`${projectId}/commands/armed_via`).set("telegram");
         await rtdb.ref(`${projectId}/commands/armed`).set(true);
         await sendTelegram(project.telegramBotToken, chatId, "🔒 System armed", true);
         break;
       }
       case "disarm": {
         await db.doc(`projects/${projectId}`).update({ serverArmed: false });
+        await rtdb.ref(`${projectId}/commands/armed_via`).set("telegram");
         await rtdb.ref(`${projectId}/commands/armed`).set(false);
         await sendTelegram(project.telegramBotToken, chatId, "🔓 System disarmed", true);
         break;

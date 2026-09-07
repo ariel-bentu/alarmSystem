@@ -15,7 +15,7 @@ import {
   rulesCol,
   ruleDoc,
 } from "@/lib/firestore";
-import { commandsArmedRef } from "@/lib/rtdb";
+import { commandsArmedRef, commandsArmedViaRef } from "@/lib/rtdb";
 import { useProject } from "@/app/ProjectProvider";
 import type { Sensor, Profile, Rule, Condition } from "@/types";
 import {
@@ -298,6 +298,9 @@ export default function ProfilesTab({
       await updateDoc(projectDoc(projectId), { serverArmed: false });
     }
     if (profile.isActiveOnDevice) {
+      // See OperationsPage: written before commands/armed so the resulting
+      // timeline row is attributed to the app.
+      await set(commandsArmedViaRef(projectId), "app");
       await set(commandsArmedRef(projectId), false);
     }
 
@@ -335,6 +338,7 @@ export default function ProfilesTab({
         await updateDoc(projectDoc(projectId), { serverArmed: false });
       }
       if (profile.isActiveOnDevice) {
+        await set(commandsArmedViaRef(projectId), "app");
         await set(commandsArmedRef(projectId), false);
       }
     }

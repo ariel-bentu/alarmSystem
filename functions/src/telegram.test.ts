@@ -6,6 +6,7 @@ import {
   formatAlarm,
   formatArmState,
   formatArmStateBySource,
+  armSourceLabel,
   formatDeadSensor,
   formatDeviceOffline,
   formatDeviceBackOnline,
@@ -41,6 +42,25 @@ describe("telegram formatters", () => {
     });
     it("formats disarmed", () => {
       expect(formatArmState(false)).toBe("🔓 System disarmed");
+    });
+  });
+
+  describe("armSourceLabel", () => {
+    it("names the schedule so a timed arm is not read as the device acting", () => {
+      // A scheduled arm used to say "Device armed — Night".
+      expect(formatArmState(true, armSourceLabel("schedule"), "Night")).toBe(
+        "🔒 Schedule armed — Night"
+      );
+    });
+    it("names Telegram and the app", () => {
+      expect(armSourceLabel("telegram")).toBe("Telegram");
+      expect(armSourceLabel("app")).toBe("App");
+    });
+    it("falls back to App for a device source", () => {
+      // Device-originated arms go through formatArmStateBySource instead, so
+      // these never reach here — but the label must stay a plausible word
+      // rather than undefined if one ever does.
+      expect(armSourceLabel("remote")).toBe("App");
     });
   });
 
