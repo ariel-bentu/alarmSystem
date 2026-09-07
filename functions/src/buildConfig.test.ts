@@ -206,6 +206,87 @@ describe("buildRtdbConfig — always-on rules", () => {
     expect(config.c).toEqual([[{ t: 0, x: 1 }]]);
   });
 
+  // The quorum ("2 of 3") rides as `q`. Omitted whenever it equals the
+  // participant count, so the payload for every existing rule is byte-for-byte
+  // what it was — this config is polled every 5s.
+  describe("multi_sensor quorum", () => {
+    const threeSensorRule = (quorum?: number): Rule[] => [
+      {
+        id: "r1",
+        name: "Any two",
+        sensors: ["s1", "s2", "s3"],
+        condition: { type: "multi_sensor", window_sec: 60, quorum },
+      },
+    ];
+
+    it("omits q when every sensor is required", () => {
+      const config = buildRtdbConfig(threeSensorRule(3), sensors, true, 120);
+      const cond = config.c[0][0];
+      expect(cond.q).toBeUndefined();
+      expect(cond).toEqual({ t: 3, w: 60, k: { "0": 1, "1": 1, "2": 1 } });
+    });
+
+    it("omits q when the quorum is absent", () => {
+      const config = buildRtdbConfig(threeSensorRule(undefined), sensors, true, 120);
+      expect(config.c[0][0].q).toBeUndefined();
+    });
+
+    it("emits q when fewer than all sensors are required", () => {
+      const config = buildRtdbConfig(threeSensorRule(2), sensors, true, 120);
+      // Every participant carries the same condition copy, quorum included —
+      // the device matches participants on (t, w, kLen, q).
+      for (const idx of [0, 1, 2]) {
+        expect(config.c[idx][0]).toEqual({
+          t: 3,
+          w: 60,
+          k: { "0": 1, "1": 1, "2": 1 },
+          q: 2,
+        });
+      }
+    });
+
+    it("clamps q to the participants that actually resolved", () => {
+      // s9 has no matching sensor, so it is dropped from k. A quorum of 3
+      // over 2 surviving participants would be permanently unfireable.
+      const rules: Rule[] = [
+        {
+          id: "r1",
+          name: "Partly unknown",
+          sensors: ["s1", "s2", "s9"],
+          condition: { type: "multi_sensor", window_sec: 60, quorum: 3 },
+        },
+      ];
+      const config = buildRtdbConfig(rules, sensors, true, 120);
+      const cond = config.c[0][0];
+      expect(cond.k).toEqual({ "0": 1, "1": 1 });
+      // Equals the surviving participant count, so it is omitted entirely.
+      expect(cond.q).toBeUndefined();
+    });
+
+    it("keeps per-sensor counts alongside a quorum", () => {
+      const rules: Rule[] = [
+        {
+          id: "r1",
+          name: "Two of three, one needs twice",
+          sensors: ["s1", "s2", "s3"],
+          condition: {
+            type: "multi_sensor",
+            window_sec: 30,
+            quorum: 2,
+            counts: { s1: 2 },
+          },
+        },
+      ];
+      const config = buildRtdbConfig(rules, sensors, true, 120);
+      expect(config.c[0][0]).toEqual({
+        t: 3,
+        w: 30,
+        k: { "0": 2, "1": 1, "2": 1 },
+        q: 2,
+      });
+    });
+  });
+
   it("emits paired remote identities as numbers in m", () => {
     const config = buildRtdbConfig([], sensors, false, 120, true, [], [
       {

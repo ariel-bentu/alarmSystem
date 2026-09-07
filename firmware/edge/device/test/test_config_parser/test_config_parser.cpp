@@ -148,6 +148,121 @@ void test_out_of_range_k_index_is_dropped_not_stored() {
   TEST_ASSERT_EQUAL_UINT16(1, cond.kCount[0]);
 }
 
+// Firebase RTDB stores an object whose keys are "0".."n" as a JSON ARRAY.
+// buildConfig emits k as {"0":1,"1":1,"2":1}, but the device receives
+// [1,1,1] — and reading that as a JsonObject yields null, so kLen stayed 0
+// and multiSensorSatisfied() looped over ZERO participants and never fired.
+//
+// Observed on hardware 2026-09-07: a 3-sensor rule did not trigger even with
+// all three sensors. Pre-existing; the old tests all used non-consecutive
+// keys ("3","4"), the one shape RTDB does NOT arrayify.
+void test_k_as_json_array_is_parsed_like_an_object() {
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0x170D09", "0x4D6A7E", "0x1520FE"],
+    "c": [
+      [{ "t": 3, "w": 60, "k": [1, 1, 1], "q": 2 }],
+      [{ "t": 3, "w": 60, "k": [1, 1, 1], "q": 2 }],
+      [{ "t": 3, "w": 60, "k": [1, 1, 1], "q": 2 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  Condition& cond = config.sensors[0].conditions[0];
+  // Array position IS the index into r, exactly as the object key was.
+  TEST_ASSERT_EQUAL_UINT8(3, cond.kLen);
+  TEST_ASSERT_EQUAL_UINT8(0, cond.kIndex[0]);
+  TEST_ASSERT_EQUAL_UINT8(1, cond.kIndex[1]);
+  TEST_ASSERT_EQUAL_UINT8(2, cond.kIndex[2]);
+  TEST_ASSERT_EQUAL_UINT16(1, cond.kCount[0]);
+  TEST_ASSERT_EQUAL_UINT8(2, cond.q);
+}
+
+// RTDB arrayifies only when the keys are dense from 0. A sparse object keeps
+// its object form, and a HOLE arrives as null — which must be skipped, not
+// stored as a participant with count 0.
+void test_k_array_with_null_holes_skips_them() {
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C3", "0xD4E5F6", "0x112233"],
+    "c": [
+      [{ "t": 3, "w": 60, "k": [2, null, 1] }],
+      [{ "t": 0 }],
+      [{ "t": 3, "w": 60, "k": [2, null, 1] }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  Condition& cond = config.sensors[0].conditions[0];
+  TEST_ASSERT_EQUAL_UINT8(2, cond.kLen);
+  TEST_ASSERT_EQUAL_UINT8(0, cond.kIndex[0]);
+  TEST_ASSERT_EQUAL_UINT16(2, cond.kCount[0]);
+  TEST_ASSERT_EQUAL_UINT8(2, cond.kIndex[1]);
+  TEST_ASSERT_EQUAL_UINT16(1, cond.kCount[1]);
+}
+
+void test_parses_multi_sensor_quorum() {
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C3", "0xD4E5F6", "0x112233"],
+    "c": [
+      [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1, "2": 1 }, "q": 2 }],
+      [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1, "2": 1 }, "q": 2 }],
+      [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1, "2": 1 }, "q": 2 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(2, config.sensors[0].conditions[0].q);
+}
+
+void test_absent_quorum_defaults_to_zero_meaning_all() {
+  // The server omits q whenever it equals the participant count, so this is
+  // the shape of every rule that predates the quorum.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C3", "0xD4E5F6"],
+    "c": [
+      [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 } }],
+      [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 } }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(0, config.sensors[0].conditions[0].q);
+}
+
+void test_quorum_larger_than_participants_is_clamped_to_all() {
+  // A quorum above kLen would be permanently unfireable. Clamped to 0
+  // (= all) rather than stored, matching how bad k indices are dropped.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C3", "0xD4E5F6"],
+    "c": [
+      [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 }, "q": 9 }],
+      [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 }, "q": 9 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(0, config.sensors[0].conditions[0].q);
+}
+
 void test_parses_always_flag() {
   const char* json = R"({
     "a": true, "d": 120, "r": ["0xA1B2C3"], "c": [[{ "t": 0, "x": 1 }]]
@@ -241,6 +356,11 @@ void setup() {
   RUN_TEST(test_more_than_16_sensors_is_truncated_not_rejected);
   RUN_TEST(test_more_than_4_conditions_on_one_sensor_is_truncated);
   RUN_TEST(test_out_of_range_k_index_is_dropped_not_stored);
+  RUN_TEST(test_k_as_json_array_is_parsed_like_an_object);
+  RUN_TEST(test_k_array_with_null_holes_skips_them);
+  RUN_TEST(test_parses_multi_sensor_quorum);
+  RUN_TEST(test_absent_quorum_defaults_to_zero_meaning_all);
+  RUN_TEST(test_quorum_larger_than_participants_is_clamped_to_all);
   RUN_TEST(test_parses_always_flag);
   RUN_TEST(test_absent_x_means_not_always);
   RUN_TEST(test_parses_remote_identities);

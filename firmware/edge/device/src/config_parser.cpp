@@ -68,6 +68,34 @@ bool parseConfigJson(const char* json, Config* out) {
       // Always-on: fires regardless of arm state. Omitted when false.
       cond.always = (condJson["x"] | 0) == 1;
       cond.kLen = 0;
+      // k arrives in EITHER shape. buildConfig emits an object keyed by
+      // index-into-r ({"0":1,"1":1}), but Firebase RTDB silently converts an
+      // object whose keys are "0".."n" into a JSON ARRAY ([1,1]) — so a rule
+      // whose participants happen to start at index 0 is delivered as an
+      // array. Reading only the object form left kLen at 0, which made
+      // multiSensorSatisfied() iterate zero participants and never fire.
+      // Cost a live 3-sensor rule that silently did nothing (2026-09-07).
+      JsonArray kArray = condJson["k"];
+      if (!kArray.isNull()) {
+        uint8_t idx = 0;
+        for (JsonVariant v : kArray) {
+          if (cond.kLen >= 8) break;
+          // Same 16-slot bound the object path below enforces: the position
+          // indexes config_.sensors[]/runtime_[], so a longer array would be
+          // a genuine out-of-bounds access in multiSensorSatisfied(), not
+          // merely stale data.
+          if (idx >= 16) break;
+          // A hole in a sparse array arrives as null. Skipping keeps the
+          // POSITION meaningful — position is the index into r, so counting
+          // a null as a participant would shift every later index.
+          if (!v.isNull()) {
+            cond.kIndex[cond.kLen] = idx;
+            cond.kCount[cond.kLen] = v.as<uint16_t>();
+            cond.kLen++;
+          }
+          idx++;
+        }
+      }
       JsonObject k = condJson["k"];
       if (!k.isNull()) {
         for (JsonPair kv : k) {
@@ -89,6 +117,17 @@ bool parseConfigJson(const char* json, Config* out) {
           cond.kLen++;
         }
       }
+      // multi_sensor quorum: how many participants must be satisfied. Read
+      // AFTER k so it can be validated against the participant count that
+      // actually survived the loop above. Omitted by the server whenever it
+      // equals that count, so 0 is the normal "all of them" case. A value
+      // exceeding kLen would make the rule permanently unfireable, so clamp
+      // to 0 (= all) rather than trusting it — same drop-don't-store policy
+      // as the k indices above.
+      int parsedQuorum = condJson["q"] | 0;
+      cond.q = (parsedQuorum > 0 && parsedQuorum <= (int)cond.kLen)
+                   ? (uint8_t)parsedQuorum
+                   : 0;
       sensor.conditionCount++;
     }
     out->sensorCount++;

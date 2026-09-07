@@ -113,12 +113,24 @@ export function reconcileRulesForRemovedSensor(
     let condition: Condition = rule.condition;
     if (condition.type === "multi_sensor") {
       if (sensors.length < 2) {
-        // No longer a multi-sensor condition.
+        // No longer a multi-sensor condition. Replaced wholesale, so any
+        // quorum and per-sensor counts go with it.
         condition = { type: "immediate" };
-      } else if (condition.counts) {
-        const counts = { ...condition.counts };
-        delete counts[sensorId];
-        condition = { ...condition, counts };
+      } else {
+        if (condition.counts) {
+          const counts = { ...condition.counts };
+          delete counts[sensorId];
+          condition = { ...condition, counts };
+        }
+        // A quorum left above the surviving sensor count would make the rule
+        // permanently unfireable — "3 of 3" over 2 sensors can never be met,
+        // and nothing in the UI would show why the alarm stopped working.
+        if (
+          typeof condition.quorum === "number" &&
+          condition.quorum > sensors.length
+        ) {
+          condition = { ...condition, quorum: sensors.length };
+        }
       }
     }
 

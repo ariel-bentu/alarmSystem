@@ -200,6 +200,46 @@ describe("reconcileRulesForRemovedSensor", () => {
     expect(res.toUpdate[0].condition.type).toBe("multi_sensor");
   });
 
+  it("clamps a quorum that no longer fits the remaining sensors", () => {
+    // A "3 of 3" rule losing a sensor would keep quorum 3 over 2 sensors and
+    // become permanently unfireable — silently, since nothing else surfaces it.
+    const rules = [
+      rule({
+        id: "r1",
+        sensors: ["a", "gone", "b"],
+        condition: { type: "multi_sensor", window_sec: 30, quorum: 3 },
+      }),
+    ];
+    const res = reconcileRulesForRemovedSensor(rules, "gone");
+    expect(res.toUpdate[0].condition.quorum).toBe(2);
+  });
+
+  it("leaves a quorum that still fits", () => {
+    const rules = [
+      rule({
+        id: "r1",
+        sensors: ["a", "gone", "b"],
+        condition: { type: "multi_sensor", window_sec: 30, quorum: 2 },
+      }),
+    ];
+    const res = reconcileRulesForRemovedSensor(rules, "gone");
+    expect(res.toUpdate[0].condition.quorum).toBe(2);
+  });
+
+  it("drops the quorum when the rule downgrades to immediate", () => {
+    // One sensor left: no longer a multi-sensor rule, so a quorum is
+    // meaningless and must not linger on the condition.
+    const rules = [
+      rule({
+        id: "r1",
+        sensors: ["a", "gone"],
+        condition: { type: "multi_sensor", window_sec: 30, quorum: 2 },
+      }),
+    ];
+    const res = reconcileRulesForRemovedSensor(rules, "gone");
+    expect(res.toUpdate[0].condition).toEqual({ type: "immediate" });
+  });
+
   it("drops the removed sensor's per-sensor count", () => {
     const rules = [
       rule({

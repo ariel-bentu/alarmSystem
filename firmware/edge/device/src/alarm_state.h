@@ -11,6 +11,12 @@ struct Condition {
   uint8_t kIndex[8] = {};
   uint16_t kCount[8] = {};
   uint8_t kLen = 0;
+  // multi_sensor quorum: how many participants must reach their own kCount
+  // inside the shared window. 0 = "all of them", which is both the historical
+  // behaviour (a plain AND) and what a config written before this field
+  // existed decodes to — so no migration is needed. Mirrored by quorumOf()
+  // in functions/src/alarmLogic.ts; the two evaluators must agree.
+  uint8_t q = 0;
   // Fires regardless of arm state (smoke, gas). Always implies a
   // single-sensor immediate condition, so it carries no runtime state.
   bool always = false;
@@ -59,7 +65,10 @@ struct Config {
 // than misread as the new layout.
 // Was 2416 before `remotes`/`remoteCount` were added (8 * uint32_t + uint8_t
 // + 3 bytes trailing padding = 36). Measured, not predicted.
-static_assert(sizeof(Config) == 2452, "EEPROM layout changed - bump kMagic");
+// 2452 -> 2580 when Condition::q (multi_sensor quorum) was added. Unlike
+// `always`, q did NOT fit in existing padding: Condition was exactly 34 bytes
+// with none spare, so it grew to 36 — times 4 conditions * 16 sensors = 128.
+static_assert(sizeof(Config) == 2580, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the
 // Telegram alert can name it. The device knows rfIds, not sensor or rule
@@ -98,4 +107,7 @@ class AlarmState {
   int findSensorIndex(const char* rfId) const;
   bool evaluateCondition(uint8_t sensorIndex, uint8_t conditionIndex, unsigned long nowMs);
   bool multiSensorSatisfied(const Condition& cond, unsigned long nowMs);
+  // Append a trigger timestamp, evicting the oldest when full rather than
+  // dropping the newest. See the definition for why that distinction matters.
+  static void recordTrigger(ConditionRuntime& rt, unsigned long nowMs);
 };

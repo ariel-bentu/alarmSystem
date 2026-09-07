@@ -11,6 +11,28 @@ export interface EvaluationResult {
 }
 
 /**
+ * How many of a multi_sensor rule's sensors must be satisfied for it to fire.
+ *
+ * Absent means ALL of them — the original AND, and what every rule written
+ * before the quorum existed means. Shared with buildConfig so the clamp is
+ * defined once, and mirrored by multiSensorSatisfied() in the firmware's
+ * alarm_state.cpp: if the two ever disagree, the device and the server
+ * disagree about whether the house is in alarm.
+ *
+ * Clamped rather than trusted. A quorum above the sensor count would be
+ * permanently unfireable — reachable in practice by unpairing a sensor from a
+ * "3 of 3" rule. A value below 1 means "all": it is what the device sends for
+ * an unset quorum (Condition::q is a uint8_t where 0 = all), so treating it
+ * as 1 would silently turn a multi-sensor rule into an any-one-sensor rule —
+ * the opposite of what a multi-sensor rule is for.
+ */
+export function quorumOf(condition: Condition, sensorCount: number): number {
+  const q = condition.quorum;
+  if (typeof q !== "number" || !Number.isFinite(q) || q < 1) return sensorCount;
+  return Math.min(Math.trunc(q), sensorCount);
+}
+
+/**
  * Evaluate whether the given event trips any of the provided rules.
  * @param rules - The rules from the active server profile
  * @param event - The current event being processed
@@ -74,20 +96,23 @@ function evaluateCondition(
       const windowMs = (condition.window_sec ?? 60) * 1000;
       const cutoff = now - windowMs;
 
-      // Every sensor of the rule must reach its required trigger count inside
-      // the shared window (AND). Counts default to 1 per sensor. The current
+      // A sensor is SATISFIED when it reaches its own required trigger count
+      // inside the shared window. Counts default to 1 per sensor. The current
       // event counts towards its own sensor's tally.
       const counts = condition.counts ?? {};
-      return {
-        triggered: ruleSensors.every((sensorId) => {
-          const required = counts[sensorId] ?? 1;
-          const seen = recentEvents.filter(
-            (e) => e.sensorId === sensorId && e.timestamp.toMillis() >= cutoff
-          ).length;
-          const total = sensorId === event.sensorId ? seen + 1 : seen;
-          return total >= required;
-        }),
-      };
+      const satisfied = ruleSensors.filter((sensorId) => {
+        const required = counts[sensorId] ?? 1;
+        const seen = recentEvents.filter(
+          (e) => e.sensorId === sensorId && e.timestamp.toMillis() >= cutoff
+        ).length;
+        const total = sensorId === event.sensorId ? seen + 1 : seen;
+        return total >= required;
+      }).length;
+
+      // Fires when ENOUGH sensors are satisfied — all of them by default,
+      // which is the original AND. Counted per sensor, so repeated triggers
+      // on one sensor satisfy that sensor once and never add to the quorum.
+      return { triggered: satisfied >= quorumOf(condition, ruleSensors.length) };
     }
 
     default:

@@ -216,6 +216,324 @@ void test_multi_sensor_requires_all_participants_within_window() {
   TEST_ASSERT_TRUE(state.onSensorEvent("AA11BB", 3000));  // AA11BB: 2/2, CC22DD: 1/1 -> fires
 }
 
+// --- Multi-sensor quorum ("2 of 3") ---
+// cond.q = how many participants must reach their own count inside the shared
+// window. 0 means "all", so every rule predating the field keeps its AND
+// behaviour. Mirrored by quorumOf() in functions/src/alarmLogic.ts — the two
+// evaluators MUST agree, or the device and the server disagree about whether
+// the house is in alarm.
+
+// Build a 3-sensor multi_sensor condition; each sensor needs `perSensor`
+// triggers and `quorum` of the three must reach it.
+static Config makeQuorumConfig(uint8_t quorum, uint16_t perSensorA = 1) {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 3;
+  strcpy(config.sensors[0].rfId, "AA0001");
+  strcpy(config.sensors[1].rfId, "BB0002");
+  strcpy(config.sensors[2].rfId, "CC0003");
+
+  Condition cond;
+  cond.t = 3; // multi_sensor
+  cond.w = 60;
+  cond.q = quorum;
+  cond.kLen = 3;
+  cond.kIndex[0] = 0; cond.kCount[0] = perSensorA;
+  cond.kIndex[1] = 1; cond.kCount[1] = 1;
+  cond.kIndex[2] = 2; cond.kCount[2] = 1;
+
+  // Every participant carries an identical copy — see buildConfig pass 2.
+  for (uint8_t i = 0; i < 3; i++) {
+    config.sensors[i].conditionCount = 1;
+    config.sensors[i].conditions[0] = cond;
+  }
+  return config;
+}
+
+void test_quorum_fires_when_two_of_three_are_satisfied() {
+  AlarmState state;
+  state.setConfig(makeQuorumConfig(2));
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000)); // 1 of 2 satisfied
+  TEST_ASSERT_TRUE(state.onSensorEvent("BB0002", 2000));  // 2 of 2 -> fires
+}
+
+void test_quorum_does_not_fire_with_only_one_satisfied() {
+  AlarmState state;
+  state.setConfig(makeQuorumConfig(2));
+
+  // Repeat triggers on ONE sensor: a quorum counts distinct satisfied
+  // sensors, so piling onto a single one must never reach 2 of 3.
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000));
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 2000));
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 3000));
+}
+
+void test_quorum_respects_per_sensor_counts() {
+  // A needs 2 triggers; one trigger leaves it UNsatisfied, so A(1) + B(1) is
+  // only one satisfied sensor, not two.
+  AlarmState state;
+  state.setConfig(makeQuorumConfig(2, /*perSensorA=*/2));
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000)); // A 1/2 — not satisfied
+  TEST_ASSERT_FALSE(state.onSensorEvent("BB0002", 2000)); // B 1/1 — only 1 satisfied
+  TEST_ASSERT_TRUE(state.onSensorEvent("AA0001", 3000));  // A 2/2 -> 2 satisfied
+}
+
+void test_quorum_zero_means_all_participants() {
+  // q = 0 is what a config written before this field looked like.
+  AlarmState state;
+  state.setConfig(makeQuorumConfig(0));
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000));
+  TEST_ASSERT_FALSE(state.onSensorEvent("BB0002", 2000));
+  TEST_ASSERT_TRUE(state.onSensorEvent("CC0003", 3000)); // all three -> fires
+}
+
+void test_quorum_ignores_participants_outside_the_window() {
+  AlarmState state;
+  state.setConfig(makeQuorumConfig(2));
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000));
+  // 61s later: A has aged out of the 60s window, so B alone is 1 of 2.
+  TEST_ASSERT_FALSE(state.onSensorEvent("BB0002", 62000));
+}
+
+// Reported from hardware 2026-09-07: a 10s-window rule fired on triggers
+// 15-20s apart. The window must bound the SPREAD between participants, not
+// just each participant's own history.
+void test_quorum_does_not_fire_when_participants_are_outside_the_window() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 3;
+  strcpy(config.sensors[0].rfId, "AA0001");
+  strcpy(config.sensors[1].rfId, "BB0002");
+  strcpy(config.sensors[2].rfId, "CC0003");
+
+  Condition cond;
+  cond.t = 3;
+  cond.w = 10;  // 10 second window
+  cond.q = 2;   // 2 of 3
+  cond.kLen = 3;
+  cond.kIndex[0] = 0; cond.kCount[0] = 1;
+  cond.kIndex[1] = 1; cond.kCount[1] = 1;
+  cond.kIndex[2] = 2; cond.kCount[2] = 1;
+  for (uint8_t i = 0; i < 3; i++) {
+    config.sensors[i].conditionCount = 1;
+    config.sensors[i].conditions[0] = cond;
+  }
+
+  AlarmState state;
+  state.setConfig(config);
+
+  // A at t=0, B at t=18s. 18s apart with a 10s window: must NOT fire.
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000));
+  TEST_ASSERT_FALSE(state.onSensorEvent("BB0002", 19000));
+}
+
+// w=0 is what the device sees when the rule carries no window_sec: RTDB drops
+// the undefined `w`, and the parser defaults it to 0. With a 0 window each
+// sensor still satisfies ITSELF at the instant it fires (nowMs - nowMs == 0,
+// which is <= 0), so a quorum of 2 trips on any two triggers however far
+// apart — the exact "window not respected" symptom seen on hardware.
+void test_zero_window_does_not_mean_unbounded() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 3;
+  strcpy(config.sensors[0].rfId, "AA0001");
+  strcpy(config.sensors[1].rfId, "BB0002");
+  strcpy(config.sensors[2].rfId, "CC0003");
+
+  Condition cond;
+  cond.t = 3;
+  cond.w = 0;  // no window delivered
+  cond.q = 2;
+  cond.kLen = 3;
+  cond.kIndex[0] = 0; cond.kCount[0] = 1;
+  cond.kIndex[1] = 1; cond.kCount[1] = 1;
+  cond.kIndex[2] = 2; cond.kCount[2] = 1;
+  for (uint8_t i = 0; i < 3; i++) {
+    config.sensors[i].conditionCount = 1;
+    config.sensors[i].conditions[0] = cond;
+  }
+
+  AlarmState state;
+  state.setConfig(config);
+
+  // Two triggers 18s apart with NO window must not corroborate each other.
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000));
+  TEST_ASSERT_FALSE(state.onSensorEvent("BB0002", 19000));
+}
+
+// The device does not start at millis()==0: by the time a rule is armed and
+// tested, millis() is minutes-to-hours large. Guards against any arithmetic
+// that only holds for small timestamps.
+void test_quorum_window_holds_at_realistic_uptime() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 3;
+  strcpy(config.sensors[0].rfId, "AA0001");
+  strcpy(config.sensors[1].rfId, "BB0002");
+  strcpy(config.sensors[2].rfId, "CC0003");
+
+  Condition cond;
+  cond.t = 3;
+  cond.w = 10;
+  cond.q = 2;
+  cond.kLen = 3;
+  cond.kIndex[0] = 0; cond.kCount[0] = 1;
+  cond.kIndex[1] = 1; cond.kCount[1] = 1;
+  cond.kIndex[2] = 2; cond.kCount[2] = 1;
+  for (uint8_t i = 0; i < 3; i++) {
+    config.sensors[i].conditionCount = 1;
+    config.sensors[i].conditions[0] = cond;
+  }
+
+  AlarmState state;
+  state.setConfig(config);
+
+  const unsigned long base = 3600000UL;  // 1 hour uptime
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", base));
+  TEST_ASSERT_FALSE(state.onSensorEvent("BB0002", base + 18000));
+}
+
+// --- Trigger history overflow ---
+// The history buffer holds 8 timestamps. When it is full AND nothing is stale
+// (every entry still inside the window), the append used to be skipped
+// outright — silently discarding the NEWEST trigger, which is the one a
+// window check actually cares about. Evicting the OLDEST instead keeps the
+// most recent 8, which is what both condition types need.
+
+void test_count_in_window_keeps_newest_when_history_is_full() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1;  // count_in_window
+  config.sensors[0].conditions[0].n = 8;  // exactly the buffer size
+  config.sensors[0].conditions[0].w = 300;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  // 7 triggers: not yet enough for n=8.
+  for (int i = 0; i < 7; i++) {
+    TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000 + i * 1000));
+  }
+  // 8th fills the buffer and meets the count.
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 8000));
+
+  // 9th arrives with the buffer full and NOTHING stale (all within 300s).
+  // The old guard dropped it; the count must still hold at 8 and fire.
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 9000));
+}
+
+// The damaging shape: with the buffer full of in-window entries, a trigger
+// arriving LATER must still be recorded, so that once the older entries age
+// out the sensor is not left with a history that stopped updating.
+void test_full_history_still_records_later_triggers() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].rfId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1;
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 100;  // 100s window
+
+  AlarmState state;
+  state.setConfig(config);
+
+  // Fill all 8 slots early in the window (t = 1s..8s).
+  for (int i = 0; i < 8; i++) {
+    state.onSensorEvent("A1B2C3", 1000 + i * 1000);
+  }
+  // A trigger at t=95s: buffer is full and all 8 entries are still inside
+  // the 100s window, so nothing is pruned. It MUST still be recorded.
+  state.onSensorEvent("A1B2C3", 95000);
+
+  // Now jump past the original 8 (t=150s): only the t=95s entry should
+  // remain in window, plus this new one -> exactly n=2 -> fires.
+  // If t=95s had been dropped, this would be the only entry and NOT fire.
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 150000));
+}
+
+void test_multi_sensor_keeps_newest_when_history_is_full() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 2;
+  strcpy(config.sensors[0].rfId, "AA0001");
+  strcpy(config.sensors[1].rfId, "BB0002");
+
+  Condition cond;
+  cond.t = 3;
+  cond.w = 100;  // long window, so early entries stay valid
+  cond.q = 0;    // all participants
+  cond.kLen = 2;
+  cond.kIndex[0] = 0; cond.kCount[0] = 1;
+  cond.kIndex[1] = 1; cond.kCount[1] = 1;
+  for (uint8_t i = 0; i < 2; i++) {
+    config.sensors[i].conditionCount = 1;
+    config.sensors[i].conditions[0] = cond;
+  }
+
+  AlarmState state;
+  state.setConfig(config);
+
+  // Fill A's 8 slots early (t = 1s..8s), B silent so nothing fires.
+  for (int i = 0; i < 8; i++) {
+    TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 1000 + i * 1000));
+  }
+  // A triggers again at t=95s with a full, all-in-window buffer.
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 95000));
+
+  // At t=150s the original 8 have aged out; only the t=95s entry can keep A
+  // satisfied. B now triggers -> both satisfied -> fires. If A's t=95s
+  // trigger had been dropped, A would have no in-window entry and this
+  // would not fire.
+  TEST_ASSERT_TRUE(state.onSensorEvent("BB0002", 150000));
+}
+
+// Hardware 2026-09-07, exact timings from serial:
+//   t=43.1s  0x1520FE  fire=0
+//   t=43.7s  0x170D09  fire=1   <- correct: 0.6s apart, inside the 10s window
+//   t=54.4s  0x170D09  fire=1   <- WRONG: both prior triggers are >10s old
+// The second fire had no second sensor inside the window. 0x170D09 alone
+// cannot satisfy a 2-of-3 quorum, so this must not fire.
+void test_quorum_does_not_refire_once_the_partner_ages_out() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 3;
+  strcpy(config.sensors[0].rfId, "AA0001");  // 0x170D09
+  strcpy(config.sensors[1].rfId, "BB0002");  // 0x1520FE
+  strcpy(config.sensors[2].rfId, "CC0003");
+
+  Condition cond;
+  cond.t = 3;
+  cond.w = 10;
+  cond.q = 2;
+  cond.kLen = 3;
+  cond.kIndex[0] = 0; cond.kCount[0] = 1;
+  cond.kIndex[1] = 1; cond.kCount[1] = 1;
+  cond.kIndex[2] = 2; cond.kCount[2] = 1;
+  for (uint8_t i = 0; i < 3; i++) {
+    config.sensors[i].conditionCount = 1;
+    config.sensors[i].conditions[0] = cond;
+  }
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 5393));   // t=0
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 29393));  // t=24s
+  TEST_ASSERT_FALSE(state.onSensorEvent("BB0002", 48517));  // t=43.1s
+  TEST_ASSERT_TRUE(state.onSensorEvent("AA0001", 49110));   // t=43.7s -> fires
+  // t=54.4s: BB0002 is 11.3s old, the previous AA0001 10.7s old. Nothing
+  // else is inside the window, so AA0001 is alone -> must NOT fire.
+  TEST_ASSERT_FALSE(state.onSensorEvent("AA0001", 59813));
+}
+
 // --- Trigger cause reporting ---
 // The cause travels to the cloud as /{projectId}/state/alarm_cause so the
 // Telegram alert can name what fired. See functions/src/alarmCause.ts.
@@ -325,6 +643,18 @@ void setup() {
   RUN_TEST(test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay);
   RUN_TEST(test_entry_delay_disarm_cancels_pending_fire);
   RUN_TEST(test_multi_sensor_requires_all_participants_within_window);
+  RUN_TEST(test_quorum_fires_when_two_of_three_are_satisfied);
+  RUN_TEST(test_quorum_does_not_fire_with_only_one_satisfied);
+  RUN_TEST(test_quorum_respects_per_sensor_counts);
+  RUN_TEST(test_quorum_zero_means_all_participants);
+  RUN_TEST(test_quorum_ignores_participants_outside_the_window);
+  RUN_TEST(test_quorum_does_not_fire_when_participants_are_outside_the_window);
+  RUN_TEST(test_zero_window_does_not_mean_unbounded);
+  RUN_TEST(test_quorum_window_holds_at_realistic_uptime);
+  RUN_TEST(test_quorum_does_not_refire_once_the_partner_ages_out);
+  RUN_TEST(test_count_in_window_keeps_newest_when_history_is_full);
+  RUN_TEST(test_full_history_still_records_later_triggers);
+  RUN_TEST(test_multi_sensor_keeps_newest_when_history_is_full);
   RUN_TEST(test_cause_reports_rfid_and_condition_type_on_immediate);
   RUN_TEST(test_cause_untouched_when_nothing_fires);
   RUN_TEST(test_cause_reports_count_in_window_on_the_firing_event);

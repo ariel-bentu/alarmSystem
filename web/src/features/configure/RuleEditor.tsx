@@ -80,6 +80,31 @@ export default function RuleEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMulti]);
 
+  // A quorum is only offered for 3+ sensors: with exactly 2 the only valid
+  // value is 2, which is the plain AND the rule already has.
+  const quorumAllowed = selectedSensors.length > 2;
+  const effectiveQuorum = localCondition.quorum ?? selectedSensors.length;
+
+  // Deselecting sensors must not leave a quorum larger than what remains —
+  // "3 of 3" over 2 sensors can never be met. Mirrors the same clamp in
+  // reconcileRulesForRemovedSensor (profileRules.ts), which covers the other
+  // way a rule loses a sensor: unpairing it entirely.
+  useEffect(() => {
+    if (localCondition.type !== "multi_sensor") return;
+    const q = localCondition.quorum;
+    if (typeof q !== "number") return;
+    if (q <= selectedSensors.length && quorumAllowed) return;
+    // Dropping to 2 sensors clears it outright rather than pinning it to 2:
+    // absent already means "all", and a stored 2 would resurface as a stale
+    // value if a third sensor were added back.
+    const next = { ...localCondition };
+    if (!quorumAllowed) delete next.quorum;
+    else next.quorum = selectedSensors.length;
+    setLocalCondition(next);
+    onChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSensors.length]);
+
   // Per-sensor required trigger counts (multi_sensor only). Default 1.
   const handleCountChange = (sensorId: string, value: number) => {
     const counts = { ...(localCondition.counts ?? {}), [sensorId]: value };
@@ -240,10 +265,42 @@ export default function RuleEditor({
               }
             />
           </div>
+          {quorumAllowed && (
+            <div className="field">
+              <label className="field__label" htmlFor="cond-multi-quorum">
+                {t("cfg.rule.sensorsRequired")}
+              </label>
+              <input
+                id="cond-multi-quorum"
+                className="input input--narrow"
+                type="number"
+                min={2}
+                max={selectedSensors.length}
+                value={effectiveQuorum}
+                onChange={(e) =>
+                  handleParamChange("quorum", Number(e.target.value))
+                }
+              />
+              <span className="muted">
+                {" "}
+                {t("cfg.rule.ofSensors", { count: selectedSensors.length })}
+              </span>
+            </div>
+          )}
           {selectedSensors.length > 0 && (
             <div>
               <strong>{t("cfg.rule.triggersPerSensor")}</strong>
-              <p className="muted">{t("cfg.rule.allMustReach")}</p>
+              {/* The hint states the firing rule, so it has to track the
+                  quorum: "all sensors must reach their count" is simply
+                  false once only some of them are required. */}
+              <p className="muted">
+                {effectiveQuorum < selectedSensors.length
+                  ? t("cfg.rule.quorumMustReach", {
+                      quorum: effectiveQuorum,
+                      count: selectedSensors.length,
+                    })
+                  : t("cfg.rule.allMustReach")}
+              </p>
               {selectedSensors.map((s) => (
                 <div className="field" key={s.id}>
                   <label className="field__label" htmlFor={`count-${s.id}`}>
