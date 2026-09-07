@@ -22,7 +22,11 @@ import {
   profileDoc,
   rulesCol,
 } from "@/lib/firestore";
-import { commandsArmedRef, commandsSirenRef } from "@/lib/rtdb";
+import {
+  commandsArmedRef,
+  commandsArmedViaRef,
+  commandsSirenRef,
+} from "@/lib/rtdb";
 import { useOnlineStatus } from "@/lib/useOnlineStatus";
 import { useT } from "@/i18n/I18nProvider";
 import { useDeviceState } from "./useDeviceState";
@@ -194,6 +198,9 @@ export default function OperationsPage() {
       }
 
       if (side === "device") {
+        // Stamped BEFORE commands/armed so onArmStateChange, which triggers on
+        // that write, can attribute the row to the app rather than guessing.
+        await set(commandsArmedViaRef(projectId), "app");
         await set(commandsArmedRef(projectId), profileId !== null);
         // Disarming must always silence, including after SOS while already
         // disarmed. The firmware's applyArmedCommand() calls siren.turnOff(),

@@ -1,6 +1,6 @@
 // Telegram helper: send messages and pure formatting functions.
 
-import { BatteryStatus } from "./types";
+import { BatteryStatus, ArmSource } from "./types";
 import { Timestamp } from "firebase-admin/firestore";
 import { parseArmSource } from "./deviceArmNotify";
 
@@ -53,6 +53,17 @@ export function formatSensorAlert(sensorName: string, eventType: string): string
 // label = the rule/condition name, or the sensor name when the rule is unnamed.
 export function formatAlarm(label: string): string {
   return `🚨 Alarm triggered — ${label}`;
+}
+
+// Human name for a cloud arm source, used as the `side` of formatArmState.
+// A scheduled arm previously said "Device armed" — technically the side that
+// armed, but it reads as though the hardware did it on its own, which is the
+// same conflation the timeline had. Only the cloud sources appear here; the
+// device-originated ones go through formatArmStateBySource instead.
+export function armSourceLabel(source: ArmSource): string {
+  if (source === "schedule") return "Schedule";
+  if (source === "telegram") return "Telegram";
+  return "App";
 }
 
 // side: "Device" | "Server" (omitted for a generic system-wide message).

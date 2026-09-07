@@ -101,6 +101,10 @@ async function fireEdge(
   await batch.commit();
 
   if (schedule.side === "device") {
+    // Stamped BEFORE commands/armed so onArmStateChange, which triggers on
+    // that write, attributes the timeline row to the schedule rather than
+    // defaulting to the app.
+    await rtdb.ref(`${projectId}/commands/armed_via`).set("schedule");
     await rtdb.ref(`${projectId}/commands/armed`).set(arming);
     // Disarming must always silence. commands/armed only reaches the device
     // on a VALUE CHANGE, so disarming an already-disarmed device delivers

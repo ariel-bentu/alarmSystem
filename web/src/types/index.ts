@@ -125,8 +125,13 @@ export interface Condition {
   window_sec?: number; // count_in_window, multi_sensor
   delay_sec?: number; // entry_delay
   // multi_sensor only: per-sensor trigger counts required inside window_sec.
-  // Missing entries default to 1. All sensors of the rule must be satisfied (AND).
+  // Missing entries default to 1. A sensor is "satisfied" once it reaches its
+  // own count within the window.
   counts?: Record<string, number>;
+  // multi_sensor only: how many of the rule's sensors must be satisfied for
+  // it to fire ("2 of 3"). ABSENT means all of them — the original AND — so
+  // rules predating this field keep their behaviour untouched.
+  quorum?: number;
 }
 
 export interface Rule {
@@ -171,6 +176,17 @@ export interface Schedule {
   createdAt: Timestamp;
 }
 
+// Who caused an arm/disarm. The cloud sources (app/schedule/telegram) come
+// from commands/armed_via; the device ones (remote/local/cloud) from
+// state/armed_by via parseArmSource in the functions.
+export type ArmSource =
+  | "app"
+  | "schedule"
+  | "telegram"
+  | "remote"
+  | "local"
+  | "cloud";
+
 export interface AlarmEvent {
   id: string; // eventId
   sensorId: string;
@@ -180,6 +196,10 @@ export interface AlarmEvent {
   batteryLow: boolean;
   rssi: number;
   timestamp: Timestamp;
+  // Arm/disarm rows only, and ABSENT on rows written before this field
+  // existed. Disambiguates sensorName, which holds a profile name for a cloud
+  // arm but a remote's name for a device one — see eventSubject().
+  armSource?: ArmSource;
 }
 
 // ---- Realtime Database (device-facing) shapes ----

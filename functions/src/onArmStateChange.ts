@@ -8,8 +8,8 @@
 import { onValueWritten } from "firebase-functions/v2/database";
 import { Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
-import { Project, AlarmEvent, Profile } from "./types";
-import { sendTelegram, formatArmState } from "./telegram";
+import { Project, AlarmEvent, Profile, ArmSource } from "./types";
+import { sendTelegram, formatArmState, armSourceLabel } from "./telegram";
 
 export const onArmStateChange = onValueWritten(
   { ref: "/{projectId}/commands/armed", region: "europe-west1" },
@@ -50,9 +50,22 @@ export const onArmStateChange = onValueWritten(
       }
     }
 
+    // WHICH cloud source wrote commands/armed. Four of them do (the web app,
+    // scheduleTick, telegramWebhook, and onDeviceArmStateChange's re-sync),
+    // and this function sees only the resulting boolean — so each stamps
+    // armed_via first. Defaulting to "app" covers a writer that has not been
+    // updated: the web app is the overwhelmingly common source, and the point
+    // is that the row no longer claims a REMOTE was used.
+    const viaSnap = await rtdb.ref(`${projectId}/commands/armed_via`).get();
+    const via = viaSnap.exists() ? String(viaSnap.val()) : null;
+    const armSource: ArmSource =
+      via === "schedule" || via === "telegram" || via === "app" ? via : "app";
+
     // Mirror to Firestore events. sensorName carries the profile for
     // arm/disarm rows — the timeline's "sensor" column is really "what this
-    // event is about", and for an arm event that is the profile.
+    // event is about", and for an arm event that is the profile. armSource
+    // says so explicitly: without it the UI read this profile name as a
+    // remote's name and rendered "Remote <profile>".
     const alarmEvent: Omit<AlarmEvent, "id"> = {
       sensorId: "",
       rfId: "",
@@ -61,6 +74,7 @@ export const onArmStateChange = onValueWritten(
       batteryLow: false,
       rssi: 0,
       timestamp: Timestamp.now(),
+      armSource,
     };
     await db.collection(`projects/${projectId}/events`).add(alarmEvent);
 
@@ -73,7 +87,9 @@ export const onArmStateChange = onValueWritten(
     await sendTelegram(
       project.telegramBotToken,
       project.telegramChatId,
-      formatArmState(armed, "Device", profileName),
+      // The source, not a hardcoded "Device": a scheduled arm read "Device
+      // armed — Night", which is the same conflation the timeline had.
+      formatArmState(armed, armSourceLabel(armSource), profileName),
       true // arm/disarm is a notice, not a demand for attention
     );
   }

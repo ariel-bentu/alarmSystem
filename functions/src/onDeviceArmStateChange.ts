@@ -109,6 +109,10 @@ export const onDeviceArmStateChange = onValueWritten(
       batteryLow: false,
       rssi: 0,
       timestamp: Timestamp.now(),
+      // Reuses the kind already parsed above. This is what lets the UI apply
+      // the "Remote <name>" prefix ONLY to rows that really came from a
+      // remote — sensorName carries a bare name either way.
+      armSource: sourceKind,
     };
     await db.collection(`projects/${projectId}/events`).add(alarmEvent);
 

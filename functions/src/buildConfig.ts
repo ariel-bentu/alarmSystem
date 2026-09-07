@@ -9,6 +9,7 @@ import {
   RtdbCondition,
   RtdbConfig,
 } from "./types";
+import { quorumOf } from "./alarmLogic";
 
 const CONDITION_TYPE_CODE: Record<Condition["type"], 0 | 1 | 2 | 3> = {
   immediate: 0,
@@ -52,7 +53,15 @@ function toRtdbCondition(
       if (idx === -1) continue;
       k[String(idx)] = condition.counts?.[sensorId] ?? 1;
     }
-    return { t, w: condition.window_sec, k, ...x };
+    // Clamped against the participants that SURVIVED resolution, not
+    // ruleSensorIds: an unresolvable sensor is dropped from k above, and a
+    // quorum higher than what remains would be permanently unfireable.
+    const participants = Object.keys(k).length;
+    const quorum = quorumOf(condition, participants);
+    // Omitted when it equals the participant count — that is the plain AND,
+    // and keeping the payload identical matters on a config polled every 5s.
+    const q = quorum < participants ? { q: quorum } : {};
+    return { t, w: condition.window_sec, k, ...q, ...x };
   }
   // immediate
   return { t, ...x };

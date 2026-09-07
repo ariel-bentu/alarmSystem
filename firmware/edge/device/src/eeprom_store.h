@@ -21,17 +21,25 @@ class EepromStore {
   // Small headroom so a modest Config change doesn't require an EEPROM
   // layout migration; still an order of magnitude below the old 4096.
   static constexpr size_t kReservedBytes = kRecordBytes + 64;
-  // Bumped from 0xA1A2B3B6 — adding Config::remotes/remoteCount changed
-  // sizeof(Config) (2416 -> 2452), so records written by earlier firmware
-  // must be rejected rather than misread. A magic mismatch is decode()'s
-  // rejection mechanism. (The previous bump, 0xA1A2B3B5 -> 0xA1A2B3B6, was
-  // for Config::sirenBaseAddress.)
+  // Bumped from 0xA1A2B3B7 — adding Condition::q (the multi_sensor quorum)
+  // changed sizeof(Config) (2452 -> 2580), so records written by earlier
+  // firmware must be rejected rather than misread. A magic mismatch is
+  // decode()'s rejection mechanism. (Earlier bumps: 0xA1A2B3B6 -> B7 for
+  // Config::remotes/remoteCount, 0xA1A2B3B5 -> B6 for sirenBaseAddress.)
   //
   // Cost: on the first boot after flashing, stored config is discarded and
   // the device starts disarmed with an empty config, then re-pulls from the
   // cloud. Paired remotes survive because they are re-pushed from Firestore;
   // a device with no WiFi at that moment has none until it reconnects once.
-  static constexpr uint32_t kMagic = 0xA1A2B3B7;
+  //
+  // The SIREN ADDRESS is the one thing that is not merely re-pulled: the
+  // device→cloud path is write-only, so a wiped EEPROM re-adopts it from the
+  // config's `s` field (main.cpp applyPendingConfigUpdate) — and only if the
+  // project has already reported one. A device that has never been online
+  // with a valid address generates a NEW one and loses the physical siren
+  // pairing, which must then be redone by hand. Verify /{projectId}/state
+  // carries the siren address before flashing a magic bump to live hardware.
+  static constexpr uint32_t kMagic = 0xA1A2B3B8;
 
   bool begin();
   bool load(bool* armed, bool* localWebEnabled, Config* config);

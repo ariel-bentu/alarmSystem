@@ -202,6 +202,11 @@ export const he: Record<TranslationKey, string> = {
   "cfg.rule.conditionType": "סוג התנאי",
   "cfg.rule.multiHint": "שני גלאים או יותר — החוק הוא תנאי מרובה גלאים.",
   "cfg.rule.allMustReach": "כל הגלאים חייבים להגיע למספר ההפעלות שלהם בתוך חלון הזמן.",
+  // מכסה ("2 מתוך 3"). מוצג רק כאשר נבחרו 3 גלאים או יותר.
+  "cfg.rule.sensorsRequired": "מספר גלאים נדרש",
+  "cfg.rule.ofSensors": "מתוך {count}",
+  "cfg.rule.quorumMustReach":
+    "כל {quorum} מתוך {count} הגלאים חייבים להגיע למספר ההפעלות שלהם בתוך חלון הזמן.",
   "cfg.rule.invalid": "פרמטרים לא תקינים בתנאי.",
   "cfg.rule.noSensors": "בחרו לפחות גלאי אחד.",
 
@@ -255,6 +260,12 @@ export const he: Record<TranslationKey, string> = {
   // מציין באיזה שלט בוצעה הדריכה/הנטרול.
   "explore.remoteSubject": "שלט {name}",
   "explore.eventSource.remote": "שלט",
+  // מציין מה ביצע את הדריכה/הנטרול כשהפעולה הגיעה מהענן ולא מהחומרה.
+  // {name} כאן הוא הפרופיל, לא שלט.
+  "explore.armSubject": "{source} — {name}",
+  "explore.eventSource.app": "אפליקציה",
+  "explore.eventSource.schedule": "תזמון",
+  "explore.eventSource.telegram": "טלגרם",
   // אירועי בקר, לא אירועי גלאי.
   "explore.eventType.device_restart": "הופעל מחדש",
   "explore.eventType.device_offline": "מנותק",

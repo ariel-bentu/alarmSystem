@@ -978,6 +978,19 @@ void loop() {
   cloudClient.loop(siren.isActive());
   stallMonitorPhase("loop");
 
+  // Re-read the clock: cloudClient.loop() above BLOCKS (DNS, TLS handshake,
+  // synchronous get/set — up to kSyncTimeoutSec). Everything below is
+  // time-sensitive, and using the pre-block `now` dates a packet decoded
+  // after the call to before it. Two packets delayed by different amounts
+  // then get an apparent gap shorter or longer than the real one, which
+  // corrupts every windowed condition.
+  //
+  // Observed on hardware 2026-09-07: a 2-of-3 rule with a 10s window fired
+  // on triggers 10.7s and 11.3s apart, because the stale timestamps put
+  // them inside it. Also affects the entry-delay deadline and the siren's
+  // auto-off, both of which were being told time had not advanced.
+  now = millis();
+
   pollCc1101(now);
 
   pollEntryDelay(now);
@@ -1013,7 +1026,18 @@ void loop() {
   // Note this is "config RECEIVED", not "config update applied": a device
   // whose config never changes gets no updates, and gating on those would
   // leave it addressless forever.
+  //
+  // ALSO gated on there being no config update still QUEUED. hasReceivedConfig()
+  // and hasPendingConfigUpdate() are both set by the same applyConfigJson()
+  // call, but applyPendingConfigUpdate() — which is what actually adopts the
+  // cloud's address — runs LATER in this same loop() iteration. Without this
+  // check the very first poll generates a fresh address microseconds before
+  // adopting the correct one, then reports it up and overwrites the good
+  // value in Firestore. That defeats the whole lost-pairing protection
+  // exactly when it is needed: on a device whose EEPROM was just wiped.
+  // Measured on hardware 2026-09-07 — cost a real siren pairing twice.
   if (cloudClient.hasReceivedConfig() &&
+      !cloudClient.hasPendingConfigUpdate() &&
       !SirenAddress::isValid(config.sirenBaseAddress)) {
     maybeGenerateSirenAddress();
   }

@@ -206,6 +206,133 @@ describe("evaluateRules", () => {
         );
         expect(result.triggered).toBe(false);
       });
+    });
+
+    // "2 of 3": enough sensors corroborate without demanding all of them.
+    // These MIRROR the device tests in test_alarm_state.cpp — the two
+    // evaluators must agree or the device and server disagree about whether
+    // the house is in alarm.
+    describe("quorum", () => {
+      const quorumRules = (quorum?: number, counts?: Record<string, number>): Rule[] => [
+        {
+          id: "r1",
+          name: "Any two",
+          sensors: ["sensor1", "sensor2", "sensor3"],
+          condition: { type: "multi_sensor", window_sec: 60, quorum, counts },
+        },
+      ];
+
+      it("fires once the quorum is met, without every sensor", () => {
+        const recent = [makeEvent({ sensorId: "sensor2", timestamp: now - 5_000 })];
+        // sensor1 (current) + sensor2 = 2 of 3; sensor3 never fired.
+        const result = evaluateRules(
+          quorumRules(2),
+          makeEvent({ sensorId: "sensor1", timestamp: now }),
+          recent,
+          now
+        );
+        expect(result.triggered).toBe(true);
+      });
+
+      it("does not fire with only one sensor satisfied", () => {
+        // Repeat triggers on ONE sensor: the quorum counts distinct satisfied
+        // sensors, so piling onto one must never reach 2 of 3.
+        const recent = [
+          makeEvent({ sensorId: "sensor1", timestamp: now - 5_000 }),
+          makeEvent({ sensorId: "sensor1", timestamp: now - 8_000 }),
+        ];
+        const result = evaluateRules(
+          quorumRules(2),
+          makeEvent({ sensorId: "sensor1", timestamp: now }),
+          recent,
+          now
+        );
+        expect(result.triggered).toBe(false);
+      });
+
+      it("counts a sensor toward the quorum only once it meets its own count", () => {
+        // sensor1 needs 2. With one trigger it is NOT satisfied, so
+        // sensor1(1) + sensor2(1) is one satisfied sensor, not two.
+        const rules = quorumRules(2, { sensor1: 2 });
+        const short = evaluateRules(
+          rules,
+          makeEvent({ sensorId: "sensor1", timestamp: now }),
+          [makeEvent({ sensorId: "sensor2", timestamp: now - 5_000 })],
+          now
+        );
+        expect(short.triggered).toBe(false);
+
+        // Same again with sensor1 reaching 2 → two satisfied sensors.
+        const met = evaluateRules(
+          rules,
+          makeEvent({ sensorId: "sensor1", timestamp: now }),
+          [
+            makeEvent({ sensorId: "sensor1", timestamp: now - 3_000 }),
+            makeEvent({ sensorId: "sensor2", timestamp: now - 5_000 }),
+          ],
+          now
+        );
+        expect(met.triggered).toBe(true);
+      });
+
+      it("treats an absent quorum as requiring all sensors", () => {
+        // Every existing rule is this case — the AND must be unchanged.
+        const twoOfThree = [makeEvent({ sensorId: "sensor2", timestamp: now - 5_000 })];
+        expect(
+          evaluateRules(
+            quorumRules(undefined),
+            makeEvent({ sensorId: "sensor1", timestamp: now }),
+            twoOfThree,
+            now
+          ).triggered
+        ).toBe(false);
+
+        const allThree = [
+          makeEvent({ sensorId: "sensor2", timestamp: now - 5_000 }),
+          makeEvent({ sensorId: "sensor3", timestamp: now - 6_000 }),
+        ];
+        expect(
+          evaluateRules(
+            quorumRules(undefined),
+            makeEvent({ sensorId: "sensor1", timestamp: now }),
+            allThree,
+            now
+          ).triggered
+        ).toBe(true);
+      });
+
+      it("clamps a quorum larger than the sensor count so the rule stays fireable", () => {
+        // A stale "3 of 3" left on a rule whose sensor was unpaired would
+        // otherwise be permanently unfireable.
+        const result = evaluateRules(
+          [
+            {
+              id: "r1",
+              name: "Stale",
+              sensors: ["sensor1", "sensor2"],
+              condition: { type: "multi_sensor", window_sec: 60, quorum: 5 },
+            },
+          ],
+          makeEvent({ sensorId: "sensor1", timestamp: now }),
+          [makeEvent({ sensorId: "sensor2", timestamp: now - 5_000 })],
+          now
+        );
+        expect(result.triggered).toBe(true);
+      });
+
+      it("treats a quorum below 1 as 'all', matching the device", () => {
+        // The firmware stores the quorum as a uint8_t where 0 means "all"
+        // (Condition::q), so 0 must NOT collapse to 1 — that would turn a
+        // multi-sensor rule into an any-one-sensor rule, which is the
+        // opposite of the point. Only the current event has fired here.
+        const result = evaluateRules(
+          quorumRules(0),
+          makeEvent({ sensorId: "sensor1", timestamp: now }),
+          [],
+          now
+        );
+        expect(result.triggered).toBe(false);
+      });
 
       it("defaults a missing count to 1", () => {
         const mixed: Rule[] = [

@@ -206,6 +206,12 @@ export const en = {
   "cfg.rule.conditionType": "Condition Type",
   "cfg.rule.multiHint": "Two or more sensors — the rule is a Multi Sensor condition.",
   "cfg.rule.allMustReach": "All sensors must reach their count within the window.",
+  // Quorum ("2 of 3"). Offered only for 3+ sensors: with two, the only valid
+  // value is the AND the rule already has.
+  "cfg.rule.sensorsRequired": "Sensors required",
+  "cfg.rule.ofSensors": "of {count}",
+  "cfg.rule.quorumMustReach":
+    "Any {quorum} of the {count} sensors must reach their count within the window.",
   "cfg.rule.invalid": "Invalid condition parameters.",
   "cfg.rule.noSensors": "Select at least one sensor.",
 
@@ -264,6 +270,13 @@ export const en = {
   // Shown when the identity matched no paired remote (e.g. one removed in the
   // UI but still transmitting).
   "explore.eventSource.remote": "Remote",
+  // Names WHAT armed/disarmed when the change came from the cloud rather than
+  // the hardware. {name} here is the PROFILE, not a remote — these rows used
+  // to render as "Remote <profile>", claiming a remote was used.
+  "explore.armSubject": "{source} — {name}",
+  "explore.eventSource.app": "App",
+  "explore.eventSource.schedule": "Schedule",
+  "explore.eventSource.telegram": "Telegram",
   // Controller lifecycle, not sensor activity.
   "explore.eventType.device_restart": "Restarted",
   "explore.eventType.device_offline": "Went offline",
