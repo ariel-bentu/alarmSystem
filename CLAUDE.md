@@ -103,7 +103,7 @@ firmware/edge/
     src/                 ← main.cpp, alarm_state, cloud_client, cc1101_receiver,
                            ev1527_frame, eeprom_store, local_web_server,
                            provisioning_portal, platform_compat, siren_address
-    test/                ← native Unity tests (44 tests, 5 suites)
+    test/                ← native Unity tests (98 tests, 11 suites)
   spike_*/               ← throwaway diagnostic sketches, kept as known-good controls
 web/                     ← React + TypeScript (Vite), Firebase Hosting
 functions/               ← Cloud Functions (TypeScript, gen-2)
@@ -179,7 +179,13 @@ watchdog / offline-alert work (untested on hardware as of 2026-09-02).
 **Working on real hardware:** ESP32-S3 boots, provisions WiFi, mints its
 Firebase token, decodes real Kerui sensors, evaluates rules, drives the siren
 over RF hub-free, serves the LAN web UI, and writes events to Firebase with
-Telegram alerts confirmed. 44 native unit tests pass.
+Telegram alerts confirmed. 98 native unit tests pass.
+
+**Stability: 23h16m clean run (2026-09-07)** — single boot, zero `twdt` reboots,
+zero stall dumps, flat heap. Proves the TLS-handshake, blocking-DNS and
+dead-socket fixes in
+[tls-handshake-watchdog-reboot](docs/history/tls-handshake-watchdog-reboot.md).
+Does NOT yet clear the silent auth death, seen at 28h/31.76h — that needs ~36h.
 
 **Deployed:** full web app (auth, pairing, profiles/rules, operations,
 schedules, timeline, simulator), all Cloud Functions, invite-only access,

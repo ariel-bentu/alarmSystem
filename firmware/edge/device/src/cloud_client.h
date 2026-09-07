@@ -17,6 +17,7 @@
 #include "alarm_state.h"
 #include "auth_supervisor.h"
 #include "config_parser.h"
+#include "ssl_client_with_dns.h"
 
 class CloudClient {
  public:
@@ -180,8 +181,15 @@ class CloudClient {
   // Heap-allocated after the mint, not plain members: each WiFiClientSecure
   // allocates a WiFiClientSecureCtx in its constructor, and holding those
   // through the mint's own handshake wastes the headroom it needs.
-  WiFiClientSecure* authSslClient_ = nullptr;
-  WiFiClientSecure* dataSslClient_ = nullptr;
+  //
+  // SslClientWithDns (not a plain WiFiClientSecure): resolves each host once
+  // and connects by IP, so FirebaseClient's per-poll/per-write connect() no
+  // longer runs a blocking DNS lookup that the watchdog cannot see. Matters
+  // for BOTH — the auth client reconnects on every ~hourly token refresh, and
+  // that handshake blocks the same loop task the watchdog watches. See
+  // ssl_client_with_dns.h.
+  SslClientWithDns* authSslClient_ = nullptr;
+  SslClientWithDns* dataSslClient_ = nullptr;
   // mintCustomToken() uses a stack-local WiFiClientSecure, freshly
   // constructed per call — see its comment for why a long-lived version
   // (member, and separately a lazily-allocated pointer) both regressed to

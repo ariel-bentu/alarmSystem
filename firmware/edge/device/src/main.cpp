@@ -13,6 +13,7 @@
 #include "remote_control.h"
 #include "siren_address.h"
 #include "relay_siren.h"
+#include "stall_monitor.h"
 
 #ifndef FIREBASE_WEB_API_KEY
 #define FIREBASE_WEB_API_KEY "REPLACE_WITH_PROJECT_WEB_API_KEY"
@@ -500,6 +501,7 @@ void maybeGenerateSirenAddress() {
 __attribute__((noinline))
 void runSirenPairing() {
   const unsigned long kPairingWindowMs = 10000UL;
+  stallMonitorPhase("siren-pair");
   Serial.printf("[siren] pairing: looping 0x%06lX for 10s — press SET on the siren\n",
                 (unsigned long)config.sirenBaseAddress);
   const unsigned long start = millis();
@@ -509,6 +511,7 @@ void runSirenPairing() {
     platformFeedWatchdog();
   }
   Serial.println("[siren] pairing window closed");
+  stallMonitorPhase("loop");
 }
 
 bool connectToWifi(const String& ssid, const String& password,
@@ -895,6 +898,14 @@ void setup() {
   // fires for a genuine hang, never for slow-but-progressing work.
   platformWatchdogBegin(kWatchdogTimeoutSec);
 
+  // Observe a hung loopTask BEFORE the watchdog reboots it. Runs on the other
+  // core and dumps the stuck phase over serial at 40s, while USB is still
+  // enumerated — the 60s TWDT panic usually loses its backtrace because the
+  // S3's USB-Serial/JTAG stops enumerating the instant the CPU halts. Started
+  // here, right after the watchdog, so a hang anywhere from provisioning
+  // onward is covered. See stall_monitor.h.
+  stallMonitorBegin();
+
   pinMode(kForcePortalPin, INPUT_PULLUP);
   bool forcePortal = digitalRead(kForcePortalPin) == LOW;
 
@@ -926,6 +937,12 @@ void loop() {
   // it powered and dead — see platformWatchdogBegin()'s comment.
   platformFeedWatchdog();
 
+  // Record loop progress for the stall monitor (stall_monitor.h). Individual
+  // blocking stretches below re-tag the phase via stallMonitorPhase() so a
+  // hang inside one is named in the monitor's 40s dump; this top-of-loop bump
+  // both re-arms the detector and sets the default "loop" phase.
+  stallMonitorBump("loop");
+
   if (portalActive) {
     portal.handle();
     if (portal.hasPendingSave()) {
@@ -953,7 +970,13 @@ void loop() {
   // firmware. Call it FIRST, before any of the work below, so it sees the
   // most cont-stack headroom available. Everything after this point is
   // cheap or held out-of-line — see handleSensorEvent()'s note.
+  //
+  // This is also the deepest BLOCKING stretch (DNS resolve, TLS handshake,
+  // synchronous get/set), so tag it for the stall monitor: if loop() wedges
+  // here, the 40s dump reads phase='cloud' rather than the generic 'loop'.
+  stallMonitorPhase("cloud");
   cloudClient.loop(siren.isActive());
+  stallMonitorPhase("loop");
 
   pollCc1101(now);
 
