@@ -338,7 +338,7 @@ void CloudClient::startAppAndStreams() {
   // leaking ~7KB of TLS buffers per recovery on a device that is expected to
   // run for months. The clients are stateless enough to re-initializeApp()
   // against, and deleting them is not an option (see forceReauth()).
-  if (!authSslClient_) authSslClient_ = new WiFiClientSecure();
+  if (!authSslClient_) authSslClient_ = new SslClientWithDns();
   if (!authClient_) authClient_ = new AsyncClient(*authSslClient_);
 
   CustomToken customToken(firebaseWebApiKey_, customTokenJwt_.c_str(), 3000);
@@ -625,7 +625,7 @@ bool CloudClient::openDataClient() {
   // Only the FIRST allocation needs headroom.
   if (platformMaxAllocHeap() < kMinBlockForWrite) return false;
 
-  dataSslClient_ = new WiFiClientSecure();
+  dataSslClient_ = new SslClientWithDns();
   if (!dataSslClient_) return false;
   dataSslClient_->setInsecure();
   // THE WATCHDOG-REBOOT FIX. Both of these default far above the watchdog
