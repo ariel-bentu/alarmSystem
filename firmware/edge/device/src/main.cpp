@@ -1027,7 +1027,17 @@ void loop() {
   // whose config never changes gets no updates, and gating on those would
   // leave it addressless forever.
   //
+  // ALSO gated on there being no config update still QUEUED. hasReceivedConfig()
+  // and hasPendingConfigUpdate() are both set by the same applyConfigJson()
+  // call, but applyPendingConfigUpdate() — which is what actually adopts the
+  // cloud's address — runs LATER in this same loop() iteration. Without this
+  // check the very first poll generates a fresh address microseconds before
+  // adopting the correct one, then reports it up and overwrites the good
+  // value in Firestore. That defeats the whole lost-pairing protection
+  // exactly when it is needed: on a device whose EEPROM was just wiped.
+  // Measured on hardware 2026-09-07 — cost a real siren pairing twice.
   if (cloudClient.hasReceivedConfig() &&
+      !cloudClient.hasPendingConfigUpdate() &&
       !SirenAddress::isValid(config.sirenBaseAddress)) {
     maybeGenerateSirenAddress();
   }
