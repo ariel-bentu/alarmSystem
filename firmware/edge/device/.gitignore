@@ -5,3 +5,7 @@ platformio.local.ini
 # device API key. Never commit it — it is flashed to the board with
 # `pio run -t uploadfs` as a faster alternative to the setup portal.
 data/
+# Serial captures from read_serial.py. Regenerable machine output, and a long
+# unattended run is megabytes of heartbeat lines. What a run PROVED belongs in
+# docs/history/ as prose with the numbers quoted — not the raw log.
+logs/

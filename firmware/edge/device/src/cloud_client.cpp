@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include "platform_compat.h"
+#include "stall_monitor.h"
 #include <WiFiClientSecure.h>
 #include <ctime>
 
@@ -474,12 +475,22 @@ void CloudClient::loop(bool sirenActive) {
       // beginInitialConnect() sets mintAttempted_/lastMintAttemptMs_ itself.
       // This is the ONLY caller — the mint must run on loop()'s cont stack
       // so BearSSL's handshake wait can yield; see its declaration.
+      // Tag finely: mint is a TLS handshake + token exchange, one of the two
+      // watchdog-blind stretches in this function (see the get() below). If a
+      // stall dumps here it names 'cloud:mint', not the generic 'cloud'.
+      stallMonitorPhase("cloud:mint");
       beginInitialConnect();
+      stallMonitorPhase("cloud");
     }
     return;
   }
 
+  // app_.loop() drives the auth state machine and any in-flight refresh; it
+  // does TLS and yields via sys_idle() without feeding the TWDT. Tag it so a
+  // stall here reads 'cloud:app' rather than the generic 'cloud'.
+  stallMonitorPhase("cloud:app");
   app_.loop();
+  stallMonitorPhase("cloud");
   bool nowReady = app_.ready();
   if (nowReady != appReady_) {
     Serial.printf("cloud: app.ready() -> %s (heap %u)\n",
@@ -572,7 +583,14 @@ void CloudClient::loop(bool sirenActive) {
     Serial.println("cloud: poll skipped — not enough heap for a TLS client");
     return;
   }
+  // The synchronous poll read. THIS is where the 2026-09-06 hang was caught:
+  // the TLS socket died mid-read (-76 NET_RECV_FAILED) and get() spun in a
+  // sys_idle() wait to the 60s TWDT. IoDeadline in SslClientWithDns now bounds
+  // it (12s), but tag it too so a recurrence names the exact op — and which
+  // path — instead of the coarse 'cloud' the first capture showed.
+  stallMonitorPhase(pollConfigNext_ ? "cloud:poll-config" : "cloud:poll-commands");
   String json = database_.get<String>(*dataClient_, path);
+  stallMonitorPhase("cloud");
   bool failed = dataResult_.isError() && dataResult_.error().code() != 0;
   if (failed) {
     Serial.printf("cloud: poll %s error %d: %s\n", path.c_str(),
@@ -933,6 +951,11 @@ void CloudClient::reportAlarm(const char* rfId, uint8_t conditionType) {
 
   String causePath = String("/") + projectId_ + "/state/alarm_cause";
   object_t causePayload(json.c_str());
+  // The two set()s below are the double blocking write that first motivated
+  // the DNS fix — the highest-stakes stall path, since a hang here reboots the
+  // device mid-alarm. Tag so a stall names 'cloud:report-alarm', wherever in
+  // loop() the trigger arrived from. Cleared to 'loop' at the end.
+  stallMonitorPhase("cloud:report-alarm");
   bool causeOk = database_.set<object_t>(*dataClient_, causePath, causePayload);
   if (!causeOk) {
     // Non-fatal: onAlarm falls back to a generic "Alarm triggered!" message.
@@ -946,6 +969,7 @@ void CloudClient::reportAlarm(const char* rfId, uint8_t conditionType) {
   String sirenPath = String("/") + projectId_ + "/state/siren_active";
   object_t sirenPayload("true");
   bool sirenOk = database_.set<object_t>(*dataClient_, sirenPath, sirenPayload);
+  stallMonitorPhase("loop");
   Serial.printf("cloud: reportAlarm %s ct=%u %s (code %d)\n", rfId,
                 (unsigned)conditionType, sirenOk ? "ok" : "FAILED",
                 dataClient_->lastError().code());
