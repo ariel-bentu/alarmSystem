@@ -94,6 +94,91 @@ static void test_rearm_after_expiry_is_fresh() {
   TEST_ASSERT_TRUE(d.expired(1000 + kBoundMs + 5000 + kBoundMs));  // op 2 stalls
 }
 
+// --- The 2026-09-08 recurrence: the base class stops the socket underneath us.
+//
+// WHY THESE EXIST: on 2026-09-08 05:09 (and in the 09-07 19:08 soak log) the
+// device rebooted with reason=twdt after a -76 (MBEDTLS_ERR_NET_RECV_FAILED),
+// stalled 40968ms in phase='cloud:poll-config' — the SAME fault IoDeadline was
+// added to fix. It did not fire. Read WiFiClientSecure.cpp:240-252:
+//
+//   int WiFiClientSecure::available() {
+//       int peeked = (_peek >= 0);
+//       if (!_connected) return peeked;                     // <-- 0 forever
+//       int res = data_to_read(sslclient);
+//       if (res < 0) { stop(); return peeked?peeked:res; }  // base stop(), not ours
+//       return res+peeked;
+//   }
+//
+// On -76 the base calls its OWN stop() — a non-virtual internal call, so our
+// SslClientWithDns::stop() override (and its disarm()) is BYPASSED — and sets
+// _connected=false. The first available() returns -76, but every call after it
+// takes the !_connected early return and yields 0 forever. FirebaseClient's
+// wait re-polls, sees a steady 0, and spins on sys_idle() (= delay(0), which
+// does NOT feed the TWDT) to the 60s reboot.
+//
+// So the deadline stays armed but the socket is already dead, and the caller
+// keeps polling. The policy must report the operation as UNRECOVERABLE the
+// moment we learn the socket was stopped underneath us — not merely wait out
+// the remaining bound, because a wait that returns 0 makes no progress and the
+// caller has no other exit.
+
+// The moment we observe the socket was stopped underneath us, the operation is
+// dead: expired() must be true IMMEDIATELY, without waiting out the bound. The
+// caller polls available() every few ms, so making it wait the full 12s here
+// burns budget for a socket that can never deliver another byte.
+static void test_socket_closed_underneath_expires_immediately() {
+  IoDeadline d(kBoundMs);
+  d.arm(1000);
+  d.socketClosed();  // base available() hit -76 and called its own stop()
+  TEST_ASSERT_TRUE(d.expired(1000));
+}
+
+// A closed socket stays expired on every subsequent poll. This is the actual
+// hang: the caller re-polls thousands of times over 40s, and EVERY one of those
+// calls must keep reporting expired so the wait aborts rather than spinning.
+static void test_socket_closed_stays_expired_on_repeated_polls() {
+  IoDeadline d(kBoundMs);
+  d.arm(1000);
+  d.socketClosed();
+  TEST_ASSERT_TRUE(d.expired(1001));
+  TEST_ASSERT_TRUE(d.expired(1050));
+  TEST_ASSERT_TRUE(d.expired(2000));
+  TEST_ASSERT_TRUE(d.expired(1000 + kBoundMs * 10));
+}
+
+// A fresh connect() on the reused client must clear the closed flag, otherwise
+// one dead socket would poison every later poll on that client — the same
+// "do not inherit stale state" property as test_rearm_after_expiry_is_fresh.
+static void test_arm_clears_closed_state() {
+  IoDeadline d(kBoundMs);
+  d.arm(1000);
+  d.socketClosed();
+  TEST_ASSERT_TRUE(d.expired(1000));
+  d.arm(5000);  // reconnect
+  TEST_ASSERT_FALSE(d.expired(5000));
+  TEST_ASSERT_FALSE(d.expired(5000 + kBoundMs - 1));
+}
+
+// Disarm must also clear it, so a clean stop() between operations does not
+// leave the next idle stretch reporting expired on a client with no socket.
+static void test_disarm_clears_closed_state() {
+  IoDeadline d(kBoundMs);
+  d.arm(1000);
+  d.socketClosed();
+  d.disarm();
+  TEST_ASSERT_FALSE(d.expired(1000));
+  TEST_ASSERT_FALSE(d.expired(1000 + kBoundMs * 10));
+}
+
+// A closed socket that was never armed must NOT expire. Between operations the
+// client legitimately has no socket; firing there would tear down a healthy
+// idle client before its next connect.
+static void test_closed_while_disarmed_does_not_expire() {
+  IoDeadline d(kBoundMs);
+  d.socketClosed();
+  TEST_ASSERT_FALSE(d.expired(1000));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_disarmed_never_expires);
@@ -103,5 +188,10 @@ int main(int, char**) {
   RUN_TEST(test_disarm_after_completion);
   RUN_TEST(test_survives_millis_wraparound);
   RUN_TEST(test_rearm_after_expiry_is_fresh);
+  RUN_TEST(test_socket_closed_underneath_expires_immediately);
+  RUN_TEST(test_socket_closed_stays_expired_on_repeated_polls);
+  RUN_TEST(test_arm_clears_closed_state);
+  RUN_TEST(test_disarm_clears_closed_state);
+  RUN_TEST(test_closed_while_disarmed_does_not_expire);
   return UNITY_END();
 }

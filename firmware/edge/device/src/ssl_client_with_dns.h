@@ -87,11 +87,15 @@ class SslClientWithDns : public WiFiClientSecure {
   // Bound the read wait by wall clock. FirebaseClient's sync loops spin on
   // available() (and read()/connected(), which both funnel through it) calling
   // sys_idle() between polls — which yields WITHOUT feeding the task watchdog.
-  // The base available() already stops the socket and returns <0 on a HARD
-  // mbedTLS error (-76), but a socket that simply goes silent (peer wedged, not
-  // errored) returns 0 forever and the library can spin to the 60s TWDT. So:
-  // once this operation has made no progress for the bound, force it closed and
-  // report the error, which makes the spinning wait abort.
+  // Two distinct stalls are bounded here:
+  //   1. The socket goes SILENT (peer wedged, not errored): the base returns 0
+  //      forever while still "connected". The wall-clock deadline catches it.
+  //   2. The socket is CLOSED underneath us by the base itself on a hard
+  //      mbedTLS error (-76). The base's internal stop() bypasses our override,
+  //      leaving the deadline armed, and every later call returns 0 via the
+  //      !_connected early return. Caught below by the socket-fd check — the
+  //      2026-09-08 twdt reboot, which case 1 alone did NOT cover.
+  // Either way we force the operation to fail so the spinning wait aborts.
   int available() override {
     if (deadline_.expired(millis())) {
       Serial.println("[io] socket stalled past deadline — stopping to unblock loop");
@@ -102,7 +106,37 @@ class SslClientWithDns : public WiFiClientSecure {
     int n = WiFiClientSecure::available();
     // Bytes ready == progress: re-arm so a slow-but-advancing transfer runs to
     // completion and only a genuinely stalled socket is torn down.
-    if (n > 0) deadline_.progress(millis());
+    if (n > 0) {
+      deadline_.progress(millis());
+      return n;
+    }
+
+    // THE 2026-09-08 RECURRENCE. On a hard mbedTLS error the base
+    // available() calls its OWN stop() (WiFiClientSecure.cpp:247-250) — a
+    // non-virtual internal call, so OUR stop() override above never runs and
+    // the deadline is left armed — then sets _connected=false. Every later
+    // call takes the `if (!_connected) return peeked;` early return and hands
+    // back 0 FOREVER. FirebaseClient's `while (!available())` therefore spins
+    // on sys_idle() (= delay(0), no TWDT feed) until the 60s watchdog reboots
+    // (observed: -76, then 40968ms stuck in phase='cloud:poll-config').
+    //
+    // The base returning <=0 with the socket torn down IS that state.
+    //
+    // We test the fd on the PROTECTED sslclient directly rather than calling
+    // connected(): connected() runs read(&dummy, 0), and `read` there is
+    // VIRTUAL, so it dispatches into OUR read() override, whose base read()
+    // calls available() — re-entering this function. That is unbounded
+    // recursion and a stack overflow. stop() sets sslclient->socket = -1
+    // (WiFiClientSecure.cpp:92-97), so the fd is the same signal with no
+    // re-entry and no side effects.
+    if (sslclient == nullptr || sslclient->socket < 0) {
+      deadline_.socketClosed();
+      if (deadline_.expired(millis())) {
+        Serial.println("[io] socket closed under an in-flight read — failing it to unblock loop");
+        deadline_.disarm();
+        return -1;
+      }
+    }
     return n;
   }
 

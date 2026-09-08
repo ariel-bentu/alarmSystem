@@ -36,6 +36,7 @@ class IoDeadline {
   void arm(uint32_t nowMs) {
     lastProgressMs_ = nowMs;
     armed_ = true;
+    closed_ = false;
   }
 
   // The operation made progress (bytes actually read). Resets the clock so a
@@ -46,13 +47,34 @@ class IoDeadline {
 
   // Operation finished / socket closed. Stops the deadline firing on the next
   // idle stretch between operations on a reused client.
-  void disarm() { armed_ = false; }
+  void disarm() {
+    armed_ = false;
+    closed_ = false;
+  }
+
+  // The socket was closed underneath this operation by the library itself.
+  //
+  // WHY (2026-09-08): base WiFiClientSecure::available() calls its OWN stop()
+  // on a hard mbedTLS error (-76) — a non-virtual internal call, so our
+  // stop() override and its disarm() are BYPASSED — and sets _connected=false.
+  // Every later available() then takes the `if (!_connected) return peeked;`
+  // early return and yields 0 forever, so the caller's `while (!available())`
+  // spins on sys_idle() (no TWDT feed) to the 60s reboot.
+  //
+  // Marking it closed makes expired() true IMMEDIATELY rather than after the
+  // remaining bound: a socket with no connection can never deliver another
+  // byte, so waiting out the clock only burns watchdog budget.
+  void socketClosed() {
+    if (armed_) closed_ = true;
+  }
 
   // True once an armed operation has made no progress for the full bound. The
   // caller (SslClientWithDns::available) then stops the socket and returns an
   // error. Disarmed => never expires.
   bool expired(uint32_t nowMs) const {
     if (!armed_) return false;
+    // Socket closed underneath us: dead now, not in boundMs. See socketClosed().
+    if (closed_) return true;
     // Unsigned subtraction so an arm before the millis() wrap and a check after
     // it yield the true (small) elapsed time, not a ~49-day span.
     return (uint32_t)(nowMs - lastProgressMs_) >= boundMs_;
@@ -62,4 +84,5 @@ class IoDeadline {
   uint32_t boundMs_;
   uint32_t lastProgressMs_ = 0;
   bool armed_ = false;
+  bool closed_ = false;
 };
