@@ -215,6 +215,43 @@ static void test_hard_error_from_base_means_gone() {
   TEST_ASSERT_FALSE(sslReadFailed(5));   // bytes ready
 }
 
+// --- What available() must RETURN on a dead socket (2026-09-09, second fix).
+//
+// The first two fixes returned a NEGATIVE from available(). That breaks
+// `while (!tcpAvailable())` at AsyncClient.h:1118 — but that loop was never
+// the broken one (no in-loop feedTimer(), its timeout works, it exits).
+//
+// The loop that actually hangs (AsyncClient.h:1131) never calls available()
+// directly. It reaches it only through readResponse()'s gate:
+//
+//     if (sData->response.tcpAvailable() > 0) { readHeader(); readPayload(); }
+//
+// A NEGATIVE fails `> 0` exactly like 0 does — nothing in FirebaseClient
+// treats available() < 0 specially; every use is `> 0` or `== 0`. So the
+// no-op -> ret_continue -> spin was completely unaffected by both fixes.
+//
+// Returning POSITIVE opens that gate and hands control to the library's OWN
+// teardown: readPayload() (ResponseHandler.h:466) enters on
+// `connected() || available()`, calls readResponse<>(), whose read() returns
+// -1 on the dead socket and spins to its internal 5000ms bound, returning -2
+// -> `len < 0` -> `respCtx.stage = response_stage_finished` -> the outer loop
+// exits. Bounded at ~5s, well under the 40s stall dump and 60s TWDT.
+//
+// (The immediate exit at ResponseHandler.h:263 is unreachable for us: it also
+// requires respCtx.totalRead == 0, and totalRead resets only per request in
+// begin():91, so a MID-RESPONSE death always has totalRead > 0.)
+static void test_dead_socket_return_is_positive_to_open_the_gate() {
+  // Must be > 0: `tcpAvailable() > 0` is the gate we need to pass.
+  TEST_ASSERT_GREATER_THAN(0, sslDeadSocketAvailable());
+}
+
+// It must NOT be negative — that is the shipped behaviour that did nothing for
+// the hanging loop. Pinned separately so a future "return -1 is tidier"
+// refactor fails loudly instead of silently restoring the hang.
+static void test_dead_socket_return_is_not_negative() {
+  TEST_ASSERT_FALSE(sslDeadSocketAvailable() < 0);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_disarmed_never_expires);
@@ -231,5 +268,7 @@ int main(int, char**) {
   RUN_TEST(test_closed_while_disarmed_does_not_expire);
   RUN_TEST(test_socket_gone_covers_zero_and_negative);
   RUN_TEST(test_hard_error_from_base_means_gone);
+  RUN_TEST(test_dead_socket_return_is_positive_to_open_the_gate);
+  RUN_TEST(test_dead_socket_return_is_not_negative);
   return UNITY_END();
 }

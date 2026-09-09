@@ -82,6 +82,7 @@ class SslClientWithDns : public WiFiClientSecure {
       // io_deadline.h for the -76 hang this fixes.
       deadline_.arm(millis());
       reportedClosed_ = false;
+      socketDead_ = false;
     }
     return rc;
   }
@@ -99,11 +100,20 @@ class SslClientWithDns : public WiFiClientSecure {
   //      2026-09-08 twdt reboot, which case 1 alone did NOT cover.
   // Either way we force the operation to fail so the spinning wait aborts.
   int available() override {
+    // Latched dead: keep the gate open so readPayload() stays in the library's
+    // teardown path until it sets stage = finished. Re-running detection here
+    // would be harmless but pointless, and the base is already stopped.
+    if (socketDead_) return sslDeadSocketAvailable();
+
     if (deadline_.expired(millis())) {
       Serial.println("[io] socket stalled past deadline — stopping to unblock loop");
       WiFiClientSecure::stop();  // clears _connected; connected() now returns 0
       deadline_.disarm();
-      return -1;  // any nonzero breaks `while(!available())`; <0 breaks read()
+      // Same positive gate token as the dead-socket path below, and for the
+      // same reason: a negative would fail `tcpAvailable() > 0` and leave the
+      // 1131 loop spinning. socketDead_ makes read() fail from here on.
+      socketDead_ = true;
+      return sslDeadSocketAvailable();
     }
     int n = WiFiClientSecure::available();
     // Bytes ready == progress: re-arm so a slow-but-advancing transfer runs to
@@ -153,16 +163,37 @@ class SslClientWithDns : public WiFiClientSecure {
       }
       deadline_.socketClosed();
       deadline_.disarm();
-      // Preserve a real error code when the base gave us one; otherwise -1.
-      // Either way it is negative, which breaks `while (!available())` and
-      // makes read() abort.
-      return sslReadFailed(n) ? n : -1;
+      socketDead_ = true;
+      // POSITIVE, deliberately — see sslDeadSocketAvailable(). A negative here
+      // fails FirebaseClient's `tcpAvailable() > 0` gate exactly like 0 and
+      // leaves the hanging loop untouched, which is what the first two
+      // versions of this fix got wrong. A positive opens the gate so the
+      // library runs its own teardown and ends the request.
+      return sslDeadSocketAvailable();
     }
     reportedClosed_ = false;
     return n;
   }
 
+  // Both read() forms must report failure once the socket is known dead,
+  // because available() is now handing out a positive token that promises
+  // bytes which do not exist.
+  //
+  // readResponse<>() (ResponseHandler.h:283) uses the SINGLE-BYTE read() and
+  // does `c = source->read(); if (c == -1) continue;` — so returning -1 there
+  // drives it around its loop to the internal 5000ms bound, which returns -2
+  // and sets stage = response_stage_finished. That is the designed teardown we
+  // are steering into. Returning 0 or a stale byte instead would corrupt the
+  // parse or spin without the bound.
+  int read() override {
+    if (socketDead_) return -1;
+    int c = WiFiClientSecure::read();
+    if (c >= 0) deadline_.progress(millis());
+    return c;
+  }
+
   int read(uint8_t* buf, size_t size) override {
+    if (socketDead_) return -1;
     int n = WiFiClientSecure::read(buf, size);
     if (n > 0) deadline_.progress(millis());
     return n;
@@ -170,6 +201,7 @@ class SslClientWithDns : public WiFiClientSecure {
 
   void stop() override {
     deadline_.disarm();
+    socketDead_ = false;  // a new connection on this client starts clean
     WiFiClientSecure::stop();
   }
 
@@ -183,6 +215,9 @@ class SslClientWithDns : public WiFiClientSecure {
   HostResolver resolver_;
   // One log line per teardown, re-armed on the next healthy poll.
   bool reportedClosed_ = false;
+  // Latched once we hand out the positive gate token, so read() reports
+  // failure for the rest of this dead connection. Cleared on connect()/stop().
+  bool socketDead_ = false;
   // 12s: above the 5s sync read timeout (so it is a backstop, not the primary
   // bound), and well under the 40s stall monitor / 60s TWDT.
   IoDeadline deadline_{12000};
