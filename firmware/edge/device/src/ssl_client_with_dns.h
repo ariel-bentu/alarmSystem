@@ -6,6 +6,7 @@
 #include "host_resolver.h"
 #include "io_deadline.h"
 #include "platform_compat.h"
+#include "ssl_socket_state.h"
 
 // A WiFiClientSecure that resolves each host AT MOST ONCE and then connects by
 // IP, so the blocking DNS lookup is kept off the per-connect hot path.
@@ -80,6 +81,7 @@ class SslClientWithDns : public WiFiClientSecure {
       // a stalled socket down from there — see available() below and
       // io_deadline.h for the -76 hang this fixes.
       deadline_.arm(millis());
+      reportedClosed_ = false;
     }
     return rc;
   }
@@ -120,23 +122,43 @@ class SslClientWithDns : public WiFiClientSecure {
     // on sys_idle() (= delay(0), no TWDT feed) until the 60s watchdog reboots
     // (observed: -76, then 40968ms stuck in phase='cloud:poll-config').
     //
-    // The base returning <=0 with the socket torn down IS that state.
+    // Two signals, either of which proves the socket is gone:
+    //   - the base returned a hard negative (the FIRST call after the drop
+    //     returns -76 itself), or
+    //   - the fd has been torn down (every call after that returns 0).
     //
-    // We test the fd on the PROTECTED sslclient directly rather than calling
-    // connected(): connected() runs read(&dummy, 0), and `read` there is
-    // VIRTUAL, so it dispatches into OUR read() override, whose base read()
-    // calls available() — re-entering this function. That is unbounded
-    // recursion and a stack overflow. stop() sets sslclient->socket = -1
-    // (WiFiClientSecure.cpp:92-97), so the fd is the same signal with no
-    // re-entry and no side effects.
-    if (sslclient == nullptr || sslclient->socket < 0) {
-      deadline_.socketClosed();
-      if (deadline_.expired(millis())) {
-        Serial.println("[io] socket closed under an in-flight read — failing it to unblock loop");
-        deadline_.disarm();
-        return -1;
+    // SENTINEL TRAP (cost a whole 18.36h soak): the fd is **0** after
+    // teardown, not -1. stop_ssl_socket() sets -1 at ssl_client.cpp:325 and
+    // then memsets the whole struct to zero at :346. The first version of this
+    // fix tested `< 0`, never matched, and the device rebooted again with the
+    // identical -76 / phase='cloud:poll-config' / 40802ms signature. The
+    // predicates live in ssl_socket_state.h with tests pinning fd == 0.
+    //
+    // We read the PROTECTED sslclient fd rather than calling connected():
+    // connected() runs read(&dummy, 0), and `read` there is VIRTUAL, so it
+    // dispatches into OUR read() override, whose base read() calls
+    // available() — re-entering this function. Unbounded recursion, stack
+    // overflow.
+    if (sslReadFailed(n) || sslclient == nullptr ||
+        sslSocketIsGone(sslclient->socket)) {
+      // Report unconditionally, not only when the deadline agrees: an unarmed
+      // deadline (this client is between operations) would otherwise fall
+      // through to `return n` == 0 on a socket that is already gone, which is
+      // the exact spin this whole file exists to break. Log once per teardown
+      // so a recurrence is greppable without spamming the 40s stall window.
+      if (!reportedClosed_) {
+        Serial.printf("[io] socket closed under an in-flight read (rc=%d fd=%d) — failing it to unblock loop\n",
+                      n, sslclient ? sslclient->socket : -1);
+        reportedClosed_ = true;
       }
+      deadline_.socketClosed();
+      deadline_.disarm();
+      // Preserve a real error code when the base gave us one; otherwise -1.
+      // Either way it is negative, which breaks `while (!available())` and
+      // makes read() abort.
+      return sslReadFailed(n) ? n : -1;
     }
+    reportedClosed_ = false;
     return n;
   }
 
@@ -159,6 +181,8 @@ class SslClientWithDns : public WiFiClientSecure {
 
  private:
   HostResolver resolver_;
+  // One log line per teardown, re-armed on the next healthy poll.
+  bool reportedClosed_ = false;
   // 12s: above the 5s sync read timeout (so it is a backstop, not the primary
   // bound), and well under the 40s stall monitor / 60s TWDT.
   IoDeadline deadline_{12000};

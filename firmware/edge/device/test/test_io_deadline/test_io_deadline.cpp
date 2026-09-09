@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "io_deadline.h"
+#include "ssl_socket_state.h"
 
 // Regression tests for the broken-socket read spin (2026-09-06).
 //
@@ -179,6 +180,41 @@ static void test_closed_while_disarmed_does_not_expire() {
   TEST_ASSERT_FALSE(d.expired(1000));
 }
 
+// --- Sentinel regression (2026-09-09): the fd is 0 after teardown, not -1.
+//
+// The 2026-09-08 fix above shipped and STILL rebooted (twdt at 18.36h, same
+// -76 -> phase='cloud:poll-config' -> 40802ms stall). The policy here was
+// right; the CALLER's detection was wrong, so socketClosed() was never called.
+//
+// ssl_client.cpp stop_ssl_socket() sets socket = -1 at line 325 — and then
+// line 346 does `memset(ssl_client, 0, sizeof(sslclient_context))`, which
+// overwrites it with **0**. A live fd from lwip_socket() is > 0. So the
+// post-teardown sentinel is 0, and the shipped test `socket < 0` never
+// matched. The predicate must be `socket <= 0`.
+//
+// This is a caller-side bug, but it is pinned here because the log line these
+// tests describe is the observable proof the path ran. See
+// ssl_client_with_dns.h for the detection itself.
+
+// The live fd from lwip_socket() is > 0; after teardown the memset leaves 0;
+// -1 is the momentary value at stop_ssl_socket():325 and the pre-connect init.
+// All three non-positive cases mean "no usable socket".
+static void test_socket_gone_covers_zero_and_negative() {
+  TEST_ASSERT_TRUE(sslSocketIsGone(0));   // THE BUG: memset leaves exactly 0
+  TEST_ASSERT_TRUE(sslSocketIsGone(-1));  // stop_ssl_socket() line 325
+  TEST_ASSERT_FALSE(sslSocketIsGone(1));  // a real fd
+  TEST_ASSERT_FALSE(sslSocketIsGone(42));
+}
+
+// A hard negative from the base available() (the FIRST call after the peer
+// drops returns -76) is itself proof the socket is gone, independent of the fd.
+static void test_hard_error_from_base_means_gone() {
+  TEST_ASSERT_TRUE(sslReadFailed(-76));  // MBEDTLS_ERR_NET_RECV_FAILED
+  TEST_ASSERT_TRUE(sslReadFailed(-1));
+  TEST_ASSERT_FALSE(sslReadFailed(0));   // silent-but-open: deadline's job
+  TEST_ASSERT_FALSE(sslReadFailed(5));   // bytes ready
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_disarmed_never_expires);
@@ -193,5 +229,7 @@ int main(int, char**) {
   RUN_TEST(test_arm_clears_closed_state);
   RUN_TEST(test_disarm_clears_closed_state);
   RUN_TEST(test_closed_while_disarmed_does_not_expire);
+  RUN_TEST(test_socket_gone_covers_zero_and_negative);
+  RUN_TEST(test_hard_error_from_base_means_gone);
   return UNITY_END();
 }
