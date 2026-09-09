@@ -117,6 +117,11 @@ docs/superpowers/        ← design specs and implementation plans
 ```bash
 # Firmware. ALWAYS pass -e esp32s3: a bare `pio run` also builds [env:native],
 # which fails to link. Check `ls /dev/cu.*` — macOS reassigns the suffix.
+#
+# The esp32s3 build runs `patch_firebase.py` first, which patches FirebaseClient
+# in .pio/libdeps (gitignored, so re-applied after every install). If a library
+# update moves the code it anchors on, the patch FAILS THE BUILD by design —
+# see docs/upstream/ISSUE.md and update the anchors rather than removing it.
 cd firmware/edge/device
 pio run -e esp32s3 -t upload --upload-port /dev/cu.usbmodem101
 pio test -e native
