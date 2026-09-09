@@ -67,8 +67,15 @@ class Timer {
 // Field conditions from the failure being reported.
 static const unsigned long kBootMs = 66104957UL;  // device uptime at the -76
 static const unsigned long kSyncReadTimeoutSec = 5;  // setSyncReadTimeout(5)
-static const int kMaxIter = 2000000;
-static const unsigned long kMsPerIteration = 1;  // fast spin, no progress
+static const int kMaxIter = 5000000;
+
+// Iteration rates to sweep, in ms. The point of the sweep is that the rate is
+// IRRELEVANT: Timer::feed() -> setInterval() -> reset() recomputes
+// `end = ts + period` from the CURRENT ts, so `end - ts == period` invariantly
+// after every feed(), and `ready()` (`ts >= end`) is never true at any rate.
+// 101ms and above also clear Timer::loop()'s `(millis() - now) > 100` guard,
+// so ts genuinely advances — and it still never expires.
+static const unsigned long kSweepMs[] = {1, 50, 101, 150, 1000};
 
 // Case 1 — CURRENT CODE. AsyncClient.h:1131-1153. On a socket the peer has
 // dropped, receive() returns ret_continue every time (readResponse() is a
@@ -77,36 +84,45 @@ static const unsigned long kMsPerIteration = 1;  // fast spin, no progress
 // therefore never satisfies its exit condition, and the only bound left is
 // handleReadTimeout() -> read_timer.remaining()==0.
 static void case_current() {
-  g_ms = kBootMs;
-  Timer read_timer;
-  for (int i = 0; i < kMaxIter; i++) {
-    read_timer.feed(kSyncReadTimeoutSec);  // line 1133, top of every iteration
-    // receive(sData) -> ret_continue (socket dead, no bytes, no progress)
-    if (read_timer.remaining() == 0) {     // line 1136, handleReadTimeout()
-      printf("current code   : EXIT at iteration %d (%lus elapsed)\n", i,
-             (g_ms - kBootMs) / 1000);
-      return;
+  for (unsigned long step : kSweepMs) {
+    g_ms = kBootMs;
+    Timer read_timer;
+    bool exited = false;
+    for (int i = 0; i < kMaxIter; i++) {
+      read_timer.feed(kSyncReadTimeoutSec);  // line 1133, top of EVERY iteration
+      // receive(sData) -> ret_continue (socket dead, no bytes, no progress)
+      if (read_timer.remaining() == 0) {     // line 1136, handleReadTimeout()
+        printf("current code  step=%4lums : EXIT at %lus\n", step,
+               (g_ms - kBootMs) / 1000);
+        exited = true;
+        break;
+      }
+      g_ms += step;
     }
-    g_ms += kMsPerIteration;
+    if (!exited)
+      printf("current code  step=%4lums : NEVER EXITED (%lus simulated)\n", step,
+             (g_ms - kBootMs) / 1000);
   }
-  printf("current code   : NEVER EXITED — %d iterations, %lus simulated\n",
-         kMaxIter, (g_ms - kBootMs) / 1000);
 }
 
-// Case 2 — SUGGESTED FIX: arm once before the loop.
-static void case_armed_once() {
+// Case 2 — RECOMMENDED FIX: feed only when the iteration made progress.
+// `made_progress` stands in for "respCtx.totalRead increased or respCtx.stage
+// advanced". A dead socket never progresses, so the timer is never re-armed
+// and expires at sync_read_timeout_sec.
+static void case_progress_based(bool made_progress, const char *label) {
   g_ms = kBootMs;
   Timer read_timer;
-  read_timer.feed(kSyncReadTimeoutSec);  // hoisted out of the loop
+  read_timer.feed(kSyncReadTimeoutSec);  // armed once when the read begins
   for (int i = 0; i < kMaxIter; i++) {
+    if (made_progress) read_timer.feed(kSyncReadTimeoutSec);  // only on progress
     if (read_timer.remaining() == 0) {
-      printf("armed once     : EXIT at iteration %d (%lus elapsed)\n", i,
-             (g_ms - kBootMs) / 1000);
+      printf("%s : EXIT at %lus\n", label, (g_ms - kBootMs) / 1000);
       return;
     }
-    g_ms += kMsPerIteration;
+    g_ms += 50;
   }
-  printf("armed once     : NEVER EXITED\n");
+  printf("%s : NEVER EXITED (%lus simulated) <- correct for a live transfer\n",
+         label, (g_ms - kBootMs) / 1000);
 }
 
 // Case 3 — CONTROL: one receive() call that blocks longer than the timeout.
@@ -126,12 +142,16 @@ int main() {
   printf("Timer verbatim from v2.2.13; uptime=%lums, setSyncReadTimeout(%lu)\n\n",
          kBootMs, kSyncReadTimeoutSec);
   case_current();
-  case_armed_once();
+  printf("\n");
+  case_progress_based(false, "fix, dead socket   ");
+  case_progress_based(true,  "fix, live transfer ");
+  printf("\n");
   case_slow_single_receive();
   printf(
-      "\nThe loop in AsyncClient.h:1131 re-arms the deadline at the top of\n"
-      "every iteration, so the check a few lines later can never see it\n"
-      "expired when iterations are fast. It bounds a slow single receive(),\n"
-      "not a fast non-progressing spin.\n");
+      "\nfeed() -> setInterval() -> reset() recomputes `end = ts + period` from\n"
+      "the CURRENT ts, so `end - ts == period` after every feed() and\n"
+      "`ready()` (ts >= end) is never true -- at ANY iteration rate, including\n"
+      "rates above Timer::loop()'s 100ms guard. Feeding only on progress lets a\n"
+      "stalled read expire while a live transfer still extends its deadline.\n");
   return 0;
 }

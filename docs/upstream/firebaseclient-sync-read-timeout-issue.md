@@ -17,10 +17,18 @@ every iteration**, and `handleReadTimeout()` — which exits on
 **same** iteration. The deadline is therefore reset immediately before it is
 checked.
 
-That is correct for bounding **one slow `receive()`** (the timer can expire
-*during* the call), but it cannot bound a loop that **iterates quickly without
-progressing**. When the peer drops a keep-alive connection mid-response, that
-is exactly what happens, and the loop spins until the hardware watchdog fires.
+This is not a question of iteration speed. `Timer::feed()` (`Timer.h:42-50`)
+calls `setInterval()` → `reset()`, and `reset()` (line 24) is
+`end = ts + period`. Every `feed()` re-derives `end` from the *current* `ts`,
+so the invariant `end - ts == period` holds after every call, forever. `ready()`
+is `ts >= end`, i.e. `ts >= ts + period` — never true. **The timer cannot expire
+at any iteration rate.** Swept at 1 / 50 / 101 / 150 / 1000 ms per iteration it
+never fires; `end - ts` is 5 in every case (see reproducer output below).
+
+That is correct for bounding **one slow `receive()`** — the timer can expire
+*during* the call, which is why this arrangement looks right in ordinary
+operation. It cannot bound a loop that **iterates without progressing**, which
+is what happens when the peer drops a keep-alive connection mid-response.
 
 ## The loop
 
@@ -63,21 +71,82 @@ while (sData->return_type == ret_continue &&
 
 Net effect: an unbounded, non-yielding-to-the-watchdog loop.
 
+## The contrast that isolates the defect
+
+The *other* sync wait, at `AsyncClient.h:1118-1124`, is correct:
+
+```cpp
+while (!sData->response.tcpAvailable())
+{
+    sys_idle();
+    if (handleReadTimeout(sData))
+        break;
+}
+```
+
+It has **no `feedTimer()` inside it**. The timer armed once at line 1083 expires
+normally and this loop exits. Same `handleReadTimeout()`, same dead socket,
+correct behaviour — the only difference is that nothing re-arms the deadline
+eight lines earlier.
+
+This also narrows which failure this report is about. A socket dying *before*
+any bytes arrive lands in the 1118 loop and terminates fine. The failure here is
+a socket dying **mid-response** on a keep-alive connection (headers already
+consumed), which lands in the 1131 loop.
+
+## Why the existing socket-closed detection does not fire
+
+`ResponseHandler.h:263` already has the right check:
+
+```cpp
+if (!source->connected() && source->available() == 0 && respCtx.totalRead == 0)
+    return -1; // Socket closed
+```
+
+and `readPayload()` (`ResponseHandler.h:466`) guards on
+`if (client->connected() || client->available())`. A negative length becomes
+`respCtx.stage = response_stage_finished`, which would end the outer loop
+cleanly. Neither runs in this scenario, for two independent reasons:
+
+1. Both live inside `readResponse<TSRC,TSNK>()`, reachable only via
+   `readPayload()` / `readMetaData()` — which `AsyncClient.h:452` gates behind
+   `tcpAvailable() > 0`. A dead socket returns 0, so the gate closes and the
+   detector is never reached.
+2. Even if reached, it requires `respCtx.totalRead == 0`. `totalRead` is reset
+   per request in `ResponseContext::begin()` (`ResponseHandler.h:91`) and
+   incremented at line 348, so a socket that dies **mid-response** has
+   `totalRead > 0`. The condition is written for "dead before we read anything",
+   not "died after the headers".
+
+So the defenses exist but sit downstream of a gate that a dead socket closes.
+
 ## Reproduction of the timer behaviour (no hardware needed)
 
 `Timer` copied verbatim from `src/core/Utils/Timer.h`, driven by a controllable
 `millis()`; parameters taken from the field failure (device uptime 66,104 s,
 `setSyncReadTimeout(5)`):
 
-| Scenario | Result |
-|---|---|
-| `feed()` at the top of every iteration (current code) | **never expires** — 2,000,000 iterations, 2,000 s simulated |
-| `feed()` once before the loop | expires after **4 s** |
-| One `receive()` call blocking > 5 s | `remaining() == 0` — the timeout **does** fire |
+```
+current code  step=   1ms : NEVER EXITED (5000s simulated)
+current code  step=  50ms : NEVER EXITED (250000s simulated)
+current code  step= 101ms : NEVER EXITED (505000s simulated)
+current code  step= 150ms : NEVER EXITED (750000s simulated)
+current code  step=1000ms : NEVER EXITED (5000000s simulated)
 
-The third row is why this does not show up in normal use: the existing
-arrangement is correct for slow-but-live transfers. It only fails when the loop
-spins without progressing.
+fix, dead socket    : EXIT at 4s
+fix, live transfer  : NEVER EXITED (250000s simulated) <- correct for a live transfer
+
+slow receive() : remaining()=0 (0 => timeout fires, as intended)
+```
+
+The rate sweep is the point: iteration speed is **irrelevant**. 101 ms and above
+clear `Timer::loop()`'s `(millis() - now) > 100` guard, so `ts` genuinely
+advances — and the timer still never expires, because `feed()` moves `end` by
+the same amount. `end - ts` is 5 in every case.
+
+The last two rows are why this has not shown up in normal use: the existing
+arrangement is correct for slow-but-live transfers, and the proposed fix keeps
+it that way.
 
 Full reproducer: [`timer_repro.cpp`](timer_repro.cpp) — single file, builds with
 `g++ -std=c++17 timer_repro.cpp -o timer_repro`, no Arduino or hardware.
@@ -113,6 +182,29 @@ Because #313 was closed on that basis, the same run's heap numbers:
 The device had ~121 KB free at its worst point and ~220 KB when it hung, on a
 part with 327 KB of internal SRAM.
 
+## What we have not proven
+
+Stated plainly so it is not taken for more than it is:
+
+- **The timer arithmetic is proven** by inspection of `Timer.h:24-50` and does
+  not depend on the simulation: `feed()` → `setInterval()` → `reset()` sets
+  `end = ts + period`, and `ready()` is `ts >= end`. The reproducer only
+  demonstrates it.
+- **That `-76` is what put execution in the 1131 loop is circumstantial** — it
+  rests on log correlation (`-76` at 04:18:00, stall dump at 04:18:40,
+  `phase='cloud:poll-config'` = one synchronous `get()`), not on a stack trace.
+  We have not instrumented the library to print `read_timer.remaining()`,
+  `feedCount()`, `respCtx.stage`, `httpCode`, `respCtx.totalRead` or
+  `client->connected()` at the moment of the hang.
+- We have not determined which `ret_continue` sink is taken — line 398
+  (`httpCode == 0`, death before the status line) or line 441 (`httpCode > 0`,
+  `stage == payload`, death after the headers). We believe the latter, since the
+  connection was keep-alive and previously healthy.
+- `sData->sse == false` for the affected slot (a plain `get()`, no stream).
+
+Note that the loop is unbounded for *any* non-progressing condition, so the fix
+does not depend on resolving these.
+
 ## Frequency
 
 Twice observed, at **10.0 h** and **18.36 h** of continuous uptime, on a device
@@ -124,30 +216,44 @@ rather than to network flakiness in general.
 
 ## Suggested fix
 
-Arm the response timer once, before the loop, so a non-progressing loop can
-expire:
+**Feed the timer only on progress.** Keep the in-loop `feedTimer()`, but call it
+only when the iteration actually advanced — `respCtx.totalRead` increased or
+`respCtx.stage` changed:
 
 ```cpp
-sData->error.code = 0;
-sData->response.feedTimer(!sData->async && sync_read_timeout_sec > 0
-                              ? sync_read_timeout_sec : -1);
 while (sData->return_type == ret_continue && (...))
 {
+    const size_t readBefore = sData->response.respCtx.totalRead;
+    const auto stageBefore  = sData->response.respCtx.stage;
+
     sData->return_type = receive(sData);
+
+    if (sData->response.respCtx.totalRead != readBefore ||
+        sData->response.respCtx.stage != stageBefore)
+        sData->response.feedTimer(!sData->async && sync_read_timeout_sec > 0
+                                      ? sync_read_timeout_sec : -1);
+
     handleReadTimeout(sData);
     ...
 }
 ```
 
-Alternatively, keep the in-loop `feedTimer()` but call it only when the
-iteration made **progress** (bytes read, or `respCtx.stage` advanced). That
-preserves the current behaviour for slow-but-live transfers — a long download
-keeps extending its own deadline — while letting a stalled loop expire. This is
-the distinction between a flat deadline and a progress-based one.
+A live-but-slow transfer keeps extending its own deadline, so nothing regresses;
+a non-progressing loop expires at `sync_read_timeout_sec`.
 
-A defensive `if (!sman.client->connected()) { ... ret_failure; }` inside the
-loop would also break this specific case, but the timer change covers any
-non-progressing condition, not just a closed socket.
+**Note on the simpler alternative — hoisting `feedTimer()` out of the loop:
+we do not recommend it.** It converts the per-read timeout into a flat deadline
+for the whole response, which would kill legitimate large or chunked downloads
+that exceed `sync_read_timeout_sec` in total. `readPayload()` also feeds the
+timer per chunk at `AsyncClient.h:582`, so hoisting alone would not even produce
+a consistent flat deadline — behaviour would differ between chunked and
+non-chunked responses. The progress-based form is the correct shape.
+
+Separately, the gating described above is worth addressing on its own merits:
+moving the `connected()` check to `AsyncClient.h:452` (so a dead socket reaches
+the existing `-1` path rather than being gated out by `tcpAvailable() == 0`),
+and relaxing `ResponseHandler.h:263`'s `respCtx.totalRead == 0` condition, which
+is wrong for a mid-response death.
 
 ## Note on the SSL client
 
