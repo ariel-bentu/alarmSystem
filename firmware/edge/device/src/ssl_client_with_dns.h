@@ -149,6 +149,15 @@ class SslClientWithDns : public WiFiClientSecure {
     // dispatches into OUR read() override, whose base read() calls
     // available() — re-entering this function. Unbounded recursion, stack
     // overflow.
+    // Only an IN-FLIGHT operation can have its socket die "under a read". When
+    // the deadline is not armed this client is idle between operations and
+    // legitimately has no socket — reporting that produced false
+    // `[io] socket closed...` lines on a perfectly healthy boot (observed
+    // 2026-09-09: rc=0 fd=-1 and rc=0 fd=0 during mint/app startup), which
+    // destroys the field signal this line exists to provide. Nothing is
+    // spinning on an idle client, so there is nothing to break out of.
+    if (!deadline_.armed()) return n;
+
     if (sslReadFailed(n) || sslclient == nullptr ||
         sslSocketIsGone(sslclient->socket)) {
       // Report unconditionally, not only when the deadline agrees: an unarmed

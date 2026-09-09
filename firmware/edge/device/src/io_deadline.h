@@ -68,6 +68,14 @@ class IoDeadline {
     if (armed_) closed_ = true;
   }
 
+  // True while an operation is in flight (armed by connect(), cleared by
+  // disarm()). The caller uses this to skip dead-socket detection entirely
+  // between operations: an idle client legitimately has no socket, and
+  // reporting that as "closed under an in-flight read" produced false
+  // positives on a healthy boot (2026-09-09) that made the field log
+  // unusable for telling a real caught hang from ordinary reconnects.
+  bool armed() const { return armed_; }
+
   // True once an armed operation has made no progress for the full bound. The
   // caller (SslClientWithDns::available) then stops the socket and returns an
   // error. Disarmed => never expires.

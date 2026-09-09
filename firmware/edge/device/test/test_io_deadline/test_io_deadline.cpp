@@ -252,6 +252,35 @@ static void test_dead_socket_return_is_not_negative() {
   TEST_ASSERT_FALSE(sslDeadSocketAvailable() < 0);
 }
 
+// --- Only an IN-FLIGHT operation can have a socket die "under a read".
+//
+// Observed on hardware 2026-09-09 immediately after flashing: three
+// `[io] socket closed under an in-flight read (rc=0 fd=-1 / fd=0)` lines during
+// normal, healthy boot. Those are IDLE clients between operations — a client
+// that has not connected yet legitimately has no socket. Harmless (the device
+// ran fine) but it destroys the field signal: `grep` can no longer tell a real
+// caught hang from boot noise, which is the whole point of the log line.
+//
+// `armed()` exposes the state that distinguishes them: armed == an operation is
+// in flight, so a missing socket is a genuine mid-read teardown.
+static void test_not_armed_before_any_operation() {
+  IoDeadline d(kBoundMs);
+  TEST_ASSERT_FALSE(d.armed());
+}
+
+static void test_armed_while_operation_in_flight() {
+  IoDeadline d(kBoundMs);
+  d.arm(1000);
+  TEST_ASSERT_TRUE(d.armed());
+}
+
+static void test_not_armed_after_disarm() {
+  IoDeadline d(kBoundMs);
+  d.arm(1000);
+  d.disarm();
+  TEST_ASSERT_FALSE(d.armed());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_disarmed_never_expires);
@@ -270,5 +299,8 @@ int main(int, char**) {
   RUN_TEST(test_hard_error_from_base_means_gone);
   RUN_TEST(test_dead_socket_return_is_positive_to_open_the_gate);
   RUN_TEST(test_dead_socket_return_is_not_negative);
+  RUN_TEST(test_not_armed_before_any_operation);
+  RUN_TEST(test_armed_while_operation_in_flight);
+  RUN_TEST(test_not_armed_after_disarm);
   return UNITY_END();
 }
