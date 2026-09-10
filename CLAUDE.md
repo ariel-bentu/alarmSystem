@@ -103,7 +103,7 @@ firmware/edge/
     src/                 ← main.cpp, alarm_state, cloud_client, cc1101_receiver,
                            ev1527_frame, eeprom_store, local_web_server,
                            provisioning_portal, platform_compat, siren_address
-    test/                ← native Unity tests (98 tests, 11 suites)
+    test/                ← native Unity tests (127 tests, 11 suites)
   spike_*/               ← throwaway diagnostic sketches, kept as known-good controls
 web/                     ← React + TypeScript (Vite), Firebase Hosting
 functions/               ← Cloud Functions (TypeScript, gen-2)
@@ -117,6 +117,11 @@ docs/superpowers/        ← design specs and implementation plans
 ```bash
 # Firmware. ALWAYS pass -e esp32s3: a bare `pio run` also builds [env:native],
 # which fails to link. Check `ls /dev/cu.*` — macOS reassigns the suffix.
+#
+# The esp32s3 build runs `patch_firebase.py` first, which patches FirebaseClient
+# in .pio/libdeps (gitignored, so re-applied after every install). If a library
+# update moves the code it anchors on, the patch FAILS THE BUILD by design —
+# see docs/upstream/ISSUE.md and update the anchors rather than removing it.
 cd firmware/edge/device
 pio run -e esp32s3 -t upload --upload-port /dev/cu.usbmodem101
 pio test -e native
@@ -151,6 +156,7 @@ measured, what was ruled out, and the traps that wasted time.
 | [watchdog-and-offline-alerts](docs/history/watchdog-and-offline-alerts.md) | The 28h silent death, watchdog, boot reporting, offline alerts |
 | [cloud-auth-silent-death](docs/history/cloud-auth-silent-death.md) | Dead auth session the watchdog cannot see; why `tokenMinted_` was a one-way latch |
 | [tls-handshake-watchdog-reboot](docs/history/tls-handshake-watchdog-reboot.md) | The `twdt` reboots: 120s TLS handshake default vs a 60s watchdog; `vTaskDelay` does not feed the TWDT |
+| [firebaseclient-sync-read-timeout](docs/history/firebaseclient-sync-read-timeout.md) | Why `setSyncReadTimeout` could never fire; the local library patch; two wrong fixes first (fd sentinel is 0, not -1) |
 
 **Testing guide:** `docs/testing-device-liveness.md` — what to verify for the
 watchdog / offline-alert work (untested on hardware as of 2026-09-02).
@@ -179,13 +185,21 @@ watchdog / offline-alert work (untested on hardware as of 2026-09-02).
 **Working on real hardware:** ESP32-S3 boots, provisions WiFi, mints its
 Firebase token, decodes real Kerui sensors, evaluates rules, drives the siren
 over RF hub-free, serves the LAN web UI, and writes events to Firebase with
-Telegram alerts confirmed. 98 native unit tests pass.
+Telegram alerts confirmed. 127 native unit tests pass.
 
-**Stability: 23h16m clean run (2026-09-07)** — single boot, zero `twdt` reboots,
-zero stall dumps, flat heap. Proves the TLS-handshake, blocking-DNS and
-dead-socket fixes in
+**Stability: 18h16m clean run (2026-09-10)** — single boot, zero `twdt` reboots,
+zero stall dumps, flat heap, and crucially **four `-76` socket deaths all
+recovered in ~5s** where both previous builds rebooted on the first one (at
+10.0h and 18.36h). That ~5s is the configured `setSyncReadTimeout(5)` finally
+firing. Proves the FirebaseClient read-timeout fix in
+[firebaseclient-sync-read-timeout](docs/history/firebaseclient-sync-read-timeout.md),
+on top of the TLS-handshake and blocking-DNS fixes in
 [tls-handshake-watchdog-reboot](docs/history/tls-handshake-watchdog-reboot.md).
-Does NOT yet clear the silent auth death, seen at 28h/31.76h — that needs ~36h.
+
+Note the earlier "23h16m clean run (2026-09-07)" did **not** prove the
+dead-socket fix as once claimed — it simply never hit a `-76`. Zero `-76` in a
+window is inconclusive, not a pass. Still does NOT clear the silent auth death
+seen at 28h/31.76h — that needs ~36h.
 
 **Deployed:** full web app (auth, pairing, profiles/rules, operations,
 schedules, timeline, simulator), all Cloud Functions, invite-only access,
@@ -197,9 +211,12 @@ guide below. `RelaySiren` is built but unused (the RF path supersedes it).
 
 ## Next
 
-1. Test and deploy the watchdog / offline-alert work (`docs/testing-device-liveness.md`)
-2. Run in parallel with W184
-3. Register the Telegram webhook so bot commands work
-4. Decommission W184
+1. Soak to ~36h to probe the silent auth death (28h/31.76h), still unclosed
+2. Track [FirebaseClient#333](https://github.com/mobizt/FirebaseClient/issues/333)
+   (filed 2026-09-10); if fixed upstream, retire `patch_firebase.py`
+3. Test and deploy the watchdog / offline-alert work (`docs/testing-device-liveness.md`)
+4. Run in parallel with W184
+5. Register the Telegram webhook so bot commands work
+6. Decommission W184
 
 See `todo.txt` for smaller known gaps.

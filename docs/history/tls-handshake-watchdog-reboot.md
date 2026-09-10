@@ -275,6 +275,12 @@ backtrace was a dead end (it showed IDLE0 / `task_wdt_isr` — the reporter, not
 the hung call). The precise spinning wait was never pinned. That is fine,
 because the fix does not depend on knowing it.
 
+> **CORRECTION (2026-09-08).** The reasoning above is right about the *first*
+> `available()` call and wrong about every one after it — which is why the
+> `IoDeadline` did not close this fault. See
+> [The recurrence](#the-recurrence-2026-09-08--why-iodeadline-did-not-cover-it)
+> at the end of this file.
+
 ### The instrumentation gap this exposed
 
 The dump read `phase='loop'` for a hang that was inside `cloudClient.loop()`.
@@ -370,3 +376,99 @@ If `cloud: auth dead for Ns — forcing re-mint` appears in a longer run, that i
 a **pass, not a regression**: it means `AuthSupervisor` caught a dead session
 that was previously invisible to every watchdog and rebuilt it, which is exactly
 what it was built to do.
+
+---
+
+# The recurrence (2026-09-08) — why `IoDeadline` did not cover it
+
+**Status: root cause PINNED from the library source; fix written and native-tested;
+NOT yet hardware-proven.** The `-76` hang above was recorded as fixed by the
+`IoDeadline`. It was not. The same fault recurred twice.
+
+## Evidence
+
+Two independent records, agreeing exactly:
+
+- `state/boot` = `{reason:"twdt", at: 2026-09-08 05:09:23}`, and `state/last_seen`
+  (uptime 14,051s) back-computes to the *same instant*. A genuine watchdog
+  reboot, ~10.0h into the run — not a power blip, and this time nothing
+  overwrote `state/boot`.
+- The **09-07 19:08 soak log caught the whole sequence live**, which is what
+  made the mechanism provable:
+
+```
+19:07:51 [E][ssl_client.cpp:37] _handle_error(): [data_to_read():361]: (-76)
+19:08:32 *** [stall] loopTask has not progressed for 40968ms — phase='cloud:poll-config' ***
+19:08:51 task_wdt: loopTask (CPU 1) ... Rebooting
+```
+
+`[io] socket stalled past deadline` appears **zero** times. The socket died, the
+loop hung 41s, and the 12s deadline never fired.
+
+## The mechanism
+
+`WiFiClientSecure.cpp:240-252`:
+
+```c
+int WiFiClientSecure::available() {
+    int peeked = (_peek >= 0);
+    if (!_connected) return peeked;                     // <-- 0 forever
+    int res = data_to_read(sslclient);
+    if (res < 0) { stop(); return peeked?peeked:res; }  // base stop(), NOT our override
+    return res+peeked;
+}
+```
+
+On `-76` the base calls **its own** `stop()`. That is a non-virtual internal
+call, so it **bypasses `SslClientWithDns::stop()` and its `deadline_.disarm()`**
+— while setting `_connected = false`. The first `available()` does return `-76`,
+but every call *after* it takes the `!_connected` early return and yields **`0`
+forever**. FirebaseClient re-polls, sees a steady `0`, and spins on `sys_idle()`
+(`delay(0)`, no TWDT feed) to the 60s reboot.
+
+The deadline could not rescue it: it is armed only in `connect()`, and on a
+reused connection no new `connect()` occurs, so nothing re-arms it.
+
+**Distinguishing signature.** The "clean" 23h run's 85 socket errors were all
+`code -3` (sticky `lastError`, benign, self-recovering). A true `-76` in
+`ssl_client.cpp _handle_error [data_to_read()]` is **rare — one in ~24h** — and
+goes straight to stall + reboot. `grep -c "(-76)"` counts real incidents;
+`code -3` does not.
+
+## The fix
+
+`IoDeadline` gains a `socketClosed()` state, distinct from `disarm()` (clean
+completion): once the socket is known closed under an armed operation,
+`expired()` is true **immediately** rather than after the remaining bound — a
+closed socket delivers no more bytes, so waiting only burns watchdog budget.
+`arm()` and `disarm()` both clear it, so one dead socket cannot poison later
+polls on the reused client.
+
+`SslClientWithDns::available()` detects the state after delegating: base
+returned `<= 0` **and** the socket fd is gone.
+
+**RECURSION TRAP — do not use `connected()` here.** `connected()` runs
+`read(&dummy, 0)`, and that `read` is **virtual**, so it dispatches into our
+`read()` override, whose base `read()` calls `available()` — re-entering the
+function. Unbounded recursion, stack overflow. The check reads the **protected**
+`sslclient->socket` fd instead, which `stop()` sets to `-1`
+(`WiFiClientSecure.cpp:92-97`) — same signal, no re-entry, no side effects.
+
+## How to confirm or refute
+
+The fault is ~1/day, so **a multi-day soak is required** — the 23h "clean run"
+above was never long enough to clear it. Capture with
+
+```
+pio device monitor -e esp32s3 --port <port> -f time -f log2file
+```
+
+`-f log2file` is **mandatory**: the monitor running during this incident was
+started with `-f time` only and captured nothing to disk, which is why the 05:09
+event has no serial trace and had to be reconstructed from RTDB.
+
+- `grep -c "(-76)"` > 0 with `[io] socket closed under an in-flight read` and
+  **no** `reason=twdt` -> **fixed** (the fault occurred and was contained).
+- Zero `-76` in the window -> **inconclusive**, not a pass. The fault simply did
+  not occur; keep soaking.
+- A `reason=twdt` with `phase='cloud:*'` -> not fixed.
