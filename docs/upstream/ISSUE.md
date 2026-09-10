@@ -4,6 +4,8 @@
 
 **Symptom:** after a `-76` on a keep-alive connection, `loopTask` blocks ~41s and the Task WDT reboots the board. Seen at 10.0h and 18.36h of uptime.
 
+**The suggested fix is running on hardware.** An 18.16h soak with the progress-based patch applied absorbed **four** `-76` events with **zero** reboots, each recovering in ~5s (= the configured `setSyncReadTimeout(5)`) instead of hanging 40.8s to the watchdog. Details in [Verification](#verification-the-fix-running-on-hardware) below.
+
 ## The defect
 
 `AsyncClient.h:1131-1153`:
@@ -90,9 +92,38 @@ A live-but-slow transfer keeps extending its deadline; a non-progressing loop ex
 
 Worth fixing separately: the `tcpAvailable() > 0` gate at line 452 hides the dead socket from the `-1` path at `ResponseHandler.h:263`, whose `totalRead == 0` condition is also wrong for a mid-response death.
 
+## Verification: the fix running on hardware
+
+The patch above was applied to 2.2.13 and soaked on the same device and workload that produced the failures.
+
+**18.16h, single boot, zero reboots** (uptime 11 → 65,392s), against two prior builds that rebooted on their *first* `-76`, at 10.0h and 18.36h.
+
+| Signal | Before | After |
+|---|---|---|
+| `-76` events | 1 → reboot | **4 → all recovered** |
+| Time from `-76` to next successful request | 40.8s stall → TWDT reboot at 60s | **4.03 / 5.04 / 5.05 / 5.02 s** |
+| `[stall]` dumps / `reason=twdt` | 1 / 1 | **0 / 0** |
+| Free heap, start → end | — | 180,484 → 180,024 (flat) |
+
+The recovery times are the point: **~5.0s is exactly the configured `setSyncReadTimeout(5)`**. With the patch the timer is no longer re-armed on a non-progressing pass, so it expires and `handleReadTimeout()` fires — which it structurally could not do before. The first event also surfaced `code -3` (`FIREBASE_ERROR_TCP_RECEIVE_TIMEOUT`), i.e. the library reporting its own timeout, previously unreachable on this path.
+
+Sample, one of the four:
+
+```
+02:43:33 cloud: heartbeat uptime=40526 ok (code 0) heap=180048
+02:43:39 [E][ssl_client.cpp:37] _handle_error(): [data_to_read():361]: (-76)
+02:43:44 cloud: heartbeat uptime=40537 ok (code 0) heap=179964     <- 5.04s later, recovered
+```
+
+No behavioural regression observed on healthy traffic over the same run: normal polls, config reads and event writes all completed as before, and heap was flat.
+
 ## What we have not proven
 
-The timer arithmetic is provable from `Timer.h:24-50` by inspection; the reproducer only demonstrates it. But attributing *this* hang to the `-76` rests on log correlation, not a stack trace — we have not instrumented the library to print `remaining()`, `feedCount()`, `stage`, `httpCode`, `totalRead` and `connected()` at the moment of the hang, nor established which `ret_continue` sink (line 398 vs 441) was taken. Happy to capture that if useful. The loop is unbounded for any non-progressing condition regardless.
+The timer arithmetic is provable from `Timer.h:24-50` by inspection; the reproducer only demonstrates it, and the soak above confirms the fix end to end.
+
+What is still inferred rather than measured is the *precise* internal state during the original hang: we did not instrument the library to print `remaining()`, `feedCount()`, `stage`, `httpCode`, `totalRead` and `connected()` at that moment, nor establish which `ret_continue` sink (line 398 vs 441) was taken. With the patch in place the hang no longer occurs, so there is nothing left to instrument — happy to run a deliberately unpatched build with tracing if that would help you.
+
+Our soak also carries a second, independent mitigation in a `Client` subclass. It logged **zero** activations across all four events, i.e. the patched timer fired first every time, so it is not confounding these results.
 
 `sData->sse == false` for the affected slot (plain `get()`, no stream).
 
