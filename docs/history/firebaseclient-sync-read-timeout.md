@@ -137,8 +137,18 @@ and before this fix went straight to a stall and reboot.
 
 ## Upstream
 
-Report drafted in `docs/upstream/ISSUE.md` with a standalone reproducer
-(`timer_repro.cpp`, no hardware needed). Upstream issue #313 is the same symptom,
+**Filed 2026-09-10 as
+[mobizt/FirebaseClient#333](https://github.com/mobizt/FirebaseClient/issues/333)**
+— text in `docs/upstream/ISSUE.md`, with a standalone reproducer
+(`timer_repro.cpp`, no hardware needed).
+
+[#313](https://github.com/mobizt/FirebaseClient/issues/313) is the same symptom,
 closed by the maintainer as a memory fault; our heap data refutes that for this
 instance — flat across 18.36h, min-free 121,488, and 220,532 free *at* the stall
 (it rose, as the dead socket's TLS buffers were released).
+
+If #333 is accepted and released, `patch_firebase.py` can be retired: bump the
+`lib_deps` floor to the fixed version and delete the script and its
+`extra_scripts` line. Check the patched loop against the released source first —
+if upstream's fix differs from ours, the script's hard-fail will catch the
+mismatch on the next build anyway.

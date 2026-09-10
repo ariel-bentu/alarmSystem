@@ -25,6 +25,9 @@ does NOT feed the task watchdog) until the 60s TWDT reboots the board. Observed
 twice on hardware: 10.0h and 18.36h uptime, both `phase='cloud:poll-config'`.
 
 Full analysis and the reproducer: docs/upstream/ISSUE.md.
+Filed upstream as https://github.com/mobizt/FirebaseClient/issues/333
+(open as of 2026-09-10). If it is fixed and released, retire this script:
+raise the lib_deps floor to the fixed version and drop the extra_scripts line.
 
 THE PATCH
 ---------

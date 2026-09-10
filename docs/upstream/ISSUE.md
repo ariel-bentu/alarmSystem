@@ -1,3 +1,7 @@
+<!-- FILED 2026-09-10 as https://github.com/mobizt/FirebaseClient/issues/333
+     This is the submitted text, kept for the record. Edit only to keep it in
+     sync with the issue; discussion and any maintainer response live there. -->
+
 # Sync read loop cannot time out: `feedTimer()` is called inside the loop it is meant to bound
 
 **Version:** 2.2.13 (`main`, `AsyncClient.h` @ `2a030ef`) · **Board:** ESP32-S3, arduino-esp32 3.20017 · **Mode:** sync `database.get<String>()` with `setSyncReadTimeout(5)`
@@ -63,9 +67,9 @@ The last two lines matter: the current arrangement is *correct* for slow-but-liv
 04:19:00 E task_wdt: Task watchdog got triggered. - loopTask (CPU 1). Aborting.
 ```
 
-`phase='cloud:poll-config'` is our label around a single synchronous `get()`.
+`phase='cloud:poll-config'` is my label around a single synchronous `get()`.
 
-**Not memory exhaustion** (since #313 was closed on that basis): free heap was flat across the 18.36h run — 180,512 → 179,928 — min-free never below 121,488, and **220,532 free at the moment of the stall**. It *rose*, consistent with the dead socket's TLS buffers being released.
+**Not memory exhaustion** (since issue #313 was closed on that basis): free heap was flat across the 18.36h run — 180,512 → 179,928 — min-free never below 121,488, and **220,532 free at the moment of the stall**. It *rose*, consistent with the dead socket's TLS buffers being released.
 
 ## Suggested fix: feed only on progress
 

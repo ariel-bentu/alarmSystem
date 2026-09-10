@@ -212,7 +212,8 @@ guide below. `RelaySiren` is built but unused (the RF path supersedes it).
 ## Next
 
 1. Soak to ~36h to probe the silent auth death (28h/31.76h), still unclosed
-2. File the upstream FirebaseClient issue (`docs/upstream/ISSUE.md`, ready)
+2. Track [FirebaseClient#333](https://github.com/mobizt/FirebaseClient/issues/333)
+   (filed 2026-09-10); if fixed upstream, retire `patch_firebase.py`
 3. Test and deploy the watchdog / offline-alert work (`docs/testing-device-liveness.md`)
 4. Run in parallel with W184
 5. Register the Telegram webhook so bot commands work
