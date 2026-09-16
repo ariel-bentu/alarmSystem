@@ -10,7 +10,8 @@ Probed with `esptool.py chip_id` / `flash_id`:
 
 - ESP32-S3 (QFN56) rev v0.2, **quad** SPI flash, embedded 8MB PSRAM
 - 16MB flash, native USB-Serial/JTAG (`/dev/cu.usbmodem1101`)
-- Board 1 MAC `68:ee:8f:5b:82:dc`, board 2 MAC `68:ee:8f:5b:7e:dc`
+- Two boards on hand; `esptool.py chip_id` prints each one's MAC if you need
+  to tell them apart
 
 ## CC1101 433MHz module (V2.0, 8-pin, SMA antenna)
 

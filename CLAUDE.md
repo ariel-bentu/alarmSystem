@@ -15,7 +15,7 @@ anything it covers. Do not re-litigate their conclusions without new evidence.
 | ESP32-S3 | **Current edge controller** | 8MB PSRAM, 16MB flash, native USB |
 | ESP8266 D1 Mini | **ABANDONED** | Too little RAM — [why](docs/history/esp8266-abandoned.md). Does not compile |
 | CC1101 433MHz | Wired, working | RF receive + transmit confirmed |
-| Kerui W184 hub | Keep running | 192.168.0.46, until decommissioned |
+| Kerui W184 hub | Keep running | on the LAN (see `.local-info`), until decommissioned |
 | Kerui sensors | Untouched | 433MHz, 24-bit OOK |
 | Siren (YF-SG-081) | Paired over RF | EV1527 via CC1101, hub-free |
 
@@ -32,7 +32,7 @@ RF, reports to Firebase.
   survives power loss and WiFi outage
 - `AlarmState` evaluates conditions; fires siren via RF (`ev1527_frame.h`)
 - WiFi **optional**: when up, `CloudClient` mints a Firebase custom token and
-  polls commands/config every 15s (polling, not SSE)
+  polls commands/config every 5s, 1s while alarming (polling, not SSE)
 - **Local web server** (`http://alarm.local`, LAN-only, no auth): arm/disarm +
   sensor simulator, works fully offline. Toggle persisted in EEPROM
 - Task watchdog (30s) reboots on a hang; `state/boot` reports why it last
@@ -111,6 +111,12 @@ smoke/                   ← emulator smoke tests
 docs/history/            ← dated investigation records (see below)
 docs/superpowers/        ← design specs and implementation plans
 ```
+
+**Public-facing docs** (this repo is published): `README.md` is the entry
+point, `SECURITY.md` holds the threat model AND the known-issues list (the
+firmware-review findings that used to sit in `todo.txt` — keep them in sync
+when one is fixed), `CONTRIBUTING.md` covers tests and house rules, MIT
+`LICENSE`. Keep real IPs, MACs, and project IDs out of tracked files.
 
 ## Commands
 
