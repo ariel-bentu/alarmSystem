@@ -31,6 +31,7 @@ import { useOnlineStatus } from "@/lib/useOnlineStatus";
 import { useT } from "@/i18n/I18nProvider";
 import { useDeviceState } from "./useDeviceState";
 import { useAlarmState } from "./useAlarmState";
+import { postLocalDisarm, shouldTryLocalDisarm } from "./localDevice";
 import SchedulesPanel from "./SchedulesPanel";
 import { causeLabel } from "./alarmState";
 import { bootSeverity, bootReasonKey, isRecentBoot } from "./bootReason";
@@ -180,6 +181,18 @@ export default function OperationsPage() {
   const armSide = async (side: Side, profileId: string | null) => {
     if (!projectId || !canArm || busy) return;
     setPending(`${side}:${profileId ?? "off"}`);
+
+    // Before any awaited write, because the point is to not sit behind a
+    // Firebase round-trip: a mistakenly sounding siren is silenced by whichever
+    // path reaches the device first. Fire-and-forget and unobservable by
+    // construction — it cannot fail the press, and the cloud writes below
+    // remain the authoritative path that the UI reports on. Device disarm only:
+    // arming over an unauthenticated LAN endpoint is not something to do
+    // silently, and server-side arming has no LAN meaning at all.
+    if (shouldTryLocalDisarm({ side, profileId })) {
+      postLocalDisarm();
+    }
+
     try {
       const field = side === "device" ? "isActiveOnDevice" : "isActiveOnServer";
       const batch = writeBatch(dbSync());
