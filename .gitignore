@@ -17,3 +17,8 @@ firmware/edge/device/platformio.local.ini
 firmware/edge/**/.pio
 .claude
 *.log
+
+# Firebase service-account keys. Live admin credentials — they bypass every
+# security rule, and this repo is public.
+*-firebase-adminsdk-*.json
+serviceAccount*.json
