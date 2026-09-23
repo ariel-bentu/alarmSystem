@@ -160,6 +160,13 @@ export const he: Record<TranslationKey, string> = {
     "\n\n{updates} חוקים יעודכנו ו-{deletes} חוקים יימחקו.",
   "cfg.sensors.batteryOk": "תקינה",
   "cfg.sensors.batteryLow": "חלשה",
+  "cfg.sensors.batteryToday": "הוחלפה היום",
+  "cfg.sensors.batteryDaysAgo": "הוחלפה לפני {count} ימים",
+  "cfg.sensors.batteryMonthsAgo": "הוחלפה לפני {count} חודשים",
+  "cfg.sensors.batteryNotRecorded": "תאריך ההחלפה לא נרשם",
+  "cfg.sensors.batteryChangedLabel": "החלפת סוללה אחרונה",
+  "cfg.sensors.batteryTodayButton": "היום",
+  "cfg.sensors.batteryStale": "הסוללה דורשת החלפה",
 
   // Profiles tab
   "cfg.profiles.loading": "טוען פרופילים…",
@@ -303,6 +310,9 @@ export const he: Record<TranslationKey, string> = {
     "שליחת הודעת טלגרם בכל הפעלת גלאי (על סוללה חלשה וחבלה תמיד נשלחת התראה)",
   "settings.sirenAndAlarm": "צופר ואזעקת שרת",
   "settings.sirenDuration": "משך הצופר (שניות)",
+  "settings.batteryAlertMonths": "התראת גיל סוללה (חודשים)",
+  "settings.batteryAlertMonthsHelp":
+    "שליחת התראה בטלגרם פעם אחת כאשר גיל הסוללה של חיישן עולה על הערך הזה. 0 מבטל את ההתראה. חיישנים שלא נרשם להם תאריך החלפה נמדדים מתאריך השיוך.",
   "settings.serverSendsTelegram": "השרת שולח התראות טלגרם באזעקה",
   "settings.serverTriggersSiren": "השרת מפעיל את הצופר באזעקה",
   "settings.telegram": "טלגרם",

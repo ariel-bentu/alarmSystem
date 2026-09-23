@@ -164,6 +164,13 @@ export const en = {
     "\n\n{updates} rule(s) will be updated and {deletes} rule(s) deleted.",
   "cfg.sensors.batteryOk": "ok",
   "cfg.sensors.batteryLow": "low",
+  "cfg.sensors.batteryToday": "changed today",
+  "cfg.sensors.batteryDaysAgo": "changed {count}d ago",
+  "cfg.sensors.batteryMonthsAgo": "changed {count}mo ago",
+  "cfg.sensors.batteryNotRecorded": "change date not recorded",
+  "cfg.sensors.batteryChangedLabel": "Battery last changed",
+  "cfg.sensors.batteryTodayButton": "Today",
+  "cfg.sensors.batteryStale": "battery overdue",
 
   // Profiles tab
   "cfg.profiles.loading": "Loading profiles…",
@@ -314,6 +321,9 @@ export const en = {
     "Send Telegram on every sensor trigger (battery-low and tamper always notify)",
   "settings.sirenAndAlarm": "Siren & Server Alarm",
   "settings.sirenDuration": "Siren Duration (seconds)",
+  "settings.batteryAlertMonths": "Battery age alert (months)",
+  "settings.batteryAlertMonthsHelp":
+    "Telegram once when a sensor battery is older than this. 0 disables it. Sensors with no recorded change date are aged from when they were paired.",
   "settings.serverSendsTelegram": "Server sends Telegram alerts on alarm",
   "settings.serverTriggersSiren": "Server triggers siren on alarm",
   "settings.telegram": "Telegram",
