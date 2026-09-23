@@ -8,6 +8,7 @@ import {
   formatArmStateBySource,
   armSourceLabel,
   formatDeadSensor,
+  formatStaleBattery,
   formatDeviceOffline,
   formatDeviceBackOnline,
   formatStatus,
@@ -112,6 +113,23 @@ describe("telegram formatters", () => {
     });
     it("handles fractional hours", () => {
       expect(formatDeadSensor("PIR", 48)).toBe("💤 PIR has not reported in 48h");
+    });
+  });
+
+  describe("formatStaleBattery", () => {
+    it("names the sensor and the age", () => {
+      expect(formatStaleBattery("Front door", 14)).toBe(
+        "🔋 Front door battery is 14 months old — consider replacing"
+      );
+    });
+
+    it("reads as advice, not as an incident", () => {
+      // Distinct from formatDeadSensor's 💤 and from the alarm messages: this
+      // is a maintenance reminder, and dressing it as an emergency would
+      // train the reader to ignore the channel.
+      const msg = formatStaleBattery("Kitchen", 12);
+      expect(msg).toContain("🔋");
+      expect(msg).not.toContain("🚨");
     });
   });
 

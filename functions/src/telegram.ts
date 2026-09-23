@@ -115,6 +115,17 @@ export function formatDeadSensor(sensorName: string, hoursSilent: number): strin
   return `💤 ${sensorName} has not reported in ${hoursSilent}h`;
 }
 
+// A battery approaching end of life, not a sensor that has already gone
+// quiet — named separately from formatDeadSensor for the same reason
+// formatDeviceOffline is: the consequence differs in kind. This one is
+// advisory maintenance, so it reads as a suggestion rather than an incident.
+export function formatStaleBattery(
+  sensorName: string,
+  months: number
+): string {
+  return `🔋 ${sensorName} battery is ${months} months old — consider replacing`;
+}
+
 // The CONTROLLER went silent, not a sensor. Named separately from
 // formatDeadSensor because the consequence is different in kind: one dead
 // sensor is a blind spot, a dead controller while armed means nothing is

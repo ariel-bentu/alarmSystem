@@ -50,7 +50,7 @@ const schedules: ScheduledTask[] = [
     callback: () => checkDeviceLiveness(Date.now()),
   },
   {
-    desc: "Dead sensor alerts + RTDB event retention",
+    desc: "Dead sensor + stale battery alerts, RTDB event retention",
     min: 0,
     hour: 12,
     weekDay: "*",

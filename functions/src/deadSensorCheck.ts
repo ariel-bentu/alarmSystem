@@ -5,21 +5,34 @@
 // free jobs per BILLING ACCOUNT, so every periodic task here is a plain
 // async function the one dispatcher invokes.
 //
-// Two daily maintenance jobs share this one entry, rather than walking the
-// same project list twice:
+// Three daily maintenance jobs share this one entry, rather than walking the
+// same project list three times:
 //
 //  1. Dead-sensor alerts. For each project + sensor: if lastSeen older than
 //     sensor.deadSensorAlertDays and no alert has been sent yet this silence
 //     period → Telegram alert once. deadAlertSentAt is set on fire and cleared
 //     when the sensor is seen again (onSensorEvent.ts handles the clear on any
 //     trigger).
-//  2. RTDB event retention — see eventCleanup.ts.
+//  2. Stale-battery alerts. If the battery's age (batteryChangedAt, else
+//     pairedAt) exceeds project.batteryAlertMonths → Telegram once.
+//     batteryAlertSentAt is set on fire and cleared when someone records a
+//     new replacement date in the web UI. Decision logic in batteryAgeCheck.ts.
+//  3. RTDB event retention — see eventCleanup.ts.
+//
+// (1) and (2) are independent: a sensor can be both silent and carrying an old
+// battery, and gets one message for each, because they mean different things.
 
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "./admin";
 import { Project, Sensor } from "./types";
-import { sendTelegram, formatDeadSensor } from "./telegram";
+import { sendTelegram, formatDeadSensor, formatStaleBattery } from "./telegram";
 import { cleanupProjectEvents, cutoffFrom } from "./eventCleanup";
+import {
+  shouldAlertStaleBattery,
+  batteryStartedAtMs,
+  batteryAgeMonths,
+  DEFAULT_BATTERY_ALERT_MONTHS,
+} from "./batteryAgeCheck";
 
 export async function deadSensorCheck(): Promise<void> {
   {
@@ -56,6 +69,36 @@ export async function deadSensorCheck(): Promise<void> {
       for (const sensorDoc of sensorsSnap.docs) {
         const sensor = { id: sensorDoc.id, ...sensorDoc.data() } as Sensor;
 
+        // Battery age FIRST, and in its own block: the dead-sensor checks
+        // below `continue` on several conditions (never seen, alerts
+        // disabled, not silent long enough), and a stale battery is worth
+        // reporting in every one of those cases. A sensor can be both dead
+        // and battery-stale and gets one message for each, because they mean
+        // different things: one stopped reporting, the other will soon.
+        const startedAtMs = batteryStartedAtMs(sensor);
+        if (
+          shouldAlertStaleBattery({
+            startedAtMs,
+            alertSentAt: sensor.batteryAlertSentAt,
+            thresholdMonths:
+              project.batteryAlertMonths ?? DEFAULT_BATTERY_ALERT_MONTHS,
+            nowMs: now,
+          })
+        ) {
+          const months = batteryAgeMonths(startedAtMs as number, now);
+          await sendTelegram(
+            project.telegramBotToken,
+            project.telegramChatId,
+            formatStaleBattery(sensor.name, months)
+          );
+          // Written only after a successful send, so a Telegram failure
+          // retries at the next noon instead of silently losing the alert.
+          await sensorDoc.ref.update({
+            batteryAlertSentAt: FieldValue.serverTimestamp(),
+          });
+        }
+
+        // --- dead-sensor alerting ---
         if (sensor.lastSeen === null) continue; // Never seen — skip (newly paired)
 
         const alertDays = sensor.deadSensorAlertDays ?? -1;
