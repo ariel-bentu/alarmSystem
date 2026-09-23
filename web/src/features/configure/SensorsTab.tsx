@@ -33,6 +33,14 @@ import {
   reconcileRulesForRemovedSensor,
 } from "./profileRules";
 import { formatRelative, timeOfDay } from "./lastSeenFormat";
+import {
+  batteryStartedAt,
+  formatBatteryAge,
+  isBatteryStale,
+  toDateInputValue,
+  fromDateInputValue,
+  DEFAULT_BATTERY_ALERT_MONTHS,
+} from "./batteryAge";
 import { groupItemsByDay } from "./groupSensorsByDay";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { useT } from "@/i18n/I18nProvider";
@@ -176,6 +184,11 @@ export default function SensorsTab() {
       lastSeen: null,
       deadSensorAlertDays: -1,
       deadAlertSentAt: null,
+      // Explicitly null rather than "today": pairing a sensor is not evidence
+      // about its battery, and batteryStartedAt() already falls back to
+      // pairedAt, which is the same instant and needs no maintenance.
+      batteryChangedAt: null,
+      batteryAlertSentAt: null,
     };
     // NOT named `ref`: that is the firebase/database import used by the events
     // subscription above, and shadowing it here is a trap for the next edit.
@@ -258,6 +271,25 @@ export default function SensorsTab() {
     await updateDoc(sensorDoc(projectId, sensor.id), { deadSensorAlertDays: days });
     setSensors((prev) =>
       prev.map((s) => s.id === sensor.id ? { ...s, deadSensorAlertDays: days } : s)
+    );
+  };
+
+  // Recording a replacement ALSO clears batteryAlertSentAt. That pairing is
+  // what re-arms the alert for the next cycle — without it each sensor would
+  // Telegram once, ever, and go quiet for every battery after the first.
+  const handleBatteryChangedAt = async (sensor: Sensor, ms: number) => {
+    if (!projectId) return;
+    const changed = Timestamp.fromMillis(ms);
+    await updateDoc(sensorDoc(projectId, sensor.id), {
+      batteryChangedAt: changed,
+      batteryAlertSentAt: null,
+    });
+    setSensors((prev) =>
+      prev.map((s) =>
+        s.id === sensor.id
+          ? { ...s, batteryChangedAt: changed, batteryAlertSentAt: null }
+          : s
+      )
     );
   };
 
@@ -412,6 +444,74 @@ export default function SensorsTab() {
                             {t("cfg.sensors.batteryOk")}
                           </span>
                         )}
+                        {/* Age sits under the sensor's own ok/low claim
+                            because they are the same subject seen two ways:
+                            what the sensor reports, and what we recorded.
+                            Sharing the cell also keeps the table at five
+                            columns, which is as wide as it fits on a phone. */}
+                        <div className="battery-age">
+                          {(() => {
+                            const startedAt = batteryStartedAt(s);
+                            const age = formatBatteryAge(startedAt, now, t);
+                            const stale = isBatteryStale(
+                              startedAt,
+                              now,
+                              project?.batteryAlertMonths ??
+                                DEFAULT_BATTERY_ALERT_MONTHS
+                            );
+                            if (age === null) {
+                              return (
+                                <span className="muted">
+                                  {t("cfg.sensors.batteryNotRecorded")}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className={stale ? "is-stale" : "muted"}>
+                                {age}
+                                {stale
+                                  ? ` — ${t("cfg.sensors.batteryStale")}`
+                                  : ""}
+                              </span>
+                            );
+                          })()}
+                          <div className="battery-age__controls">
+                            <input
+                              type="date"
+                              className="input input--narrow"
+                              max={toDateInputValue(now)}
+                              value={
+                                s.batteryChangedAt
+                                  ? toDateInputValue(
+                                      s.batteryChangedAt.toMillis()
+                                    )
+                                  : ""
+                              }
+                              onChange={(e) => {
+                                // A null return means empty, malformed or
+                                // future: leave the stored value untouched
+                                // rather than writing nonsense, the same way
+                                // the alert-days input ignores NaN.
+                                const ms = fromDateInputValue(
+                                  e.target.value,
+                                  now
+                                );
+                                if (ms !== null)
+                                  void handleBatteryChangedAt(s, ms);
+                              }}
+                              aria-label={t("cfg.sensors.batteryChangedLabel")}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn--sm"
+                              onClick={() =>
+                                void handleBatteryChangedAt(s, Date.now())
+                              }
+                            >
+                              {t("cfg.sensors.batteryTodayButton")}
+                            </button>
+                          </div>
+                        </div>
                       </td>
                       <td>
                         <input

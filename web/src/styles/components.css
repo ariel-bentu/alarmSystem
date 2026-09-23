@@ -876,3 +876,27 @@ textarea.input {
   border-color: var(--accent);
   color: var(--accent-contrast);
 }
+
+/* ---------- Battery age (sensor table) ---------- */
+
+/* Stacked under the ok/low badge in the same cell, so the table stays five
+   columns wide — it already scrolls on a phone. */
+.battery-age {
+  margin-block-start: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.battery-age__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-block-start: var(--sp-1);
+  flex-wrap: wrap;
+}
+
+/* An overdue battery is a maintenance item, not an incident: warn, not
+   danger, so it cannot be mistaken for a live alarm state. */
+.battery-age .is-stale {
+  color: var(--warn);
+  font-weight: 600;
+}
