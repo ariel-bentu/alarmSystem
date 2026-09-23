@@ -256,7 +256,3 @@ export interface RtdbConfig {
   r: string[];
   c: RtdbCondition[][];
 }
-
-// ---- Explore timeline range selector ----
-
-export type TimeRange = "day" | "week" | "month" | "3months" | "year";
