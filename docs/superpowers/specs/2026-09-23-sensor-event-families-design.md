@@ -46,13 +46,48 @@ and cross-checked against the census above.
 
 | Nibble | Event | Sensor type implied | Evidence |
 |---|---|---|---|
-| `0x9` | trigger | curtain | **our data only** — undocumented |
+| `0x9` | trigger | **ambiguous** — curtain or door-open | our data only (4 curtains + 1 door) |
 | `0xA` | trigger | motion | rtl_433 + our data |
 | `0xE` | trigger | door | rtl_433 (`open`) + our data |
-| `0x7` | close | door | rtl_433 — **never observed here** |
+| `0x3` | close | door | our data only — `0x2E5B7`, ×40 |
+| `0x7` | close | door | rtl_433 — never observed here |
 | `0xB` | tamper | — | rtl_433 + our data (2 samples) |
 | `0x5` | water | water | rtl_433 — never observed here |
 | `0xF` | battery_low | — | rtl_433 — never observed here |
+| `0x2` | unknown | — | smoke detector is paired on it; never fired |
+| `0x1` | unknown | — | `0x11111`, 5 digits — simulator artefact |
+
+**`0x9` is ambiguous, and this kills nibble-based type inference.** The full
+3,089-event history shows family `0x2E5B7` sending **both** `0x3` (×40) and
+`0x9` (×12) — a door sensor whose open code is `0x9` and close code is `0x3`.
+That is exactly what `kerui_decoder.h`'s comment said all along
+(`open=0x9, close=0x3 observed`), so **that comment was right and should be
+kept, not corrected** — an earlier draft of this design wrongly called it
+stale.
+
+But four curtain sensors also use `0x9`, with no second code in 774 events. So
+`0x9` means "this sensor's primary alarm event" — beam cut on a curtain, open
+on that contact — and cannot identify a sensor *type*. This is consistent with
+EV1527 nibbles being data-pin patterns rather than semantic codes, vendor-wired
+per model.
+
+**Two close codes, both real:** `0x7` (rtl_433's models) and `0x3` (ours).
+Two door sensors in the same house use different codes for the same act, which
+is the clearest single proof that no Kerui-wide table exists.
+
+### Consequence: sensor type is dropped
+
+The user asked for a type inferred from the captured trigger (curtain / door /
+motion). The data does not support it: `0x9` maps to two types, and the smoke
+detector's `0x2` maps to none. Inferring a type would mislabel real sensors
+with no way to correct it — the user chose "derived, not editable", and a
+wrong-and-uneditable label is worse than none.
+
+**So this design ships no sensor type.** What it ships instead is the *event*
+per packet (trigger / close / tamper / water / battery_low), which is what the
+behaviour table actually needs and which the data does support. Revisit typing
+if a future capture disambiguates `0x9` — or take the type from the user at
+pairing, which was offered and declined.
 
 **EV1527 has no notion of these names.** The chip latches whichever of its
 four data pins the sensor's board pulls high, so the nibble meaning is
@@ -62,10 +97,11 @@ Ours agrees for `0xA`/`0xB`/`0xE`, and `0x9` is an addition we measured
 ourselves. **This table is therefore a local finding, not a spec** — it lives
 in one place per layer and is expected to grow.
 
-`0x9` = curtain is the weakest entry: four sensors use it, it is documented
-nowhere, and it was confirmed as "beam cut" only because the user triggered a
-new unit 21 times while watching. Treat a future contradiction as new data,
-not a bug.
+`0x9` is the weakest entry: documented nowhere, and it means "primary alarm
+event" for two different device classes (beam cut on four curtain sensors, door
+open on `0x2E5B7`). It was confirmed as beam-cut only because the user
+triggered a new unit 21 times while watching. Treat a future contradiction as
+new data, not a bug.
 
 **Not every sensor has tamper.** Anti-tamper is a per-model feature — Kerui
 advertises it on the D026 and P829 but not the D025. Across 214 events only
@@ -134,17 +170,20 @@ separate piece of work.
 
 Our door contacts have never sent `0x7` anyway; only `0xE`.
 
-## Sensor type
+## Sensor type — not shipped
 
-Derived from the nibble at pairing (`0x9` curtain, `0xA` motion, `0xE` door,
-`0x5` water), displayed in the Sensors tab, and **not stored and not
-editable** — per the user's decision.
+Requested, then ruled out by the data. See "Consequence: sensor type is
+dropped" above: `0x9` is sent by four curtain sensors *and* by a door contact
+(`0x2E5B7`, alongside its `0x3` close), so the nibble cannot identify a type,
+and the smoke detector's `0x2` maps to nothing at all.
 
-Consequence, accepted: if the table is wrong for some future sensor, its
-displayed type is wrong with no way to correct it. It is a cosmetic label, and
-keeping it derived means no field, no migration, and no drift between a stored
-type and the code that produced it. It also means the table is the single
-source of truth, so it must stay easy to edit.
+The user chose "derived, not editable". Combined with an ambiguous table that
+would have produced permanently-wrong labels on real sensors, the honest
+outcome is to ship no type rather than a guess nobody can correct.
+
+What ships instead is the per-packet **event** (trigger / close / tamper /
+water / battery_low), which is what the behaviour table needs and what the
+evidence supports.
 
 ## Layers
 
@@ -152,10 +191,10 @@ source of truth, so it must stay easy to edit.
 
 1. `kerui_decoder.h` — `KeruiPacket` gains `familyId` (top 20 bits) and
    `eventNibble` (bottom 4). `sensorId` stays, so nothing that reads it
-   breaks. Update the stale comment: it says `open=0x9, close=0x3 observed`,
-   which contradicts both rtl_433 and our census — `0x9` is a curtain trigger
-   here. Keeping a wrong comment next to the right table is how the next
-   investigation gets misled.
+   breaks. Its existing comment (`open=0x9, close=0x3 observed`) is **correct
+   and stays** — the 3,089-event history confirms both on family `0x2E5B7`.
+   Extend it with the rest of the table and note that `0x9` is also the curtain
+   sensors' trigger, so the same nibble is not type-specific.
 2. New `kerui_event.h` — the nibble→event table as a pure function,
    `keruiEventOf(uint8_t nibble) -> KeruiEvent` (`enum { TRIGGER, CLOSE,
    TAMPER, WATER, BATTERY_LOW, UNKNOWN }`). Header-only and pure so the
@@ -205,25 +244,132 @@ source of truth, so it must stay easy to edit.
    two codes from one sensor collapse to one entry, which is the point.
 5. `telegram.ts` — `formatWater`. `formatSensorAlert(name, "tamper")` already
    exists and already reads "⚠️ … tampered".
-6. **Migration** — a one-shot script (not a Function) that sets
-   `familyId` on existing sensor docs from their stored `rfId`. Verified safe:
-   all 8 paired sensors map to distinct prefixes, no collisions. Rules
-   reference Firestore `sensorId`, never `rfId`, so **no rule needs touching**
-   — confirmed in `buildConfig.ts`, which resolves `sensorId → rfId` at build
-   time.
+6. **Migration** — see the dedicated section below.
 
 ### Web (`web/`)
 
 1. `types/index.ts` — mirror `Sensor.familyId` and the new `EventType`s.
 2. New `keruiEvent.ts` under `features/configure/` — the table again, for
-   display: event label and derived sensor type. Pure, unit-tested.
+   display: the event label per nibble. Pure, unit-tested. No sensor type —
+   see "Sensor type — not shipped".
 3. `unknownSensors.ts` — an observed code is "unknown" only if **no paired
    sensor shares its family**. This is what stops `0x0061DB` from appearing as
    an unpaired sensor alongside its own paired `0x0061DA`.
-4. `SensorsTab` — show derived type; show water / battery-low status beside
-   the existing battery badge; pairing stores `familyId` alongside `rfId`.
+4. `SensorsTab` — show water / battery-low status beside the existing battery
+   badge, and the last event type per sensor; pairing stores `familyId`
+   alongside `rfId`.
 5. Timeline / `ExplorePage` — render the new event types rather than
    falling through to "trigger".
+
+## Migration
+
+A **one-shot script**, not a Cloud Function: it runs once, by hand, against a
+known dataset, and a Function would sit in the deployment forever re-checking
+work that was already done. Lives at `functions/scripts/migrateFamilyIds.ts`,
+run with `npx tsx`, and takes `--dry-run` (default) and `--commit`.
+
+Audited against the live project (`acdc2394-…`) before writing this, which
+changed what the migration has to handle.
+
+### What needs migrating, and what does not
+
+| Collection | Stores `rfId`? | Action |
+|---|---|---|
+| `sensors` (12 docs) | yes, the matching key | **add `familyId`** |
+| `profiles/{id}/rules` (12 rules) | **no** — Firestore `sensorId` only | **nothing** |
+| `schedules` (1 doc) | no — `profileId` only | **nothing** |
+| `events` (3,089 docs) | yes, descriptive only | **nothing** — see below |
+| RTDB `/events/{rfId}` | yes, as the path key | **nothing** — see below |
+| RTDB `/config` | yes, in `r` | rewritten automatically |
+
+**Rules and schedules were verified clean against live data**, not merely
+assumed: every one of the 12 rules references Firestore document IDs in
+`sensors: string[]`, and `condition.counts` is `undefined` in all of them.
+`buildConfig.ts` resolves `sensorId → rfId` at config-build time, so the
+indirection already exists. **No rule or profile is touched.** This is the
+single most important audit result here — had `counts` been keyed by `rfId` in
+Firestore, every multi-sensor rule would have needed rewriting.
+
+**Firestore `events` are left alone.** All 3,089 carry `rfId` plus a
+denormalised `sensorId` and `sensorName`. They are an append-only historical
+record displayed in the timeline; the `rfId` on a 2026-08 event is a true
+statement about what was received. Rewriting history to a field that did not
+exist then would be a lie, and the timeline reads `sensorId`, not `rfId`.
+Optionally the script can *add* `familyId` to events for querying, but this
+design does not, on the grounds that 3,089 writes buy nothing the existing
+`sensorId` does not already give.
+
+**RTDB `/events/{rfId}/…` keys stay full 24-bit.** This is deliberate and
+load-bearing: the pairing UI reads those keys to discover unpaired sensors, and
+the *event code is the information* — `0x0061DB` appearing is how a tamper is
+seen at all. Collapsing the path to a family would destroy the distinction the
+whole design is built on. The device keeps writing full codes; only *matching*
+uses the family.
+
+**RTDB `/config` needs no migration step.** It is derived state, rewritten by
+`buildConfig` on the next config change. Note it currently holds
+`r: ["0xCC2682"]` — one sensor, the smoke detector — so the device's rule set
+is nearly empty regardless (see Risks).
+
+### The script
+
+1. Read every `projects/*/sensors` doc.
+2. Compute `familyId = "0x" + ((parseInt(rfId,16) >> 4) & 0xFFFFF)` as 5
+   upper-case hex digits.
+3. **Refuse to write if two sensors in one project share a familyId.** Print
+   both and exit non-zero. Verified: all 12 sensors map to 12 distinct
+   families today, so this is a guard against a future re-run, not a current
+   problem.
+4. Print a table of `rfId → familyId → nibble → event`, flagging any nibble
+   absent from the event table (today: `0x2` on the smoke detector).
+5. Under `--commit`, write `familyId` in one batch per project. Idempotent: a
+   doc that already has the correct `familyId` is skipped, so a re-run is safe.
+
+### Sensors whose nibble is not in the table
+
+The 12 paired sensors map to 12 distinct families — **no collisions**, so the
+migration is mechanical. Nibbles present across the full 3,089-event history:
+
+| rfId | familyId | Nibble(s) seen | Name | Note |
+|---|---|---|---|---|
+| `0x2E5B73` | `0x2E5B7` | `0x3` ×40, **`0x9` ×12** | "new door sensor" | paired on its CLOSE code |
+| `0xCC2682` | `0xCC268` | none, ever | גלאי עשן מסדרון (smoke) | `0x2` unverified |
+| `0x24B47E` | `0x24B47` | `0xE` ×1 | חלון קטן חדר עבודה | |
+| `0x00D91A` | `0x00D91` | `0xA` ×5 | תנועה חצר שירות | |
+
+Two need naming individually:
+
+- **`0x2E5B73` is paired on its CLOSE code, and this is a live behaviour
+  change.** The history shows family `0x2E5B7` sending `0x3` (close, ×40) and
+  `0x9` (open, ×12). The sensor is paired as `0x2E5B73` — the *close* code — so
+  its 12 **open** events never matched it and were logged as an unpaired
+  sensor. Its rule is `immediate`, so today the door firing an alarm depends on
+  it being **closed**, which is almost certainly not what was intended.
+  Migration to family `0x2E5B7` makes both codes match, so **after migration
+  this sensor fires on open as well as close.** That is the bug being fixed,
+  but it is a real change to a real door sensor's behaviour and must be stated
+  before deploy rather than discovered after. It is also why `close` being
+  "ignored" matters: post-migration, `0x3` stops firing the rule and `0x9`
+  starts — the *opposite* of today.
+- **`0xCC2682` (smoke) has never fired in 3,089 events**, so its `0x2` nibble
+  is unverified — inferred only from the paired rfId. It carries the only
+  `always: true` rule, the one that fires while disarmed. After migration it
+  matches on family `0xCC268`, and `0x2` maps to `UNKNOWN → trigger`, so the
+  always-rule still fires. **This must be covered by a test**: silently
+  breaking the smoke alarm is the worst outcome this refactor could produce,
+  and there is no live traffic to catch it.
+
+Non-sensor codes in the history, for completeness: `0x11111` (×3, only 5 hex
+digits — simulator, per the user) and `0xE45CA2` (×1 — the paired **remote
+control** identity, not a sensor). Neither is a paired sensor; both are left
+alone.
+
+### Rollback
+
+Deleting the `familyId` field from every sensor doc restores the previous
+state exactly, because nothing else is modified. The script supports
+`--rollback` for this. Note the *firmware* is not rollback-safe in the same
+way (see Risks), which is why it ships last.
 
 ## Out of scope
 
@@ -247,8 +393,8 @@ source of truth, so it must stay easy to edit.
   `onSensorEvent`, once-only water/battery marker behaviour, and
   `buildConfig` collapsing two codes to one `r` entry. A test asserting the
   cloud and firmware tables agree.
-- **Web:** unit tests for the display table, derived type, and
-  `unknownSensors` family matching (the `0x0061DB` case explicitly).
+- **Web:** unit tests for the display table and `unknownSensors` family
+  matching (the `0x0061DB` case explicitly).
 - Full suites: `cd web && npm run lint && npm test && npm run build`;
   `cd functions && npx tsc --noEmit && npx vitest run && npm run build`;
   `cd firmware/edge/device && pio test -e native`.
@@ -286,6 +432,14 @@ the firmware work adds only the local siren-on-tamper and the thinner config.
 
 ## Open questions
 
-None. The three policy decisions — tamper sirens while disarmed, no
-maintenance suppression, derived-not-stored sensor type — were settled before
-writing.
+One, for the user, surfaced by the data audit rather than by design:
+
+**`0x2E5B73` ("new door sensor") is paired on its close code**, so it currently
+alarms on the door *closing* and ignores it *opening*. Migration reverses that.
+Confirm this is the intended fix before the migration runs — it is the only
+change here that alters how an existing sensor behaves in the house.
+
+The three policy decisions — tamper sirens while disarmed, no maintenance
+suppression, and no editable sensor type — were settled before writing. The
+third was then overtaken by evidence: sensor type is dropped entirely, because
+`0x9` is ambiguous across device classes (see "Sensor type — not shipped").
