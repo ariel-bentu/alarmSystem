@@ -339,25 +339,20 @@ migration is mechanical. Nibbles present across the full 3,089-event history:
 
 Two need naming individually:
 
-- **`0x2E5B73` is paired on its CLOSE code, and this is a live behaviour
-  change.** The history shows family `0x2E5B7` sending `0x3` (close, ×40) and
-  `0x9` (open, ×12). The sensor is paired as `0x2E5B73` — the *close* code — so
-  its 12 **open** events never matched it and were logged as an unpaired
-  sensor. Its rule is `immediate`, so today the door firing an alarm depends on
-  it being **closed**, which is almost certainly not what was intended.
-  Migration to family `0x2E5B7` makes both codes match, so **after migration
-  this sensor fires on open as well as close.** That is the bug being fixed,
-  but it is a real change to a real door sensor's behaviour and must be stated
-  before deploy rather than discovered after. It is also why `close` being
-  "ignored" matters: post-migration, `0x3` stops firing the rule and `0x9`
-  starts — the *opposite* of today.
+- **`0x2E5B73` is paired on its CLOSE code — user-confirmed as wrong, and the
+  fix is wanted.** The history shows family `0x2E5B7` sending `0x3` (close,
+  ×40) and `0x9` (open, ×12). Paired as `0x2E5B73` — the *close* code — its 12
+  **open** events never matched and were logged as an unpaired sensor. Its rule
+  is `immediate`, so today the alarm depends on the door being **closed**.
+  After migration both codes resolve to the same sensor and, since `close` is
+  ignored, `0x9` (open) fires the rule while `0x3` (close) does not — the
+  opposite of today. The user has confirmed this is the desired outcome.
 - **`0xCC2682` (smoke) has never fired in 3,089 events**, so its `0x2` nibble
-  is unverified — inferred only from the paired rfId. It carries the only
-  `always: true` rule, the one that fires while disarmed. After migration it
-  matches on family `0xCC268`, and `0x2` maps to `UNKNOWN → trigger`, so the
-  always-rule still fires. **This must be covered by a test**: silently
-  breaking the smoke alarm is the worst outcome this refactor could produce,
-  and there is no live traffic to catch it.
+  is unverified. Per the user, assume it is correct. After migration it matches
+  on family `0xCC268`, and `0x2` maps to `UNKNOWN → trigger`, so its
+  `always: true` rule keeps firing. **Still covered by a test**, because there
+  is no live traffic that would reveal a regression and a silently broken smoke
+  alarm is the worst outcome this refactor could produce.
 
 Non-sensor codes in the history, for completeness: `0x11111` (×3, only 5 hex
 digits — simulator, per the user) and `0xE45CA2` (×1 — the paired **remote
@@ -432,12 +427,18 @@ the firmware work adds only the local siren-on-tamper and the thinner config.
 
 ## Open questions
 
-One, for the user, surfaced by the data audit rather than by design:
+None.
 
-**`0x2E5B73` ("new door sensor") is paired on its close code**, so it currently
-alarms on the door *closing* and ignores it *opening*. Migration reverses that.
-Confirm this is the intended fix before the migration runs — it is the only
-change here that alters how an existing sensor behaves in the house.
+Both questions raised by the data audit were resolved by the user:
+
+- **`0x2E5B73` ("new door sensor") is paired on its close code**, so it
+  currently alarms when the door *closes* and ignores it *opening*. The user
+  confirms this pairing is wrong and that switching to open-triggers is the
+  desired outcome. Migration to family `0x2E5B7` does exactly that.
+- **The smoke detector (`0xCC2682`, nibble `0x2`)** is assumed correct as
+  paired. No special handling; `0x2` maps to `UNKNOWN → trigger`, so its
+  `always: true` rule keeps firing. Still worth a test, because there is no
+  live traffic to catch a regression.
 
 The three policy decisions — tamper sirens while disarmed, no maintenance
 suppression, and no editable sensor type — were settled before writing. The
