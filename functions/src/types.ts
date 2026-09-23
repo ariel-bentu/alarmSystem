@@ -75,6 +75,18 @@ export interface Sensor {
   lastSeen: Timestamp | null;
   deadSensorAlertDays: number; // -1 = never alert
   deadAlertSentAt: Timestamp | null; // set when alert fires, cleared when sensor seen
+  // When the battery was last replaced, as recorded by a human — NOT
+  // reported by the sensor (batteryStatus is the sensor's own claim, and the
+  // two are independent: see batteryAgeCheck.ts).
+  //
+  // Optional and nullable: sensor docs predate the field. Absent or null
+  // means never recorded, and readers fall back to pairedAt so that every
+  // sensor has an age from the day it was paired.
+  batteryChangedAt?: Timestamp | null;
+  // Set when the stale-battery alert fires, cleared when batteryChangedAt is
+  // written. Mirrors deadAlertSentAt: without it the daily check would send
+  // the same Telegram every noon until the battery was replaced.
+  batteryAlertSentAt?: Timestamp | null;
 }
 
 export interface Profile {
@@ -179,6 +191,11 @@ export interface Project {
   // to "UTC".
   timezone?: string;
   notifyEverySensorTrigger?: boolean;
+  // Months after which a sensor battery is considered overdue for
+  // replacement. Optional: project docs predate it, and absent means the
+  // DEFAULT_BATTERY_ALERT_MONTHS default. Zero or negative disables the
+  // stale-battery alert for the whole project.
+  batteryAlertMonths?: number;
   device: DeviceInfo;
 }
 
