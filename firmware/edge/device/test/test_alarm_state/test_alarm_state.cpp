@@ -5,7 +5,7 @@ void test_immediate_condition_fires_on_first_event() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0; // immediate
 
@@ -19,7 +19,7 @@ void test_unknown_sensor_never_fires() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0;
 
@@ -33,7 +33,7 @@ void test_disarmed_ordinary_condition_never_fires() {
   Config config;
   config.armed = false;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0;
 
@@ -47,7 +47,7 @@ void test_disarmed_always_condition_fires() {
   Config config;
   config.armed = false;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0;
   config.sensors[0].conditions[0].always = true;
@@ -62,7 +62,7 @@ void test_armed_always_condition_still_fires() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0;
   config.sensors[0].conditions[0].always = true;
@@ -79,11 +79,11 @@ void test_disarmed_always_does_not_leak_to_other_sensors() {
   Config config;
   config.armed = false;
   config.sensorCount = 2;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0;
   config.sensors[0].conditions[0].always = true;
-  strcpy(config.sensors[1].rfId, "D4E5F6");
+  strcpy(config.sensors[1].familyId, "D4E5F6");
   config.sensors[1].conditionCount = 1;
   config.sensors[1].conditions[0].t = 0;
 
@@ -100,7 +100,7 @@ void test_disarmed_ordinary_accumulates_no_history() {
   Config config;
   config.armed = false;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1; // count_in_window
   config.sensors[0].conditions[0].n = 2;
@@ -123,7 +123,7 @@ void test_count_in_window_requires_n_triggers_within_w() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1; // count_in_window
   config.sensors[0].conditions[0].n = 2;
@@ -140,7 +140,7 @@ void test_count_in_window_resets_outside_window() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1;
   config.sensors[0].conditions[0].n = 2;
@@ -158,7 +158,7 @@ void test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 2; // entry_delay
   config.sensors[0].conditions[0].y = 30;
@@ -176,7 +176,7 @@ void test_entry_delay_disarm_cancels_pending_fire() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 2;
   config.sensors[0].conditions[0].y = 30;
@@ -193,8 +193,8 @@ void test_multi_sensor_requires_all_participants_within_window() {
   Config config;
   config.armed = true;
   config.sensorCount = 2;
-  strcpy(config.sensors[0].rfId, "AA11BB");
-  strcpy(config.sensors[1].rfId, "CC22DD");
+  strcpy(config.sensors[0].familyId, "AA11BB");
+  strcpy(config.sensors[1].familyId, "CC22DD");
 
   Condition cond;
   cond.t = 3; // multi_sensor
@@ -229,9 +229,9 @@ static Config makeQuorumConfig(uint8_t quorum, uint16_t perSensorA = 1) {
   Config config;
   config.armed = true;
   config.sensorCount = 3;
-  strcpy(config.sensors[0].rfId, "AA0001");
-  strcpy(config.sensors[1].rfId, "BB0002");
-  strcpy(config.sensors[2].rfId, "CC0003");
+  strcpy(config.sensors[0].familyId, "AA0001");
+  strcpy(config.sensors[1].familyId, "BB0002");
+  strcpy(config.sensors[2].familyId, "CC0003");
 
   Condition cond;
   cond.t = 3; // multi_sensor
@@ -306,9 +306,9 @@ void test_quorum_does_not_fire_when_participants_are_outside_the_window() {
   Config config;
   config.armed = true;
   config.sensorCount = 3;
-  strcpy(config.sensors[0].rfId, "AA0001");
-  strcpy(config.sensors[1].rfId, "BB0002");
-  strcpy(config.sensors[2].rfId, "CC0003");
+  strcpy(config.sensors[0].familyId, "AA0001");
+  strcpy(config.sensors[1].familyId, "BB0002");
+  strcpy(config.sensors[2].familyId, "CC0003");
 
   Condition cond;
   cond.t = 3;
@@ -340,9 +340,9 @@ void test_zero_window_does_not_mean_unbounded() {
   Config config;
   config.armed = true;
   config.sensorCount = 3;
-  strcpy(config.sensors[0].rfId, "AA0001");
-  strcpy(config.sensors[1].rfId, "BB0002");
-  strcpy(config.sensors[2].rfId, "CC0003");
+  strcpy(config.sensors[0].familyId, "AA0001");
+  strcpy(config.sensors[1].familyId, "BB0002");
+  strcpy(config.sensors[2].familyId, "CC0003");
 
   Condition cond;
   cond.t = 3;
@@ -372,9 +372,9 @@ void test_quorum_window_holds_at_realistic_uptime() {
   Config config;
   config.armed = true;
   config.sensorCount = 3;
-  strcpy(config.sensors[0].rfId, "AA0001");
-  strcpy(config.sensors[1].rfId, "BB0002");
-  strcpy(config.sensors[2].rfId, "CC0003");
+  strcpy(config.sensors[0].familyId, "AA0001");
+  strcpy(config.sensors[1].familyId, "BB0002");
+  strcpy(config.sensors[2].familyId, "CC0003");
 
   Condition cond;
   cond.t = 3;
@@ -408,7 +408,7 @@ void test_count_in_window_keeps_newest_when_history_is_full() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1;  // count_in_window
   config.sensors[0].conditions[0].n = 8;  // exactly the buffer size
@@ -436,7 +436,7 @@ void test_full_history_still_records_later_triggers() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1;
   config.sensors[0].conditions[0].n = 2;
@@ -463,8 +463,8 @@ void test_multi_sensor_keeps_newest_when_history_is_full() {
   Config config;
   config.armed = true;
   config.sensorCount = 2;
-  strcpy(config.sensors[0].rfId, "AA0001");
-  strcpy(config.sensors[1].rfId, "BB0002");
+  strcpy(config.sensors[0].familyId, "AA0001");
+  strcpy(config.sensors[1].familyId, "BB0002");
 
   Condition cond;
   cond.t = 3;
@@ -505,9 +505,9 @@ void test_quorum_does_not_refire_once_the_partner_ages_out() {
   Config config;
   config.armed = true;
   config.sensorCount = 3;
-  strcpy(config.sensors[0].rfId, "AA0001");  // 0x170D09
-  strcpy(config.sensors[1].rfId, "BB0002");  // 0x1520FE
-  strcpy(config.sensors[2].rfId, "CC0003");
+  strcpy(config.sensors[0].familyId, "AA0001");  // 0x170D09
+  strcpy(config.sensors[1].familyId, "BB0002");  // 0x1520FE
+  strcpy(config.sensors[2].familyId, "CC0003");
 
   Condition cond;
   cond.t = 3;
@@ -542,7 +542,7 @@ void test_cause_reports_rfid_and_condition_type_on_immediate() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0; // immediate
 
@@ -559,7 +559,7 @@ void test_cause_untouched_when_nothing_fires() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1; // count_in_window
   config.sensors[0].conditions[0].n = 2;
@@ -577,7 +577,7 @@ void test_cause_reports_count_in_window_on_the_firing_event() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "AA11BB");
+  strcpy(config.sensors[0].familyId, "AA11BB");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1; // count_in_window
   config.sensors[0].conditions[0].n = 2;
@@ -597,7 +597,7 @@ void test_cause_reported_by_entry_delay_tick() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 2; // entry_delay
   config.sensors[0].conditions[0].y = 30;
@@ -617,7 +617,7 @@ void test_null_cause_pointer_is_safe() {
   Config config;
   config.armed = true;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "A1B2C3");
+  strcpy(config.sensors[0].familyId, "A1B2C3");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 0;
 
@@ -629,8 +629,102 @@ void test_null_cause_pointer_is_safe() {
   TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 2000));
 }
 
+// --- Family matching -------------------------------------------------
+// The config now holds 20-bit FAMILIES ("0x0061D"), not full 24-bit rfIds.
+// The caller does the split; these pin down that AlarmState matches on
+// exactly what it is given and nothing looser.
+
+void test_matches_a_family_whatever_event_code_arrived() {
+  // The whole point: a sensor paired on its motion code (0x0061DA) must also
+  // match its tamper (0x0061DB), because both reduce to family 0x0061D.
+  // Callers pass the family, so this is the assertion that the config is
+  // keyed by it.
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "0x0061D");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_TRUE(state.onSensorEvent("0x0061D", 1000));
+}
+
+void test_full_rfid_no_longer_matches_a_family_entry() {
+  // Guards against a caller that forgets to split: passing the whole 24-bit
+  // code must NOT match, rather than matching by accident on a prefix.
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "0x0061D");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("0x0061DA", 1000));
+}
+
+void test_is_paired_family_ignores_arm_state() {
+  // The tamper path sirens while DISARMED and never goes through rule
+  // evaluation, so its only question is "is this a paired sensor?" — which
+  // must answer the same either way.
+  Config config;
+  config.armed = false;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "0x0061D");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_TRUE(state.isPairedFamily("0x0061D"));
+  TEST_ASSERT_FALSE(state.isPairedFamily("0x3F010"));
+
+  config.armed = true;
+  state.setConfig(config);
+  TEST_ASSERT_TRUE(state.isPairedFamily("0x0061D"));
+}
+
+void test_is_paired_family_on_an_empty_config() {
+  // A device with no config yet (fresh boot, no cloud) must not siren on a
+  // tamper from a sensor it has never heard of.
+  Config config;
+  config.sensorCount = 0;
+  AlarmState state;
+  state.setConfig(config);
+  TEST_ASSERT_FALSE(state.isPairedFamily("0x0061D"));
+}
+
+void test_cause_reports_the_family_that_fired() {
+  // TriggerCause travels to the cloud as "rfId" but now carries a FAMILY.
+  // onAlarm indexes sensors under both forms so either resolves to a name.
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "0x2E5B7");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 0;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TriggerCause cause;
+  TEST_ASSERT_TRUE(state.onSensorEvent("0x2E5B7", 1000, &cause));
+  TEST_ASSERT_EQUAL_STRING("0x2E5B7", cause.rfId);
+}
+
 void setup() {
   UNITY_BEGIN();
+  RUN_TEST(test_matches_a_family_whatever_event_code_arrived);
+  RUN_TEST(test_full_rfid_no_longer_matches_a_family_entry);
+  RUN_TEST(test_is_paired_family_ignores_arm_state);
+  RUN_TEST(test_is_paired_family_on_an_empty_config);
+  RUN_TEST(test_cause_reports_the_family_that_fired);
   RUN_TEST(test_immediate_condition_fires_on_first_event);
   RUN_TEST(test_unknown_sensor_never_fires);
   RUN_TEST(test_disarmed_ordinary_condition_never_fires);

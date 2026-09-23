@@ -32,7 +32,9 @@
 #define KERUI_MAX_SYNC_WAIT 1000000UL
 
 struct KeruiPacket {
-  uint32_t sensorId;   // 24-bit sensor ID (bits 0..23)
+  uint32_t sensorId;   // full 24-bit code (bits 0..23) — identity + event
+  uint32_t familyId;   // top 20 bits: the SENSOR. This is the matching key.
+  uint8_t eventNibble; // bottom 4 bits: what the sensor did (see kerui_event.h)
   bool batteryLow;     // extracted from protocol once we confirm bit layout
 };
 
@@ -198,14 +200,28 @@ inline int keruiReadRow(int digitalPin, int passes, byte result[], int row[], bo
 // Kerui 24-bit packet layout (measured from real hardware):
 //   bits 23-4 (top 20): sensor identity — stable across triggers
 //   bits 3-0  (bottom 4): event/state flags (open=0x9, close=0x3 observed)
-// The full 24-bit value is kept so the web UI can pair open and close
-// events independently. batteryLow bit position not yet confirmed.
+//
+// That open/close note is CORRECT and confirmed: a 3,089-event history shows
+// family 0x2E5B7 sending 0x3 (close, x40) and 0x9 (open, x12). Other nibbles
+// measured on this house's sensors and cross-checked against rtl_433's
+// kerui.c: 0xA motion, 0xE door open, 0xB tamper, 0x5 water, 0xF battery
+// low, 0x7 a second close code. See kerui_event.h for the full table.
+//
+// NOTE 0x9 is ALSO four curtain sensors' beam-cut code, so the same nibble
+// appears on two different device classes. It identifies an EVENT, never a
+// sensor TYPE — no type is derived from it anywhere in this system.
+//
+// The full 24-bit value is kept (and is still what gets written to
+// /events/{rfId}) so the pairing UI can see which code arrived; familyId is
+// what alarm matching uses. batteryLow bit position not yet confirmed.
 inline KeruiPacket keruiParse(byte bits[]) {
   KeruiPacket pkt;
   pkt.sensorId = 0;
   for (int i = 0; i < 24; i++) {
     pkt.sensorId = (pkt.sensorId << 1) | bits[i];
   }
+  pkt.familyId = (pkt.sensorId >> 4) & 0xFFFFF;
+  pkt.eventNibble = (uint8_t)(pkt.sensorId & 0x0F);
   pkt.batteryLow = false;
   return pkt;
 }

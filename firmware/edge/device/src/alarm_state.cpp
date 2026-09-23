@@ -5,11 +5,15 @@ void AlarmState::setConfig(const Config& config) {
   memset(runtime_, 0, sizeof(runtime_));
 }
 
-int AlarmState::findSensorIndex(const char* rfId) const {
+int AlarmState::findSensorIndex(const char* familyId) const {
   for (uint8_t i = 0; i < config_.sensorCount; i++) {
-    if (strcmp(config_.sensors[i].rfId, rfId) == 0) return i;
+    if (strcmp(config_.sensors[i].familyId, familyId) == 0) return i;
   }
   return -1;
+}
+
+bool AlarmState::isPairedFamily(const char* familyId) const {
+  return findSensorIndex(familyId) >= 0;
 }
 
 bool AlarmState::multiSensorSatisfied(const Condition& cond, unsigned long nowMs) {
@@ -127,9 +131,9 @@ bool AlarmState::evaluateCondition(uint8_t sensorIndex, uint8_t conditionIndex, 
   }
 }
 
-bool AlarmState::onSensorEvent(const char* rfId, unsigned long nowMs,
+bool AlarmState::onSensorEvent(const char* familyId, unsigned long nowMs,
                                TriggerCause* cause) {
-  int sensorIndex = findSensorIndex(rfId);
+  int sensorIndex = findSensorIndex(familyId);
   if (sensorIndex < 0) return false;
 
   const SensorConfig& sensor = config_.sensors[sensorIndex];
@@ -143,7 +147,7 @@ bool AlarmState::onSensorEvent(const char* rfId, unsigned long nowMs,
 
     if (evaluateCondition((uint8_t)sensorIndex, c, nowMs)) {
       if (cause) {
-        strncpy(cause->rfId, sensor.rfId, sizeof(cause->rfId) - 1);
+        strncpy(cause->rfId, sensor.familyId, sizeof(cause->rfId) - 1);
         cause->rfId[sizeof(cause->rfId) - 1] = '\0';
         cause->conditionType = sensor.conditions[c].t;
       }
@@ -162,7 +166,7 @@ bool AlarmState::tickEntryDelay(unsigned long nowMs, TriggerCause* cause) {
         rt.entryDelayFired = true;
         rt.entryDelayPending = false;
         if (cause) {
-          strncpy(cause->rfId, config_.sensors[s].rfId, sizeof(cause->rfId) - 1);
+          strncpy(cause->rfId, config_.sensors[s].familyId, sizeof(cause->rfId) - 1);
           cause->rfId[sizeof(cause->rfId) - 1] = '\0';
           cause->conditionType = 2;
         }

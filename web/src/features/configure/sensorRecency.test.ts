@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   JUST_SEEN_MS,
   effectiveLastSeen,
+  familyLastSeen,
   isJustSeen,
   sortByLastSeenDesc,
 } from "./sensorRecency";
@@ -111,5 +112,61 @@ describe("sortByLastSeenDesc", () => {
 
   it("handles an empty list", () => {
     expect(sortByLastSeenDesc([], () => null)).toEqual([]);
+  });
+});
+
+describe("familyLastSeen", () => {
+  const timing = (lastSeen: number) => ({ firstSeen: 0, lastSeen, count: 1 });
+
+  it("counts every code in the family, not just the paired one", () => {
+    // A PIR paired on 0x0061DA that was tampered (0x0061DB) five minutes ago
+    // used to read as silent, because RTDB keys events by the FULL code and
+    // the lookup was an exact match.
+    const events = { "0x0061DA": timing(100), "0x0061DB": timing(900) };
+    expect(familyLastSeen("0x0061D", events, null).lastSeen).toBe(900);
+  });
+
+  it("names the most recent event type in the family", () => {
+    const events = { "0x0061DA": timing(100), "0x0061DB": timing(900) };
+    expect(familyLastSeen("0x0061D", events, null).lastEvent).toBe("tamper");
+  });
+
+  it("ignores codes from other families", () => {
+    const events = { "0x0061DA": timing(100), "0x2E5B79": timing(900) };
+    const result = familyLastSeen("0x0061D", events, null);
+    expect(result.lastSeen).toBe(100);
+    expect(result.lastEvent).toBe("trigger");
+  });
+
+  it("falls back to the Firestore value when RTDB has nothing", () => {
+    // RTDB events are cleaned up on a retention schedule; Firestore's
+    // lastSeen survives that, so history is not lost.
+    const result = familyLastSeen("0x0061D", {}, 500);
+    expect(result.lastSeen).toBe(500);
+    expect(result.lastEvent).toBeNull();
+  });
+
+  it("takes the newer of RTDB and Firestore", () => {
+    const events = { "0x0061DA": timing(100) };
+    expect(familyLastSeen("0x0061D", events, 500).lastSeen).toBe(500);
+    expect(familyLastSeen("0x0061D", events, 50).lastSeen).toBe(100);
+  });
+
+  it("returns nulls for a sensor never seen anywhere", () => {
+    expect(familyLastSeen("0x0061D", {}, null)).toEqual({
+      lastSeen: null,
+      lastEvent: null,
+    });
+  });
+
+  it("returns the Firestore value when the family cannot be derived", () => {
+    const events = { "0x0061DA": timing(100) };
+    expect(familyLastSeen(null, events, 500).lastSeen).toBe(500);
+  });
+
+  it("skips non-hex RTDB keys without throwing", () => {
+    // /events also holds "SIREN0" and "REMOTE" keys.
+    const events = { SIREN0: timing(900), "0x0061DA": timing(100) };
+    expect(familyLastSeen("0x0061D", events, null).lastSeen).toBe(100);
   });
 });

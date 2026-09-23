@@ -171,6 +171,7 @@ export const en = {
   "cfg.sensors.batteryChangedLabel": "Battery last changed",
   "cfg.sensors.batteryTodayButton": "Today",
   "cfg.sensors.batteryStale": "battery overdue",
+  "cfg.sensors.water": "water",
 
   // Profiles tab
   "cfg.profiles.loading": "Loading profiles…",
@@ -267,6 +268,8 @@ export const en = {
   "explore.eventType.trigger": "Trigger",
   "explore.eventType.tamper": "Tamper",
   "explore.eventType.battery_low": "Battery low",
+  "explore.eventType.water": "Water",
+  "explore.eventType.close": "Close",
   "explore.eventType.alarm": "Alarm",
   "explore.eventType.armed": "Armed",
   "explore.eventType.disarmed": "Disarmed",

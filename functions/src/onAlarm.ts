@@ -13,6 +13,7 @@ import { db, rtdb } from "./admin";
 import { AlarmEvent, Project, Rule, Sensor } from "./types";
 import { sendTelegram, formatAlarm } from "./telegram";
 import { isCauseFresh, parseCause, resolveCauseLabel } from "./alarmCause";
+import { sensorFamilyId } from "./sensorFamily";
 
 export const onAlarm = onValueWritten(
   { ref: "/{projectId}/state/siren_active", region: "europe-west1" },
@@ -77,14 +78,26 @@ async function resolveLabel(projectId: string): Promise<string | null> {
   if (cause.label?.trim()) return cause.label.trim();
   if (!cause.rfId?.trim()) return null;
 
-  // Device-written: map rfId → sensor, then find a rule covering that sensor.
+  // Device-written: map the reported code → sensor, then find a rule
+  // covering that sensor.
+  //
+  // Indexed under BOTH the full rfId and the 20-bit family, because the
+  // device's TriggerCause carries whatever identity its config used: a
+  // pre-family firmware sends the full 24-bit rfId, the new one sends the
+  // family. Keying on only one of them would leave every device-side alarm
+  // unnamed for the other — during the rollout, and permanently if a device
+  // is ever rolled back. Both keys point at the same sensor, so a cause is
+  // resolvable either way.
   const sensorsSnap = await db.collection(`projects/${projectId}/sensors`).get();
   const sensorNamesByRfId: Record<string, string> = {};
   const sensorIdsByRfId: Record<string, string> = {};
   for (const doc of sensorsSnap.docs) {
     const sensor = { id: doc.id, ...doc.data() } as Sensor;
-    sensorNamesByRfId[sensor.rfId] = sensor.name;
-    sensorIdsByRfId[sensor.rfId] = sensor.id;
+    for (const key of [sensor.rfId, sensorFamilyId(sensor)]) {
+      if (!key) continue;
+      sensorNamesByRfId[key] = sensor.name;
+      sensorIdsByRfId[key] = sensor.id;
+    }
   }
 
   // Rules come from the profile the DEVICE is running, which is the one that

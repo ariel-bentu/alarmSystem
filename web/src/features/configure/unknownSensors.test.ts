@@ -37,3 +37,51 @@ describe("getUnknownRfIds", () => {
     expect(getUnknownRfIds(eventRfIds, [])).toEqual(["0xBBBBBB", "0xAAAAAA"]);
   });
 });
+
+describe("getUnknownRfIds — family matching", () => {
+  it("does not list a tamper code whose sensor is already paired", () => {
+    // THE case this change exists for. 0x0061DA (motion) is paired;
+    // 0x0061DB (tamper) is the SAME physical sensor. It used to appear here
+    // as an unrecognised sensor, which is also why it was invisible to every
+    // rule and alert.
+    expect(getUnknownRfIds(["0x0061DB"], ["0x0061DA"])).toEqual([]);
+  });
+
+  it("does not list the door sensor's open code when paired on close", () => {
+    // Family 0x2E5B7 is paired as 0x2E5B73 (close); its opens are 0x2E5B79.
+    expect(getUnknownRfIds(["0x2E5B79"], ["0x2E5B73"])).toEqual([]);
+  });
+
+  it("still lists a genuinely unpaired family", () => {
+    expect(getUnknownRfIds(["0x3F0102"], ["0x0061DA"])).toEqual(["0x3F0102"]);
+  });
+
+  it("accepts stored familyIds in the known list", () => {
+    // Callers may hold either form; both reduce to the same family.
+    expect(getUnknownRfIds(["0x0061DB"], ["0x0061D"])).toEqual([]);
+  });
+
+  it("returns the full observed CODE, not the family", () => {
+    // The event code is the information the pairing UI shows — collapsing it
+    // to a family would destroy the distinction the whole design rests on.
+    expect(getUnknownRfIds(["0x3F0102"], [])).toEqual(["0x3F0102"]);
+  });
+
+  it("dedupes several codes from one unpaired family to the first seen", () => {
+    // A new sensor sending motion then tamper is ONE thing to pair, listed
+    // once, under the first code heard.
+    expect(getUnknownRfIds(["0x3F010A", "0x3F010B", "0x3F010A"], [])).toEqual([
+      "0x3F010A",
+    ]);
+  });
+
+  it("compares non-hex RTDB keys verbatim rather than swallowing them", () => {
+    // /events also holds "SIREN0" and "REMOTE"; neither has a family, and
+    // hiding them would make them invisible to whoever reads this list.
+    expect(getUnknownRfIds(["SIREN0", "REMOTE"], [])).toEqual([
+      "SIREN0",
+      "REMOTE",
+    ]);
+    expect(getUnknownRfIds(["SIREN0"], ["SIREN0"])).toEqual([]);
+  });
+});

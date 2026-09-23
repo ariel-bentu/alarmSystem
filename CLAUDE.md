@@ -28,6 +28,8 @@ hardware: decodes Kerui packets, evaluates alarm rules, drives the siren over
 RF, reports to Firebase.
 
 - Continuous 433MHz receive (`Cc1101Receiver`, interrupt-driven) → `kerui_decoder.h`
+  → `kerui_event.h` splits each 24-bit code into a **20-bit family** (the
+  sensor) and a **4-bit event nibble** (what it did)
 - Arm state + config + siren address persisted to EEPROM (`EepromStore`) —
   survives power loss and WiFi outage
 - `AlarmState` evaluates conditions; fires siren via RF (`ev1527_frame.h`)
@@ -74,6 +76,23 @@ server. Rules are OR'd; a sensor may appear in several rules.
   one shared window (AND)
 - `always` — single-sensor immediate rules that fire even while disarmed
 
+Only a `trigger` is fed to the rules. The other event types bypass them
+entirely and each behaves one deliberate way:
+
+| Event | Siren | Telegram | Rules |
+|---|---|---|---|
+| `trigger` | via rules | via rules | yes |
+| `tamper` | **yes, even while disarmed** (paired sensors only) | always | no |
+| `water` | no | once per condition | no |
+| `battery_low` | no | once per condition | no |
+| `close` | no | no | no — timeline only |
+
+"Once per condition" means a marker on the sensor doc (`waterAlertSentAt`,
+`batteryAlertSentAt`) that the next normal trigger clears, the same shape
+`deadAlertSentAt` uses. Tamper sirens while disarmed because that is the
+threat — sensors are disabled while the house is empty. Accepted cost: a
+battery change sounds the siren; silence it with Disarm.
+
 ## Firebase Data Layout
 
 ```
@@ -102,8 +121,9 @@ firmware/edge/
   device/                ← main firmware (PlatformIO)
     src/                 ← main.cpp, alarm_state, cloud_client, cc1101_receiver,
                            ev1527_frame, eeprom_store, local_web_server,
-                           provisioning_portal, platform_compat, siren_address
-    test/                ← native Unity tests (127 tests, 11 suites)
+                           provisioning_portal, platform_compat, siren_address,
+                           kerui_event
+    test/                ← native Unity tests (143 tests, 12 suites)
   spike_*/               ← throwaway diagnostic sketches, kept as known-good controls
 web/                     ← React + TypeScript (Vite), Firebase Hosting
 functions/               ← Cloud Functions (TypeScript, gen-2)
@@ -176,8 +196,20 @@ watchdog / offline-alert work (untested on hardware as of 2026-09-02).
 - W184 hub stays running in parallel until fully replaced.
 - Unknown sensor IDs: logged to RTDB (never dropped — the pairing UI reads
   them from `/events`), ignored for alarm logic until named.
+- **A sensor is its 20-bit family, not its 24-bit code.** The bottom nibble
+  is an EVENT code, so one physical sensor emits several codes (motion
+  `0x0061DA`, tamper `0x0061DB`). Matching is by family everywhere
+  (`Sensor.familyId`, `SensorConfig::familyId`, RTDB config `r`); the FULL
+  code is still what `/events/{rfId}` is keyed by, because the event code is
+  the information the pairing UI needs. The nibble table is duplicated in
+  three languages on purpose (`kerui_event.h`, `functions/src/keruiEvent.ts`,
+  `web/src/features/configure/keruiEvent.ts`) and a cloud test asserts the
+  three agree by value. **No sensor TYPE is derived from it** — `0x9` means
+  beam-cut on curtains and door-open on `0x2E5B7`, so it cannot identify a
+  device class. See the design doc under `docs/superpowers/specs/`.
 - Device-facing RTDB config is thin and index-based (`{a,d,r,c}`) to minimise
-  bandwidth, not the verbose named-key shape in early design docs.
+  bandwidth, not the verbose named-key shape in early design docs. `r` holds
+  families, not full rfIds.
 - Local web server (LAN, no auth) is deliberate, toggleable via EEPROM.
 - **Most heap/RAM/TLS comments in the firmware describe the ESP8266** and are
   NOT constraints on the S3 (258KB free vs ~5KB). Check which board a comment
@@ -201,7 +233,19 @@ watchdog / offline-alert work (untested on hardware as of 2026-09-02).
 **Working on real hardware:** ESP32-S3 boots, provisions WiFi, mints its
 Firebase token, decodes real Kerui sensors, evaluates rules, drives the siren
 over RF hub-free, serves the LAN web UI, and writes events to Firebase with
-Telegram alerts confirmed. 127 native unit tests pass.
+Telegram alerts confirmed. 143 native unit tests pass.
+
+**Sensor event families (2026-09-23) — built, not yet on hardware.** Matching
+moved from the 24-bit code to the 20-bit family, and tamper / water / close /
+battery-low are now distinguished per packet. The cloud + web halves are
+deployable on their own and deliver tamper/water/battery alerting without
+touching the device. The firmware half is NOT hardware-tested and carries an
+**EEPROM magic bump** (`sizeof(Config)` 2580 → 2548) — verify the
+`RtdbConfig.s` siren-address re-adoption before flashing, or the physical
+siren pairing is lost. The `familyId` backfill
+(`cd functions && npm run migrate:familyIds`, dry-run by default) has not
+been run; every reader derives the family from `rfId` when it is absent, so
+nothing is blocked on it.
 
 **Stability: 18h16m clean run (2026-09-10)** — single boot, zero `twdt` reboots,
 zero stall dumps, flat heap, and crucially **four `-76` socket deaths all

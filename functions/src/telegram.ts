@@ -45,9 +45,22 @@ export function formatSensorAlert(sensorName: string, eventType: string): string
       return `⚠️ ${sensorName} tampered`;
     case "battery_low":
       return `🔋 ${sensorName} battery low`;
+    case "water":
+      return formatWater(sensorName);
     default:
       return `📡 ${sensorName}: ${eventType}`;
   }
+}
+
+// A water sensor reporting a leak (Kerui nibble 0x5). Sent ONCE per
+// condition — the marker on the sensor doc is what stops a leaking sensor
+// Telegramming on every packet. Never sirens: a leak is urgent but is not
+// an intrusion, and waking the street does not stop water.
+//
+// No `close` formatter exists on purpose: close events are recorded in the
+// timeline and notify nothing at all.
+export function formatWater(sensorName: string): string {
+  return `💧 ${sensorName} detected water`;
 }
 
 // label = the rule/condition name, or the sensor name when the rule is unnamed.

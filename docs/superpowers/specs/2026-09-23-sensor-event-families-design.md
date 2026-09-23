@@ -1,7 +1,28 @@
 # Sensor event families — design
 
 **Date:** 2026-09-23
-**Status:** awaiting review
+**Status:** implemented 2026-09-23. Steps 1–2 and 4–6 are in the tree and
+green (cloud 294 tests, web 316, firmware 143 native + an ESP32-S3 build).
+Two things remain for a human, both by design:
+
+- **Step 3, the migration, has NOT been run** — it needs live admin
+  credentials (`npm run migrate:familyIds` in `functions/`, `--dry-run` by
+  default). Nothing depends on it: every reader derives a family from `rfId`
+  when the field is absent, so the system works unmigrated and the script
+  only makes the key explicit.
+- **The firmware is not hardware-tested**, and the EEPROM magic bump
+  (`0xA1A2B3B8` → `0xB9`, `sizeof(Config)` 2580 → 2548) discards stored
+  config on first boot. **Verify `RtdbConfig.s` siren-address re-adoption on
+  hardware before flashing** — see Risks #1.
+
+Two deviations from the plan as written, both forced by reading the code:
+
+- `onAlarm.ts` resolved a device-written alarm cause via
+  `sensorNamesByRfId[sensor.rfId]`. The firmware now sends a *family* there,
+  so that lookup would have gone unnamed. It indexes under **both** forms,
+  which also keeps a rolled-back device working.
+- `SensorsTab`'s "last seen" was an exact-key RTDB lookup, so a sensor's
+  tamper did not count toward its own recency. Added `familyLastSeen`.
 
 ## Problem
 

@@ -167,6 +167,7 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.batteryChangedLabel": "החלפת סוללה אחרונה",
   "cfg.sensors.batteryTodayButton": "היום",
   "cfg.sensors.batteryStale": "הסוללה דורשת החלפה",
+  "cfg.sensors.water": "מים",
 
   // Profiles tab
   "cfg.profiles.loading": "טוען פרופילים…",
@@ -261,6 +262,8 @@ export const he: Record<TranslationKey, string> = {
   "explore.eventType.trigger": "הפעלה",
   "explore.eventType.tamper": "חבלה",
   "explore.eventType.battery_low": "סוללה חלשה",
+  "explore.eventType.water": "מים",
+  "explore.eventType.close": "סגירה",
   "explore.eventType.alarm": "אזעקה",
   "explore.eventType.armed": "דריכה",
   "explore.eventType.disarmed": "נטרול",

@@ -53,8 +53,11 @@ bool parseConfigJson(const char* json, Config* out) {
   out->sensorCount = 0;
   for (size_t i = 0; i < r.size() && i < 16; i++) {
     SensorConfig& sensor = out->sensors[out->sensorCount];
-    strncpy(sensor.rfId, r[i].as<const char*>(), sizeof(sensor.rfId) - 1);
-    sensor.rfId[sizeof(sensor.rfId) - 1] = '\0';
+    // `r` now carries 20-bit family ids ("0x0061D") rather than full 24-bit
+    // rfIds. Wire-compatible — r was always string[], only the contents got
+    // shorter — so this is the same strncpy against a smaller buffer.
+    strncpy(sensor.familyId, r[i].as<const char*>(), sizeof(sensor.familyId) - 1);
+    sensor.familyId[sizeof(sensor.familyId) - 1] = '\0';
 
     JsonArray conditions = c[i];
     sensor.conditionCount = 0;

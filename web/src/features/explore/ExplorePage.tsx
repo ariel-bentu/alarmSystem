@@ -33,7 +33,19 @@ const PAGE_SIZE = 100;
 
 // Events that came from a physical RF packet, and therefore have a real
 // battery flag and signal strength. Arm/disarm originate in the app.
-const RADIO_EVENTS = new Set(["trigger", "tamper", "battery_low", "alarm"]);
+// `water` and `close` belong here for the same reason `trigger` does: both
+// are real received packets and carry a genuine RSSI and battery flag. That
+// `close` drives no siren, alert or rule is a POLICY decision made in the
+// cloud — it does not make the measurement less real, and the timeline is
+// the complete history.
+const RADIO_EVENTS = new Set([
+  "trigger",
+  "tamper",
+  "battery_low",
+  "water",
+  "close",
+  "alarm",
+]);
 
 // Controller lifecycle rather than sensor activity: restart, offline, back
 // online. Rendered muted, since "the box rebooted" is context for the events

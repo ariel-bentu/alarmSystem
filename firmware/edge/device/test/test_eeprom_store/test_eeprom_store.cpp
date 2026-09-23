@@ -8,7 +8,7 @@ void test_encode_decode_round_trips_armed_localweb_and_config() {
                         // included here only for struct completeness
   config.sirenDurationSec = 90;
   config.sensorCount = 1;
-  strcpy(config.sensors[0].rfId, "0xA1B2C3");
+  strcpy(config.sensors[0].familyId, "0xA1B2C");
   config.sensors[0].conditionCount = 1;
   config.sensors[0].conditions[0].t = 1;
   config.sensors[0].conditions[0].n = 2;
@@ -28,7 +28,7 @@ void test_encode_decode_round_trips_armed_localweb_and_config() {
   TEST_ASSERT_FALSE(localWebOut);
   TEST_ASSERT_EQUAL(90, configOut.sirenDurationSec);
   TEST_ASSERT_EQUAL(1, configOut.sensorCount);
-  TEST_ASSERT_EQUAL_STRING("0xA1B2C3", configOut.sensors[0].rfId);
+  TEST_ASSERT_EQUAL_STRING("0xA1B2C", configOut.sensors[0].familyId);
   TEST_ASSERT_EQUAL(1, configOut.sensors[0].conditions[0].t);
   TEST_ASSERT_EQUAL(2, configOut.sensors[0].conditions[0].n);
   TEST_ASSERT_EQUAL(30, configOut.sensors[0].conditions[0].w);

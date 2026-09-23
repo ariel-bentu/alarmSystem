@@ -7,6 +7,7 @@
 #include "cc1101_receiver.h"
 #include "cloud_client.h"
 #include "eeprom_store.h"
+#include "kerui_event.h"
 #include "local_web_server.h"
 #include "provision_store.h"
 #include "provisioning_portal.h"
@@ -244,18 +245,28 @@ void startNtpSyncIfNeeded() {
 // Keeping these out-of-line means each frame exists only while its call is
 // on the stack, and the mint (called near the top of loop()) sees ~3.5KB.
 // Measured: inlined 992 bytes -> crash; out-of-line 3504 bytes -> connects.
+// familyId: the sensor's 20-bit identity ("0x0061D"), which is what alarm
+// rules match on. rfId: the full 24-bit code as received ("0x0061DA"), which
+// is what gets written to /events — the event code IS the information there,
+// and the pairing UI reads those keys.
+//
+// `event` is the decoded event name from kerui_event.h. UNKNOWN nibbles are
+// reported as "trigger" by keruiEventName, so an unrecognised code is never
+// silently dropped — the smoke detector's 0x2 depends on exactly that.
 __attribute__((noinline))
-void handleSensorEvent(const char* rfId, unsigned long now, bool batteryLow = false, int rssi = 0) {
+void handleSensorEvent(const char* familyId, const char* rfId, const char* event,
+                       unsigned long now, bool batteryLow = false, int rssi = 0) {
   TriggerCause cause;
-  bool shouldFire = alarmState.onSensorEvent(rfId, now, &cause);
+  bool shouldFire = alarmState.onSensorEvent(familyId, now, &cause);
   // "armed but nothing happened" is otherwise silent and indistinguishable
   // from a broken decode; one line per trigger makes the decision visible.
-  Serial.printf("[alarm] %s armed=%d fire=%d sirenEnabled=%d\n", rfId,
-                config.armed, shouldFire, config.sirenEnabled);
+  Serial.printf("[alarm] %s (%s %s) armed=%d fire=%d sirenEnabled=%d\n",
+                familyId, rfId, event, config.armed, shouldFire,
+                config.sirenEnabled);
   if (shouldFire && config.sirenEnabled) {
     siren.turnOn(config.sirenDurationSec, now);
   }
-  cloudClient.reportEvent(rfId, "trigger", batteryLow, rssi);
+  cloudClient.reportEvent(rfId, event, batteryLow, rssi);
   // Reported whenever the alarm fires, NOT gated on sirenEnabled: turning the
   // siren off is a noise preference, not a "stop telling me about intrusions"
   // one. Gating both on it produced a silent alarm — no siren AND no Telegram
@@ -395,25 +406,97 @@ bool handleRemotePacket(uint32_t code, unsigned long now) {
   return true;
 }
 
+// Route one decoded 24-bit code by its event nibble. Shared by the RF path
+// and the local web simulator, so a simulated tamper behaves exactly like a
+// real one — the simulator's whole purpose is to exercise this logic without
+// waving a magnet at a sensor.
+//
+// noinline for the cont-stack reason documented on handleSensorEvent().
+__attribute__((noinline))
+void dispatchSensorCode(uint32_t code, unsigned long now, bool batteryLow,
+                        int rssi) {
+  char rfIdHex[11];
+  char familyHex[9];
+  // The FULL code is what gets written to /events — the pairing UI reads
+  // those keys, and the event nibble is the information there. 0x-prefixed
+  // to match the format used everywhere else (Firestore sensor.rfId,
+  // buildConfig.ts, smoke scripts).
+  snprintf(rfIdHex, sizeof(rfIdHex), "0x%06X", code);
+  // The FAMILY is what alarm rules match on — see SensorConfig::familyId.
+  // %05X so it is the same canonical form the cloud stores and compares.
+  snprintf(familyHex, sizeof(familyHex), "0x%05X", keruiFamilyOf(code));
+
+  const KeruiEvent event = keruiEventOf(keruiNibbleOf(code));
+  switch (event) {
+    case KeruiEvent::TAMPER: {
+      // TAMPER SIRENS EVEN WHILE DISARMED, and never goes through rule
+      // evaluation. That is the threat: an intruder disabling sensors before
+      // a break-in does it while the house is empty and the system may well
+      // be disarmed. This mirrors the existing `always` rule semantics
+      // (smoke, gas) rather than inventing a second mechanism.
+      //
+      // Only for a PAIRED sensor — an unpaired tamper is logged and left for
+      // pairing, exactly as an unpaired trigger is. Still honours
+      // sirenEnabled, which is a noise preference, not a security one.
+      //
+      // Accepted cost: changing a PIR battery sounds the siren. There is no
+      // suppression mechanism by design; silence it with Disarm.
+      const bool paired = alarmState.isPairedFamily(familyHex);
+      Serial.printf("[alarm] %s TAMPER paired=%d sirenEnabled=%d\n", familyHex,
+                    paired, config.sirenEnabled);
+      cloudClient.reportEvent(rfIdHex, keruiEventName(event), batteryLow,
+                              rssi);
+      if (paired) {
+        if (config.sirenEnabled) {
+          siren.turnOn(config.sirenDurationSec, now);
+        }
+        // Not gated on sirenEnabled — see handleSensorEvent()'s note: a
+        // silent siren is a noise preference, not "stop telling me".
+        cloudClient.reportAlarm(familyHex, /*conditionType=*/0);
+        alarmReportedToCloud = true;
+      }
+      break;
+    }
+    case KeruiEvent::WATER:
+    case KeruiEvent::BATTERY_LOW:
+    case KeruiEvent::CLOSE:
+      // Reported and nothing else: no siren, no rule evaluation. The cloud
+      // decides what (if anything) to notify — water and battery-low alert
+      // once per condition, close drives nothing at all.
+      Serial.printf("[alarm] %s %s (reported only)\n", familyHex,
+                    keruiEventName(event));
+      cloudClient.reportEvent(rfIdHex, keruiEventName(event), batteryLow,
+                              rssi);
+      break;
+    case KeruiEvent::TRIGGER:
+    case KeruiEvent::UNKNOWN:
+      // UNKNOWN reports as "trigger" and runs the rules exactly as today, so
+      // an unrecognised nibble is never silently dropped. The smoke detector
+      // (nibble 0x2, never once fired in 3,089 events) depends on this.
+      handleSensorEvent(familyHex, rfIdHex, keruiEventName(event), now,
+                        batteryLow, rssi);
+      break;
+  }
+}
+
 __attribute__((noinline))
 void pollCc1101(unsigned long now) {
   KeruiPacket packet;
   int rssi;
   if (!cc1101.poll(&packet, &rssi)) return;
-  char rfIdHex[11];
   // Log every decoded packet so RF receive can be verified independently of
-  // the cloud path (reportEvent may be skipped on low heap).
-  Serial.printf("[cc1101] packet sensorId=0x%06X battery=%d rssi=%d\n",
-                packet.sensorId, packet.batteryLow, rssi);
+  // the cloud path (reportEvent may be skipped on low heap). The family and
+  // nibble are printed separately because "which sensor" and "what it did"
+  // are now two different questions.
+  Serial.printf("[cc1101] packet sensorId=0x%06X family=0x%05X nibble=0x%X "
+                "battery=%d rssi=%d\n",
+                packet.sensorId, packet.familyId, packet.eventNibble,
+                packet.batteryLow, rssi);
   // Before the sensor path: a paired remote is a CONTROL device, not a
-  // trigger. Returning here keeps it out of handleSensorEvent entirely, so
+  // trigger. Returning here keeps it out of the sensor dispatch entirely, so
   // it cannot satisfy an alarm rule or be written to /events as a trigger.
   if (handleRemotePacket(packet.sensorId, now)) return;
-  // 0x-prefixed to match the format used everywhere else in the system
-  // (Firestore sensor.rfId, buildConfig.ts, smoke scripts, web pairing UI
-  // reading event keys) — see alarm_state.h's SensorConfig::rfId sizing.
-  snprintf(rfIdHex, sizeof(rfIdHex), "0x%06X", packet.sensorId);
-  handleSensorEvent(rfIdHex, now, packet.batteryLow, rssi);
+  dispatchSensorCode(packet.sensorId, now, packet.batteryLow, rssi);
 }
 
 __attribute__((noinline))
@@ -1147,7 +1230,17 @@ void loop() {
     if (localWebServer.hasPendingTrigger()) {
       String rfId;
       localWebServer.takePendingTrigger(&rfId);
-      handleSensorEvent(rfId.c_str(), now);
+      // Through the SAME dispatch a real packet takes, so a simulated
+      // "0x0061DB" exercises the tamper path rather than being forced into a
+      // plain trigger. Exercising that logic without waving a magnet at a
+      // sensor is the simulator's whole purpose.
+      //
+      // strtoul handles the "0x" prefix with base 16. An unparseable entry
+      // yields 0, which matches no family and is simply reported — the same
+      // outcome as typing an unpaired code, which is already the normal case
+      // here.
+      dispatchSensorCode((uint32_t)strtoul(rfId.c_str(), nullptr, 16), now,
+                         /*batteryLow=*/false, /*rssi=*/0);
     }
 
     if (localWebServer.hasPendingPairRequest()) {

@@ -8,6 +8,9 @@ import { AlarmEvent, EventType, Project, Sensor, Rule } from "./types";
 import { sendTelegram, formatSensorAlert, formatAlarm } from "./telegram";
 import { evaluateRules } from "./alarmLogic";
 import { applicableRules } from "./alwaysRules";
+import { keruiEventOf, nibbleOf, familyIdOf } from "./keruiEvent";
+import { sensorFamilyId } from "./sensorFamily";
+import { classifyEvent, eventFromReport } from "./sensorEventPolicy";
 
 export const onSensorEvent = onValueCreated(
   { ref: "/{projectId}/events/{rfId}/{timestamp}", region: "europe-west1" },
@@ -17,12 +20,30 @@ export const onSensorEvent = onValueCreated(
     const timestamp = Number(event.params.timestamp);
     const data = event.data.val() as { event: string; battery_low: boolean; rssi: number };
 
-    // (a) Look up sensor by rfId
-    const sensorSnap = await db
+    // (a) Look up the sensor by FAMILY — the top 20 bits of the code.
+    //
+    // Not a `where("rfId", "==", rfId)` query any more: the bottom nibble is
+    // an event code, so one physical sensor sends several 24-bit codes and
+    // an exact match found only the one it happened to be paired on. A
+    // tamper (0x0061DB) did not match its own paired motion code (0x0061DA)
+    // and was logged as an unpaired sensor, invisible to rules and alerts.
+    //
+    // Firestore cannot query "top 20 bits equal", so this reads the sensors
+    // collection and matches in memory. That is a dozen docs, already the
+    // shape onAlarm and buildConfig use, and it removes an index dependency.
+    const family = familyIdOf(rfId);
+    const allSensorsSnap = await db
       .collection(`projects/${projectId}/sensors`)
-      .where("rfId", "==", rfId)
-      .limit(1)
       .get();
+    const matching = allSensorsSnap.docs.filter(
+      (d) =>
+        family !== null &&
+        sensorFamilyId({
+          rfId: String(d.data().rfId ?? ""),
+          familyId: d.data().familyId,
+        }) === family
+    );
+    const sensorSnap = { empty: matching.length === 0, docs: matching };
 
     if (sensorSnap.empty) {
       // Deliberately NOT mirrored to Firestore: an unpaired sensor has no
@@ -43,12 +64,31 @@ export const onSensorEvent = onValueCreated(
     const sensorDoc = sensorSnap.docs[0];
     const sensor = { id: sensorDoc.id, ...sensorDoc.data() } as Sensor;
 
-    // Determine event type
-    let eventType: EventType = "trigger";
-    if (data.event === "tamper") eventType = "tamper";
-    else if (data.battery_low) eventType = "battery_low";
+    // Determine the event from the CODE'S OWN NIBBLE, with the device's
+    // reported string as an override.
+    //
+    // Previously this read `data.event === "tamper"` — but the firmware
+    // hardcodes "trigger", so the tamper branch had never once run and the
+    // `tamper` type existed end to end while nothing emitted it. The nibble
+    // is the actual evidence, and it works for events the firmware does not
+    // yet distinguish, which is why the cloud half of this ships first and
+    // delivers tamper/water/battery-low alerting on its own.
+    const nibble = nibbleOf(rfId);
+    const keruiEvent = eventFromReport(
+      data.event,
+      nibble === null ? "unknown" : keruiEventOf(nibble)
+    );
+    const policy = classifyEvent(keruiEvent);
+    // battery_low as a FLAG still wins over a plain trigger, so a sensor
+    // that sets the flag on an ordinary packet is not downgraded.
+    const eventType: EventType =
+      policy.eventType === "trigger" && data.battery_low
+        ? "battery_low"
+        : policy.eventType;
 
-    // (b) Mirror to Firestore events
+    // (b) Mirror to Firestore events. Every event type is mirrored,
+    // including `close` — the timeline is the complete history even of
+    // events that drive nothing.
     const alarmEvent: Omit<AlarmEvent, "id"> = {
       sensorId: sensor.id,
       rfId,
@@ -63,12 +103,34 @@ export const onSensorEvent = onValueCreated(
       .collection(`projects/${projectId}/events`)
       .add(alarmEvent);
 
-    // (c) Update sensor.lastSeen, batteryStatus, and clear any dead-sensor alert.
+    // (c) Update sensor.lastSeen, batteryStatus, and clear any dead-sensor
+    // alert. Also backfill familyId on a doc that predates the migration, so
+    // matching stops depending on the rfId-derived fallback over time.
     const updates: Record<string, unknown> = {
       lastSeen: Timestamp.fromMillis(timestamp),
       deadAlertSentAt: null,
     };
     if (data.battery_low) updates.batteryStatus = "low";
+    if (!sensor.familyId && family !== null) updates.familyId = family;
+
+    // A normal trigger means the condition that caused a once-only alert is
+    // over: the sensor is dry again, or its battery was replaced. Clearing
+    // the markers here is what makes "once" mean ONCE PER CONDITION rather
+    // than once ever — the same shape deadAlertSentAt already uses.
+    if (keruiEvent === "trigger" || keruiEvent === "unknown") {
+      if (!data.battery_low) updates.batteryAlertSentAt = null;
+      updates.waterAlertSentAt = null;
+    }
+
+    // Whether a once-only alert has already been sent for this condition.
+    // Read BEFORE the update, or the write below would clear the very marker
+    // being tested and every packet would notify.
+    const alreadyAlerted =
+      policy.onceMarker !== null && sensor[policy.onceMarker] != null;
+    if (policy.onceMarker !== null && !alreadyAlerted) {
+      updates[policy.onceMarker] = Timestamp.fromMillis(timestamp);
+    }
+
     await sensorDoc.ref.update(updates);
 
     // (d) Get project for Telegram config
@@ -76,10 +138,19 @@ export const onSensorEvent = onValueCreated(
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
 
-    // Send Telegram alert per sensor trigger, only if enabled for this project.
-    // Battery-low and tamper always notify (safety), regardless of the toggle.
-    const alwaysNotify = eventType === "battery_low" || eventType === "tamper";
+    // Send a Telegram alert, only if enabled for this project. Safety events
+    // (tamper, water, battery-low) always notify regardless of the toggle:
+    // notifyEverySensorTrigger exists to silence routine motion, not to hide
+    // a tampered sensor or a leak.
+    //
+    // `close` is never notified (policy.notify === false), and water /
+    // battery_low are suppressed once their marker is set, so a leaking
+    // sensor sends one message rather than one every few seconds.
+    const alwaysNotify =
+      policy.alwaysNotify || eventType === "battery_low";
     if (
+      policy.notify &&
+      !alreadyAlerted &&
       (project.notifyEverySensorTrigger !== false || alwaysNotify) &&
       project.telegramBotToken &&
       project.telegramChatId
@@ -87,6 +158,39 @@ export const onSensorEvent = onValueCreated(
       const msg = formatSensorAlert(sensor.name, eventType);
       await sendTelegram(project.telegramBotToken, project.telegramChatId, msg);
     }
+
+    // (d2) TAMPER SIRENS EVEN WHILE DISARMED, and never goes through rule
+    // evaluation.
+    //
+    // That is the threat: an intruder disabling sensors before a break-in
+    // does it while the house is empty and the system may well be disarmed.
+    // This mirrors the existing `always` rule semantics (smoke, gas) rather
+    // than inventing a second mechanism, and it applies ONLY to a PAIRED
+    // sensor — an unpaired tamper returned above, left for pairing exactly
+    // as an unpaired trigger is.
+    //
+    // Accepted cost: changing a PIR battery sounds the siren. There is no
+    // suppression mechanism by design — silence it with Disarm, which also
+    // reaches the device over the LAN.
+    //
+    // Honours serverActions.triggerSiren, which is the project's "may the
+    // server sound the siren at all" switch; the device-side sirenEnabled is
+    // its own gate on the firmware path.
+    if (keruiEvent === "tamper") {
+      await rtdb
+        .ref(`${projectId}/state/alarm_cause`)
+        .set({ label: `${sensor.name} tampered`, at: Date.now() });
+      if (project.serverActions.triggerSiren) {
+        await rtdb.ref(`${projectId}/state/siren_active`).set(true);
+      }
+      // No rule evaluation for tamper — return before it.
+      return;
+    }
+
+    // Events that drive nothing stop here: close, water and battery_low are
+    // recorded and (for the latter two) notified, but never fed to the alarm
+    // rules. Only a trigger can raise an alarm.
+    if (!policy.evaluateRules) return;
 
     // (e) Server-side alarm evaluation.
     //

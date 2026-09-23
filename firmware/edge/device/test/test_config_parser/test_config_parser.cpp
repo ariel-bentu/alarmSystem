@@ -6,7 +6,7 @@ void test_valid_config_round_trip_with_all_condition_types() {
   const char* json = R"({
     "a": true,
     "d": 120,
-    "r": ["0xA1B2C3", "0xD4E5F6", "0xA1B2C4", "0xAA11BB", "0xCC22DD"],
+    "r": ["0xA1B2C", "0xD4E5F", "0xA1B2D", "0xAA11B", "0xCC22D"],
     "c": [
       [{ "t": 0 }],
       [{ "t": 1, "n": 2, "w": 30 }],
@@ -24,20 +24,20 @@ void test_valid_config_round_trip_with_all_condition_types() {
   TEST_ASSERT_EQUAL_UINT16(120, config.sirenDurationSec);
   TEST_ASSERT_EQUAL_UINT8(5, config.sensorCount);
 
-  TEST_ASSERT_EQUAL_STRING("0xA1B2C3", config.sensors[0].rfId);
+  TEST_ASSERT_EQUAL_STRING("0xA1B2C", config.sensors[0].familyId);
   TEST_ASSERT_EQUAL_UINT8(1, config.sensors[0].conditionCount);
   TEST_ASSERT_EQUAL_UINT8(0, config.sensors[0].conditions[0].t);
 
-  TEST_ASSERT_EQUAL_STRING("0xD4E5F6", config.sensors[1].rfId);
+  TEST_ASSERT_EQUAL_STRING("0xD4E5F", config.sensors[1].familyId);
   TEST_ASSERT_EQUAL_UINT8(1, config.sensors[1].conditions[0].t);
   TEST_ASSERT_EQUAL_UINT16(2, config.sensors[1].conditions[0].n);
   TEST_ASSERT_EQUAL_UINT16(30, config.sensors[1].conditions[0].w);
 
-  TEST_ASSERT_EQUAL_STRING("0xA1B2C4", config.sensors[2].rfId);
+  TEST_ASSERT_EQUAL_STRING("0xA1B2D", config.sensors[2].familyId);
   TEST_ASSERT_EQUAL_UINT8(2, config.sensors[2].conditions[0].t);
   TEST_ASSERT_EQUAL_UINT16(30, config.sensors[2].conditions[0].y);
 
-  TEST_ASSERT_EQUAL_STRING("0xAA11BB", config.sensors[3].rfId);
+  TEST_ASSERT_EQUAL_STRING("0xAA11B", config.sensors[3].familyId);
   TEST_ASSERT_EQUAL_UINT8(3, config.sensors[3].conditions[0].t);
   TEST_ASSERT_EQUAL_UINT16(60, config.sensors[3].conditions[0].w);
   TEST_ASSERT_EQUAL_UINT8(2, config.sensors[3].conditions[0].kLen);
@@ -62,7 +62,7 @@ void test_missing_r_and_c_is_valid_zero_sensor_config() {
 }
 
 void test_only_r_present_without_c_is_rejected() {
-  const char* json = R"({ "a": true, "d": 60, "r": ["0xA1B2C3"] })";
+  const char* json = R"({ "a": true, "d": 60, "r": ["0xA1B2C"] })";
 
   Config config;
   bool ok = ConfigParser::parseConfigJson(json, &config);
@@ -73,7 +73,7 @@ void test_only_r_present_without_c_is_rejected() {
 void test_r_c_length_mismatch_is_rejected() {
   const char* json = R"({
     "a": true, "d": 60,
-    "r": ["0xA1B2C3", "0xD4E5F6"],
+    "r": ["0xA1B2C", "0xD4E5F"],
     "c": [[{ "t": 0 }]]
   })";
 
@@ -118,7 +118,7 @@ void test_more_than_16_sensors_is_truncated_not_rejected() {
 void test_more_than_4_conditions_on_one_sensor_is_truncated() {
   const char* json = R"({
     "a": true, "d": 60,
-    "r": ["0xA1B2C3"],
+    "r": ["0xA1B2C"],
     "c": [[{ "t": 0 }, { "t": 0 }, { "t": 0 }, { "t": 0 }, { "t": 0 }, { "t": 0 }]]
   })";
 
@@ -133,7 +133,7 @@ void test_more_than_4_conditions_on_one_sensor_is_truncated() {
 void test_out_of_range_k_index_is_dropped_not_stored() {
   const char* json = R"({
     "a": true, "d": 60,
-    "r": ["0xA1B2C3"],
+    "r": ["0xA1B2C"],
     "c": [[{ "t": 3, "w": 60, "k": { "0": 1, "16": 2, "-1": 3 } }]]
   })";
 
@@ -187,7 +187,7 @@ void test_k_as_json_array_is_parsed_like_an_object() {
 void test_k_array_with_null_holes_skips_them() {
   const char* json = R"({
     "a": true, "d": 60,
-    "r": ["0xA1B2C3", "0xD4E5F6", "0x112233"],
+    "r": ["0xA1B2C", "0xD4E5F", "0x11223"],
     "c": [
       [{ "t": 3, "w": 60, "k": [2, null, 1] }],
       [{ "t": 0 }],
@@ -210,7 +210,7 @@ void test_k_array_with_null_holes_skips_them() {
 void test_parses_multi_sensor_quorum() {
   const char* json = R"({
     "a": true, "d": 60,
-    "r": ["0xA1B2C3", "0xD4E5F6", "0x112233"],
+    "r": ["0xA1B2C", "0xD4E5F", "0x11223"],
     "c": [
       [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1, "2": 1 }, "q": 2 }],
       [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1, "2": 1 }, "q": 2 }],
@@ -230,7 +230,7 @@ void test_absent_quorum_defaults_to_zero_meaning_all() {
   // the shape of every rule that predates the quorum.
   const char* json = R"({
     "a": true, "d": 60,
-    "r": ["0xA1B2C3", "0xD4E5F6"],
+    "r": ["0xA1B2C", "0xD4E5F"],
     "c": [
       [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 } }],
       [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 } }]
@@ -249,7 +249,7 @@ void test_quorum_larger_than_participants_is_clamped_to_all() {
   // (= all) rather than stored, matching how bad k indices are dropped.
   const char* json = R"({
     "a": true, "d": 60,
-    "r": ["0xA1B2C3", "0xD4E5F6"],
+    "r": ["0xA1B2C", "0xD4E5F"],
     "c": [
       [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 }, "q": 9 }],
       [{ "t": 3, "w": 60, "k": { "0": 1, "1": 1 }, "q": 9 }]
@@ -265,7 +265,7 @@ void test_quorum_larger_than_participants_is_clamped_to_all() {
 
 void test_parses_always_flag() {
   const char* json = R"({
-    "a": true, "d": 120, "r": ["0xA1B2C3"], "c": [[{ "t": 0, "x": 1 }]]
+    "a": true, "d": 120, "r": ["0xA1B2C"], "c": [[{ "t": 0, "x": 1 }]]
   })";
 
   Config config;
@@ -277,7 +277,7 @@ void test_parses_always_flag() {
 
 void test_absent_x_means_not_always() {
   const char* json = R"({
-    "a": true, "d": 120, "r": ["0xA1B2C3"], "c": [[{ "t": 0 }]]
+    "a": true, "d": 120, "r": ["0xA1B2C"], "c": [[{ "t": 0 }]]
   })";
 
   Config config;
@@ -346,8 +346,32 @@ void test_siren_address_parsed_when_r_and_c_absent() {
   TEST_ASSERT_EQUAL_HEX32(0xA1B2C0, out.sirenBaseAddress);
 }
 
+void test_family_ids_fit_exactly_and_longer_values_truncate_safely() {
+  // `r` carries 20-bit families ("0x0061D" = 7 chars + null = 8) into a
+  // familyId[9] buffer, so a real value fits with a byte to spare.
+  //
+  // A FULL 24-bit rfId would be 8 chars — it still fits, and that matters:
+  // a cloud that has not yet been redeployed sends the old shape, and the
+  // device must not corrupt memory or read past the buffer. It simply will
+  // not MATCH anything, which is the correct, visible failure.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0x0061D", "0xA1B2C3", "0xTOOLONGVALUE"],
+    "c": [[{ "t": 0 }], [{ "t": 0 }], [{ "t": 0 }]]
+  })";
+
+  Config config;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &config));
+  TEST_ASSERT_EQUAL_UINT8(3, config.sensorCount);
+  TEST_ASSERT_EQUAL_STRING("0x0061D", config.sensors[0].familyId);
+  TEST_ASSERT_EQUAL_STRING("0xA1B2C3", config.sensors[1].familyId);
+  // Truncated to 8 chars + NUL, never overrunning.
+  TEST_ASSERT_EQUAL_STRING("0xTOOLON", config.sensors[2].familyId);
+}
+
 void setup() {
   UNITY_BEGIN();
+  RUN_TEST(test_family_ids_fit_exactly_and_longer_values_truncate_safely);
   RUN_TEST(test_valid_config_round_trip_with_all_condition_types);
   RUN_TEST(test_missing_r_and_c_is_valid_zero_sensor_config);
   RUN_TEST(test_only_r_present_without_c_is_rejected);

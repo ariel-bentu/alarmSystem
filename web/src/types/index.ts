@@ -16,6 +16,12 @@ export type EventType =
   | "trigger"
   | "tamper"
   | "battery_low"
+  // Kerui nibble 0x5 — notified once per condition, never sirened.
+  | "water"
+  // Kerui nibble 0x3 or 0x7. In the timeline so history is complete, but
+  // drives nothing: no siren, no Telegram, no rule evaluation. The system
+  // has no concept of a door's open/closed STATE, only of events.
+  | "close"
   | "alarm"
   | "armed"
   | "disarmed"
@@ -115,7 +121,17 @@ export interface Remote {
 
 export interface Sensor {
   id: string; // sensorId
-  rfId: string; // hex e.g. "0xA1B2C3"
+  // The full 24-bit code first seen at pairing, e.g. "0xA1B2C3". KEPT, but
+  // DESCRIPTIVE: it is what this tab shows, not the matching key.
+  rfId: string;
+  // The 20-bit identity, e.g. "0x0061D". THIS IS THE MATCHING KEY. A Kerui
+  // packet's bottom nibble is an event code, so one physical sensor emits
+  // several 24-bit codes (0x0061DA motion, 0x0061DB tamper) — matching on
+  // the full code made each look like a separate, unpaired sensor.
+  //
+  // Optional: sensor docs predate it and the migration backfills them;
+  // readers derive it from rfId when absent (see keruiEvent.familyIdOf).
+  familyId?: string;
   name: string;
   pairedAt: Timestamp;
   batteryStatus: BatteryStatus;
@@ -133,7 +149,12 @@ export interface Sensor {
   // Set when the stale-battery alert fires, cleared when batteryChangedAt is
   // written. Mirrors deadAlertSentAt: without it the daily check would send
   // the same Telegram every noon until the battery was replaced.
+  // ALSO the once-marker for a sensor-reported battery_low event (nibble
+  // 0xF) — one field, so one battery cannot produce two alerts.
   batteryAlertSentAt?: Timestamp | null;
+  // Set when a water alert (nibble 0x5) fires, cleared when the sensor next
+  // reports a normal trigger. Once per CONDITION, not once ever.
+  waterAlertSentAt?: Timestamp | null;
 }
 
 export interface Condition {

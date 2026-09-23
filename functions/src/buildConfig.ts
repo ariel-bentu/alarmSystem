@@ -10,6 +10,7 @@ import {
   RtdbConfig,
 } from "./types";
 import { quorumOf } from "./alarmLogic";
+import { sensorFamilyId } from "./sensorFamily";
 
 const CONDITION_TYPE_CODE: Record<Condition["type"], 0 | 1 | 2 | 3> = {
   immediate: 0,
@@ -94,7 +95,19 @@ export function buildRtdbConfig(
   for (const s of sensors) {
     sensorMap.set(s.id, s);
   }
-  const rfIdOf = (sensorId: string) => sensorMap.get(sensorId)?.rfId;
+  // `r` now carries 20-bit FAMILY ids, not full 24-bit rfIds. The device
+  // matches a received packet by its top 20 bits, so a sensor that sends
+  // several codes (motion 0x0061DA, tamper 0x0061DB) collapses to ONE entry
+  // — which is the point, and also shortens the config the device polls
+  // every 5s. Wire-compatible: `r` was already string[], only the contents
+  // get shorter.
+  //
+  // A sensor whose family cannot be derived (unparseable rfId, no stored
+  // familyId) is dropped exactly as an unresolvable sensorId already was.
+  const rfIdOf = (sensorId: string) => {
+    const sensor = sensorMap.get(sensorId);
+    return sensor ? (sensorFamilyId(sensor) ?? undefined) : undefined;
+  };
 
   // Always-rules come from EVERY profile, not just the active one: a smoke
   // rule sitting in an inactive profile must still reach the device, or the
@@ -115,9 +128,11 @@ export function buildRtdbConfig(
 
   for (const rule of allRules) {
     for (const sensorId of rule.sensors) {
-      const sensor = sensorMap.get(sensorId);
-      if (!sensor) continue;
-      const rfId = sensor.rfId;
+      // Via rfIdOf so pass 1 and pass 2 cannot disagree about a sensor's
+      // key: keying r by the raw rfId here while the conditions resolved by
+      // family would silently produce an empty condition list.
+      const rfId = rfIdOf(sensorId);
+      if (!rfId) continue;
 
       if (!rIndex.has(rfId)) {
         rIndex.set(rfId, r.length);

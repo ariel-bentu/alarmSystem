@@ -785,12 +785,12 @@ void CloudClient::applyConfigJson(const String& json) {
   hasPendingConfig_ = true;
   Serial.printf("cloud: config updated (%u bytes, %u sensors)\n", json.length(),
                 parsed.sensorCount);
-  // Which rfIds are actually armed is otherwise invisible from the device
+  // Which sensors are actually armed is otherwise invisible from the device
   // side, and "armed but nothing fires" is indistinguishable from a broken
   // alarm path without it. Small and only printed on change.
   for (uint8_t i = 0; i < parsed.sensorCount; i++) {
-    Serial.printf("cloud:   sensor[%u] rfId=%s conditions=%u\n", i,
-                  parsed.sensors[i].rfId, parsed.sensors[i].conditionCount);
+    Serial.printf("cloud:   sensor[%u] family=%s conditions=%u\n", i,
+                  parsed.sensors[i].familyId, parsed.sensors[i].conditionCount);
     for (uint8_t c = 0; c < parsed.sensors[i].conditionCount; c++) {
       const Condition& cond = parsed.sensors[i].conditions[c];
       Serial.printf("cloud:     cond[%u] t=%u n=%u w=%u y=%u kLen=%u\n", c,

@@ -23,12 +23,19 @@ struct Condition {
 };
 
 struct SensorConfig {
-  // "0xA1B2C3" = 8 chars + null = 9; sized to 11 for comfortable headroom
-  // (matches the 0x-prefixed rfId format used everywhere else in the
-  // system — see main.cpp's packet decode and cloud_client.cpp's
-  // parseConfigJson strncpy, which uses sizeof(rfId) and picks this up
-  // automatically).
-  char rfId[11] = {};
+  // The sensor's 20-bit FAMILY as "0x0061D" — 7 chars + null = 8.
+  //
+  // NOT the full 24-bit rfId any more. A Kerui packet's bottom nibble is an
+  // event code, so one physical sensor sends several codes (motion 0x0061DA,
+  // tamper 0x0061DB) and matching on the whole value found only the one it
+  // happened to be paired on. Matching is a strcmp inside the RF path, so
+  // the prefix is stored pre-computed rather than re-derived per packet.
+  //
+  // Sized 9, not 8: one byte of slack keeps the struct's alignment padding
+  // where it was and costs nothing, since Condition[4] dominates the size.
+  // cloud_client.cpp's parseConfigJson uses sizeof(familyId) and picks any
+  // change up automatically.
+  char familyId[9] = {};
   Condition conditions[4];
   uint8_t conditionCount = 0;
 };
@@ -68,24 +75,45 @@ struct Config {
 // 2452 -> 2580 when Condition::q (multi_sensor quorum) was added. Unlike
 // `always`, q did NOT fit in existing padding: Condition was exactly 34 bytes
 // with none spare, so it grew to 36 — times 4 conditions * 16 sensors = 128.
-static_assert(sizeof(Config) == 2580, "EEPROM layout changed - bump kMagic");
+// 2580 -> 2548 when SensorConfig::rfId[11] became familyId[9]: matching moved
+// from the full 24-bit code to the 20-bit family. SensorConfig went 158 -> 156
+// (both measured), i.e. 2 bytes x 16 sensors = 32. kMagic was bumped to
+// 0xA1A2B3B9 so the old layout is discarded rather than misread.
+//
+// THE SIREN ADDRESS MUST SURVIVE THAT BUMP. A magic bump discards the whole
+// record, and Config::sirenBaseAddress is write-only device->cloud, so losing
+// it silently breaks the physical siren pairing — this has happened before
+// (docs/history/siren-hub-free.md). The recovery path is RtdbConfig.s, which
+// applyPendingConfigUpdate() re-adopts when EEPROM has none. VERIFY THAT ON
+// HARDWARE before shipping this: it is the one irreversible failure here.
+static_assert(sizeof(Config) == 2548, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the
-// Telegram alert can name it. The device knows rfIds, not sensor or rule
+// Telegram alert can name it. The device knows radio ids, not sensor or rule
 // *names* — onAlarm resolves those (see functions/src/alarmCause.ts).
+//
+// The field still travels to the cloud as "rfId", but now carries a 20-bit
+// FAMILY, matching what the config holds. onAlarm indexes its sensors under
+// both forms precisely so either firmware generation resolves to a name.
 struct TriggerCause {
-  char rfId[11] = {};      // sensor that fired; empty when nothing fired
+  char rfId[11] = {};      // family that fired; empty when nothing fired
   uint8_t conditionType = 0;  // Condition::t of the condition that tripped
 };
 
 class AlarmState {
  public:
   void setConfig(const Config& config);
+  // familyId: the sensor's 20-bit identity as "0x0061D" — NOT a full rfId.
   // cause: optional out-param, written only when the call returns true.
-  bool onSensorEvent(const char* rfId, unsigned long nowMs,
+  bool onSensorEvent(const char* familyId, unsigned long nowMs,
                      TriggerCause* cause = nullptr);
   bool tickEntryDelay(unsigned long nowMs, TriggerCause* cause = nullptr);
   void disarm();
+  // Whether this family is in the config at all — i.e. a PAIRED sensor with
+  // at least one rule. Used by the tamper path, which sirens outside rule
+  // evaluation entirely and so has no other way to ask. Independent of arm
+  // state, because a tamper fires while disarmed.
+  bool isPairedFamily(const char* familyId) const;
 
  private:
   static constexpr uint8_t kMaxSensors = 16;
@@ -104,7 +132,7 @@ class AlarmState {
   // runtime_[sensorIndex][conditionIndex]
   ConditionRuntime runtime_[kMaxSensors][kMaxConditionsPerSensor];
 
-  int findSensorIndex(const char* rfId) const;
+  int findSensorIndex(const char* familyId) const;
   bool evaluateCondition(uint8_t sensorIndex, uint8_t conditionIndex, unsigned long nowMs);
   bool multiSensorSatisfied(const Condition& cond, unsigned long nowMs);
   // Append a trigger timestamp, evicting the oldest when full rather than

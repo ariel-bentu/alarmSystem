@@ -23,11 +23,17 @@ import { useProject } from "@/app/ProjectProvider";
 import type { Sensor, Profile, Rule } from "@/types";
 import { getUnknownRfIds } from "./unknownSensors";
 import {
-  effectiveLastSeen,
+  familyLastSeen,
   isJustSeen,
   sortByLastSeenDesc,
   type EventTiming,
 } from "./sensorRecency";
+import {
+  familyIdOf,
+  eventOfRfId,
+  keruiEventLabel,
+  normaliseFamilyId,
+} from "./keruiEvent";
 import {
   buildInitialRules,
   reconcileRulesForRemovedSensor,
@@ -150,13 +156,24 @@ export default function SensorsTab() {
   }, [projectId]);
 
   const eventRfIds = Object.keys(eventTiming);
-  const knownRfIds = sensors.map((s) => s.rfId);
+  // The sensor's family is what a code is matched against, so a paired
+  // sensor's OTHER codes (its tamper, its close) no longer show up in the
+  // unrecognised list as if they were separate devices.
+  const knownRfIds = sensors.map((s) => s.familyId ?? s.rfId);
   const unknownRfIds = getUnknownRfIds(eventRfIds, knownRfIds);
 
+  // A sensor's family, preferring the stored field and deriving it from rfId
+  // for docs that predate the migration.
+  const familyOf = (s: Sensor) =>
+    (s.familyId ? normaliseFamilyId(s.familyId) : null) ?? familyIdOf(s.rfId);
+
   // Paired sensors: last seen is the newer of the live RTDB event and the
-  // Firestore field, so the table updates as events arrive.
-  const pairedLastSeen = (s: Sensor) =>
-    effectiveLastSeen(s.rfId, eventTiming, s.lastSeen?.toMillis() ?? null);
+  // Firestore field, across EVERY code in the family — a sensor tampered
+  // five minutes ago must not read as silent because the tamper arrived
+  // under a different 24-bit code than the one it was paired on.
+  const pairedSighting = (s: Sensor) =>
+    familyLastSeen(familyOf(s), eventTiming, s.lastSeen?.toMillis() ?? null);
+  const pairedLastSeen = (s: Sensor) => pairedSighting(s).lastSeen;
   // Rows are grouped under day headings by when each sensor was last seen;
   // groupItemsByDay sorts both the days and the rows within them.
   const sensorDayGroups = groupItemsByDay(sensors, pairedLastSeen, now);
@@ -177,7 +194,18 @@ export default function SensorsTab() {
   const handlePair = async () => {
     if (!pairForm || !pairName.trim() || !projectId) return;
     const newSensor: Omit<Sensor, "id"> = {
+      // The full code that was heard, kept as the descriptive record of what
+      // this sensor was paired on.
       rfId: pairForm.rfId,
+      // The matching key: the top 20 bits. Stored at pairing so matching
+      // never has to re-derive it, and so pairing on a tamper or close code
+      // still matches the sensor's ordinary triggers.
+      // `?? undefined` because Firestore rejects undefined — an unparseable
+      // code (a hand-typed one) simply stores no family and falls back to
+      // deriving it from rfId at read time.
+      ...(familyIdOf(pairForm.rfId)
+        ? { familyId: familyIdOf(pairForm.rfId) as string }
+        : {}),
       name: pairName.trim(),
       pairedAt: Timestamp.now(),
       batteryStatus: "ok",
@@ -189,6 +217,7 @@ export default function SensorsTab() {
       // pairedAt, which is the same instant and needs no maintenance.
       batteryChangedAt: null,
       batteryAlertSentAt: null,
+      waterAlertSentAt: null,
     };
     // NOT named `ref`: that is the firebase/database import used by the events
     // subscription above, and shadowing it here is a trap for the next edit.
@@ -313,6 +342,11 @@ export default function SensorsTab() {
         <td>
           {justSeen && <span className="dot dot--fresh" />}
           <span className="ltr">{rfId}</span>
+          {/* What this unpaired code actually DID. The bottom nibble is an
+              event code, so this is readable before pairing — and it is how
+              you tell a new sensor's ordinary trigger from, say, a water
+              alarm you would want to name accordingly. */}
+          <div className="muted">{keruiEventLabel(eventOfRfId(rfId))}</div>
         </td>
         <td>
           {!timing
@@ -417,13 +451,23 @@ export default function SensorsTab() {
                       colSpan={5}
                     />
                     {group.items.map((s) => {
-                  const lastSeen = pairedLastSeen(s);
+                  const sighting = pairedSighting(s);
+                  const lastSeen = sighting.lastSeen;
                   const justSeen = isJustSeen(lastSeen, now);
                   return (
                     <tr key={s.id} className={justSeen ? "is-fresh" : undefined}>
                       <td>
                         {justSeen && <span className="dot dot--fresh" />}
                         {s.name}
+                        {/* Water is a STANDING condition, not a passing
+                            event, so it is shown beside the name until the
+                            sensor reports a normal trigger again — which is
+                            also when the cloud clears the marker. */}
+                        {s.waterAlertSentAt != null && (
+                          <span className="badge badge--danger">
+                            {t("cfg.sensors.water")}
+                          </span>
+                        )}
                       </td>
                       <td>
                         {lastSeen === null ? (
@@ -433,6 +477,17 @@ export default function SensorsTab() {
                         ) : (
                           timeOfDay(lastSeen)
                         )}
+                        {/* WHAT was last heard, not just when. A tamper
+                            reading as an ordinary trigger is exactly the
+                            distinction this release adds; showing only a
+                            timestamp would hide it again. Omitted for a
+                            plain trigger, which is the unremarkable case. */}
+                        {sighting.lastEvent !== null &&
+                          sighting.lastEvent !== "trigger" && (
+                            <div className="muted">
+                              {keruiEventLabel(sighting.lastEvent)}
+                            </div>
+                          )}
                       </td>
                       <td>
                         {s.batteryStatus === "low" ? (

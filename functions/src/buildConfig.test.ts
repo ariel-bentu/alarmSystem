@@ -9,6 +9,75 @@ const sensors: Sensor[] = [
   { id: "s3", rfId: "0x112233", name: "Garage PIR", pairedAt: Timestamp.fromMillis(1000), batteryStatus: "ok", lastSeen: null },
 ];
 
+describe("buildRtdbConfig — family ids in r", () => {
+  it("emits the 20-bit family, not the full 24-bit rfId", () => {
+    // The device matches a packet by its top 20 bits, so `r` must carry
+    // families. Wire-compatible: r was already string[], only the contents
+    // get shorter — which also shrinks a config the device polls every 5s.
+    const rules: Rule[] = [
+      { id: "r1", name: "Door", sensors: ["s1"], condition: { type: "immediate" } },
+    ];
+    expect(buildRtdbConfig(rules, sensors, true, 120).r).toEqual(["0xA1B2C"]);
+  });
+
+  it("collapses two sensors' codes into one entry when they share a family", () => {
+    // The point of the whole change. A sensor paired on its motion code and
+    // (mistakenly) again on its tamper code is ONE device; the device must
+    // not be told to watch two, and an index-based config with a duplicated
+    // family would mean the second entry's conditions were never evaluated.
+    const twoCodes: Sensor[] = [
+      { ...sensors[0], id: "m", rfId: "0x0061DA" },
+      { ...sensors[0], id: "t", rfId: "0x0061DB" },
+    ];
+    const rules: Rule[] = [
+      { id: "r1", name: "Motion", sensors: ["m"], condition: { type: "immediate" } },
+      { id: "r2", name: "Tamper", sensors: ["t"], condition: { type: "entry_delay", delay_sec: 30 } },
+    ];
+    const config = buildRtdbConfig(rules, twoCodes, true, 120);
+    expect(config.r).toEqual(["0x0061D"]);
+    // BOTH rules' conditions land on that single entry — neither is lost.
+    expect(config.c).toEqual([[{ t: 0 }, { t: 2, y: 30 }]]);
+  });
+
+  it("prefers a stored familyId over one derived from rfId", () => {
+    const stored: Sensor[] = [
+      { ...sensors[0], rfId: "0xA1B2C3", familyId: "0xA1B2C" },
+    ];
+    const rules: Rule[] = [
+      { id: "r1", name: "Door", sensors: ["s1"], condition: { type: "immediate" } },
+    ];
+    expect(buildRtdbConfig(rules, stored, true, 120).r).toEqual(["0xA1B2C"]);
+  });
+
+  it("drops a sensor whose rfId cannot yield a family", () => {
+    // Same treatment an unresolvable sensorId already got: dropped, not sent
+    // as a key the device could never match.
+    const broken: Sensor[] = [{ ...sensors[0], rfId: "not-hex" }];
+    const rules: Rule[] = [
+      { id: "r1", name: "Door", sensors: ["s1"], condition: { type: "immediate" } },
+    ];
+    const config = buildRtdbConfig(rules, broken, true, 120);
+    expect(config.r).toEqual([]);
+    expect(config.c).toEqual([]);
+  });
+
+  it("resolves multi_sensor k indices by family too", () => {
+    // k is keyed by index into r; if pass 1 keyed r by rfId while pass 2
+    // resolved by family, every participant would be dropped from k.
+    const rules: Rule[] = [
+      {
+        id: "r1",
+        name: "Both",
+        sensors: ["s1", "s2"],
+        condition: { type: "multi_sensor", window_sec: 60 },
+      },
+    ];
+    const config = buildRtdbConfig(rules, sensors, true, 120);
+    expect(config.r).toEqual(["0xA1B2C", "0xD4E5F"]);
+    expect(config.c[0][0]).toEqual({ t: 3, w: 60, k: { "0": 1, "1": 1 } });
+  });
+});
+
 describe("buildRtdbConfig", () => {
   it("builds config with an immediate rule", () => {
     const rules: Rule[] = [
@@ -18,7 +87,7 @@ describe("buildRtdbConfig", () => {
 
     expect(config.a).toBe(true);
     expect(config.d).toBe(120);
-    expect(config.r).toEqual(["0xA1B2C3"]);
+    expect(config.r).toEqual(["0xA1B2C"]);
     expect(config.c).toEqual([[{ t: 0 }]]);
   });
 
@@ -31,7 +100,7 @@ describe("buildRtdbConfig", () => {
 
     expect(config.a).toBe(false);
     expect(config.d).toBe(90);
-    expect(config.r).toEqual(["0xA1B2C3", "0xD4E5F6", "0x112233"]);
+    expect(config.r).toEqual(["0xA1B2C", "0xD4E5F", "0x11223"]);
     expect(config.c).toEqual([
       [{ t: 0 }],
       [{ t: 0 }],
@@ -46,7 +115,7 @@ describe("buildRtdbConfig", () => {
     ];
     const config = buildRtdbConfig(rules, sensors, true, 60);
 
-    expect(config.r).toEqual(["0xA1B2C3"]);
+    expect(config.r).toEqual(["0xA1B2C"]);
     expect(config.c).toEqual([[{ t: 0 }, { t: 2, y: 30 }]]);
   });
 
@@ -72,8 +141,8 @@ describe("buildRtdbConfig", () => {
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      expect(config.r).toEqual(["0xA1B2C3", "0xD4E5F6"]);
-      // index 0 = s1/0xA1B2C3, index 1 = s2/0xD4E5F6
+      expect(config.r).toEqual(["0xA1B2C", "0xD4E5F"]);
+      // index 0 = s1/family 0xA1B2C, index 1 = s2/family 0xD4E5F
       expect(config.c).toEqual([
         [{ t: 3, w: 60, k: { "0": 1, "1": 2 } }],
         [{ t: 3, w: 60, k: { "0": 1, "1": 2 } }],
@@ -91,7 +160,7 @@ describe("buildRtdbConfig", () => {
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      expect(config.r).toEqual(["0xA1B2C3", "0x112233"]);
+      expect(config.r).toEqual(["0xA1B2C", "0x11223"]);
       expect(config.c[0][0]).toEqual({ t: 3, w: 30, k: { "0": 3, "1": 1 } });
     });
 
@@ -120,7 +189,7 @@ describe("buildRtdbConfig", () => {
       ];
       const config = buildRtdbConfig(rules, sensors, true, 120);
 
-      expect(config.r).toEqual(["0xA1B2C3"]);
+      expect(config.r).toEqual(["0xA1B2C"]);
       expect(config.c).toEqual([[{ t: 3, w: 60, k: { "0": 2 } }]]);
     });
 
@@ -188,7 +257,7 @@ describe("buildRtdbConfig — always-on rules", () => {
       },
     ];
     const config = buildRtdbConfig(active, sensors, true, 120, true, alwaysRules);
-    expect(config.r).toEqual(["0xA1B2C3", "0xD4E5F6"]);
+    expect(config.r).toEqual(["0xA1B2C", "0xD4E5F"]);
     expect(config.c).toEqual([[{ t: 0 }], [{ t: 0, x: 1 }]]);
   });
 
@@ -202,7 +271,7 @@ describe("buildRtdbConfig — always-on rules", () => {
     };
     // Same rule id arriving through both paths must appear once.
     const config = buildRtdbConfig([rule], sensors, true, 120, true, [rule]);
-    expect(config.r).toEqual(["0xA1B2C3"]);
+    expect(config.r).toEqual(["0xA1B2C"]);
     expect(config.c).toEqual([[{ t: 0, x: 1 }]]);
   });
 

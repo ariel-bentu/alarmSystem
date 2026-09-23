@@ -3,8 +3,15 @@ Smaller known gaps. Defects found in firmware review now live in SECURITY.md
 list of things to build.
 
 - mass jam of rf alert — detect that the receiver has gone deaf
-- battery/tamper handling
 - battery low on the device itself
+
+- the device decodes its OWN siren transmissions as sensor events. Unpaired
+  families 0x3F010 and 0x62237 appear in /events with multiple nibbles, and
+  0x622374 is this device's own siren EV1527 address from the siren work. The
+  CC1101 is almost certainly hearing its own TX. Must be investigated BEFORE
+  anyone pairs either id — pairing a self-transmission would make the device
+  alarm on its own siren. Found during the sensor-families audit; that work
+  neither fixes nor depends on it.
 - register the Telegram webhook so bot commands work
 - test + deploy the watchdog / offline-alert work (docs/testing-device-liveness.md)
 
