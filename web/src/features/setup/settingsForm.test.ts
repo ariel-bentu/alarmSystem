@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { type SettingsForm, formFromProject, isDirty } from "./settingsForm";
+import { DEFAULT_BATTERY_ALERT_MONTHS } from "@/features/configure/batteryAge";
 
 const base: SettingsForm = {
   name: "Home",
@@ -10,6 +11,7 @@ const base: SettingsForm = {
   sendTelegram: true,
   triggerSiren: false,
   notifyEverySensorTrigger: true,
+  batteryAlertMonths: DEFAULT_BATTERY_ALERT_MONTHS,
 };
 
 describe("isDirty", () => {
@@ -71,6 +73,7 @@ describe("formFromProject", () => {
       sendTelegram: true,
       triggerSiren: true,
       notifyEverySensorTrigger: false,
+      batteryAlertMonths: DEFAULT_BATTERY_ALERT_MONTHS,
     });
   });
 
@@ -104,6 +107,44 @@ describe("formFromProject", () => {
     expect(form.timezone).toBe(
       Intl.DateTimeFormat().resolvedOptions().timeZone
     );
+  });
+});
+
+describe("batteryAlertMonths", () => {
+  // formFromProject takes a SettingsSource (the Project subset), not a
+  // SettingsForm, so this fixture is separate from `base` above.
+  const source = {
+    name: "Home",
+    telegramBotToken: "tok",
+    telegramChatId: "-100",
+    sirenDurationSec: 120,
+    timezone: "Asia/Jerusalem",
+    serverActions: { sendTelegram: true, triggerSiren: false },
+  };
+
+  it("defaults to a year when the project has no value", () => {
+    // Project docs predate the field, so absent must mean the default rather
+    // than 0 — 0 is the explicit "never alert" switch, a different intent.
+    expect(formFromProject(source).batteryAlertMonths).toBe(
+      DEFAULT_BATTERY_ALERT_MONTHS
+    );
+  });
+
+  it("keeps an explicit zero, which disables the alert", () => {
+    // Must not be swallowed by a `||` fallback — that is the bug this pins.
+    expect(
+      formFromProject({ ...source, batteryAlertMonths: 0 }).batteryAlertMonths
+    ).toBe(0);
+  });
+
+  it("keeps an explicit value", () => {
+    expect(
+      formFromProject({ ...source, batteryAlertMonths: 6 }).batteryAlertMonths
+    ).toBe(6);
+  });
+
+  it("is dirty when changed", () => {
+    expect(isDirty(base, { ...base, batteryAlertMonths: 6 })).toBe(true);
   });
 });
 

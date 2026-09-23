@@ -103,6 +103,7 @@ export default function SettingsPage() {
         telegramBotToken: form.botToken.trim(),
         telegramChatId: form.chatId.trim(),
         sirenDurationSec: form.sirenDurationSec,
+        batteryAlertMonths: form.batteryAlertMonths,
         timezone: form.timezone,
         notifyEverySensorTrigger: form.notifyEverySensorTrigger,
         serverActions: {
@@ -237,6 +238,26 @@ export default function SettingsPage() {
               value={form.sirenDurationSec}
               onChange={(e) =>
                 setField("sirenDurationSec", Number(e.target.value))
+              }
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="battery-alert-months">
+              {t("settings.batteryAlertMonths")}
+              <Help
+                text={t("settings.batteryAlertMonthsHelp")}
+                label={t("settings.help")}
+              />
+            </label>
+            <input
+              id="battery-alert-months"
+              className="input input--narrow"
+              type="number"
+              min={0}
+              value={form.batteryAlertMonths}
+              onChange={(e) =>
+                setField("batteryAlertMonths", Number(e.target.value))
               }
             />
           </div>

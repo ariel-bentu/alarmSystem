@@ -5,6 +5,11 @@
  *  gets a real answer: isDirty() drives both the Save button's enabled state
  *  and the warning when leaving the page. */
 
+// Relative, not "@/...": this is a VALUE import, so unlike the `import type`
+// lines elsewhere in this layer it must resolve at runtime, and the "@" alias
+// is not applied when Vitest loads this module as a dependency of its test.
+import { DEFAULT_BATTERY_ALERT_MONTHS } from "../configure/batteryAge";
+
 export interface SettingsForm {
   name: string;
   botToken: string;
@@ -14,6 +19,7 @@ export interface SettingsForm {
   sendTelegram: boolean;
   triggerSiren: boolean;
   notifyEverySensorTrigger: boolean;
+  batteryAlertMonths: number;
 }
 
 /** The subset of Project this form edits. */
@@ -25,6 +31,7 @@ export interface SettingsSource {
   timezone?: string;
   serverActions: { sendTelegram: boolean; triggerSiren: boolean };
   notifyEverySensorTrigger?: boolean;
+  batteryAlertMonths?: number;
 }
 
 export function formFromProject(project: SettingsSource): SettingsForm {
@@ -44,6 +51,10 @@ export function formFromProject(project: SettingsSource): SettingsForm {
     // Absent means enabled — projects predating the field must not read as
     // unchecked, which would silently turn notifications off on first save.
     notifyEverySensorTrigger: project.notifyEverySensorTrigger !== false,
+    // `??` and NOT `||`: an explicit 0 is the project-wide "never alert"
+    // switch, and `||` would silently replace it with the 12-month default.
+    batteryAlertMonths:
+      project.batteryAlertMonths ?? DEFAULT_BATTERY_ALERT_MONTHS,
   };
 }
 
@@ -64,6 +75,7 @@ export function isDirty(saved: SettingsForm, current: SettingsForm): boolean {
     saved.timezone !== current.timezone ||
     saved.sendTelegram !== current.sendTelegram ||
     saved.triggerSiren !== current.triggerSiren ||
-    saved.notifyEverySensorTrigger !== current.notifyEverySensorTrigger
+    saved.notifyEverySensorTrigger !== current.notifyEverySensorTrigger ||
+    saved.batteryAlertMonths !== current.batteryAlertMonths
   );
 }
