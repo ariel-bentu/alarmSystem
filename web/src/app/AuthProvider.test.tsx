@@ -32,6 +32,9 @@ vi.mock("firebase/auth", () => ({
   GoogleAuthProvider: class {},
   signInWithPopup: vi.fn(),
   signOut: vi.fn(),
+  // Passed explicitly at the signInWithPopup call site, so that its iframe is
+  // not loaded during auth initialisation. See lib/firebase.ts.
+  browserPopupRedirectResolver: { id: "resolver" },
 }));
 
 vi.mock("firebase/functions", () => ({

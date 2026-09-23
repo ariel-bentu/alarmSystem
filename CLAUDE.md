@@ -185,6 +185,16 @@ watchdog / offline-alert work (untested on hardware as of 2026-09-02).
 - The Kerui decoder and the EV1527 siren encoder are different protocols
   sharing one chip. **Never validate one against the other** — ground truth
   for TX is the siren's physical response, not our own receiver.
+- **`web/src/lib/firebase.ts` builds `auth` with `initializeAuth`, never
+  `getAuth` — do not "simplify" it back.** `getAuth` eagerly attaches
+  `browserPopupRedirectResolver`, whose `_shouldInitProactively` is true on
+  mobile browsers, Safari and iOS; on those devices auth initialisation then
+  awaits a cross-origin iframe *before* restoring the session, and
+  `onAuthStateChanged` — which the whole `Gate()` spinner waits on — cannot
+  fire until it finishes. The app uses no redirect sign-in, so the resolver is
+  passed as `signInWithPopup`'s third argument instead. The explicit
+  `persistence` array must stay, or auth silently drops to in-memory and signs
+  everyone out on every reload. Both halves pinned by `lib/firebase.test.ts`.
 
 ## Status
 

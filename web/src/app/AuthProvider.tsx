@@ -14,6 +14,7 @@ import {
 import {
   GoogleAuthProvider,
   signInWithPopup,
+  browserPopupRedirectResolver,
   signOut as fbSignOut,
   onAuthStateChanged,
   User,
@@ -106,7 +107,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async () => {
-    await signInWithPopup(auth, new GoogleAuthProvider());
+    // The resolver is passed here rather than baked into initializeAuth, so
+    // its iframe loads when someone actually signs in instead of on every
+    // cold start. See the comment on `auth` in lib/firebase.ts.
+    await signInWithPopup(
+      auth,
+      new GoogleAuthProvider(),
+      browserPopupRedirectResolver,
+    );
   };
   const signOut = async () => {
     await fbSignOut(auth);

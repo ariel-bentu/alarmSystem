@@ -13,7 +13,13 @@
 // concurrent callers during startup share one dynamic import rather than
 // racing to initialise the same service twice.
 import { initializeApp } from "firebase/app";
-import { getAuth, connectAuthEmulator } from "firebase/auth";
+import {
+  initializeAuth,
+  connectAuthEmulator,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import type { Database } from "firebase/database";
 import type { Functions } from "firebase/functions";
@@ -31,7 +37,35 @@ const firebaseConfig = {
 const USE_EMULATORS = import.meta.env.VITE_USE_EMULATORS === "true";
 
 export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+// `initializeAuth`, deliberately not `getAuth` — for startup latency, not
+// bundle size.
+//
+// Auth being eager (see the header) puts it alone on the critical path, so
+// whatever it does before settling is what the first paint waits on. `getAuth`
+// hands `browserPopupRedirectResolver` to initialisation eagerly, and that
+// resolver's `_shouldInitProactively` is true on mobile browsers, Safari and
+// iOS. On exactly those devices the SDK then *awaits* loading a cross-origin
+// iframe against the auth domain BEFORE it starts restoring the session, and
+// `onAuthStateChanged` cannot fire until the whole chain finishes. For an
+// installed PWA on a phone that is a wasted round-trip in series on every cold
+// start, ahead of the session reload and `provisionUser` behind it.
+//
+// Wasted because it buys nothing here: the resolver services redirect sign-in
+// and a pending `getRedirectResult`, and this app uses neither. `signIn` calls
+// `signInWithPopup`, which takes a resolver as its third argument — so it is
+// passed there, at the one moment it is genuinely needed. See AuthProvider.
+//
+// The persistence array is `getAuth`'s own hierarchy and must stay: without it
+// `initializeAuth` falls back to in-memory persistence, signing every user out
+// on every reload. Pinned by firebase.test.ts.
+export const auth = initializeAuth(app, {
+  persistence: [
+    indexedDBLocalPersistence,
+    browserLocalPersistence,
+    browserSessionPersistence,
+  ],
+});
 
 // Auth is eager, so its emulator wiring is too — and stays a static import,
 // since a top-level await here would make this module async and delay every
