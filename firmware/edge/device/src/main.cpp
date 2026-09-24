@@ -481,7 +481,7 @@ void dispatchSensorCode(uint32_t code, unsigned long now, bool batteryLow,
 
 __attribute__((noinline))
 void pollCc1101(unsigned long now) {
-  KeruiPacket packet;
+  KeruiPacket packet{};
   int rssi;
   if (!cc1101.poll(&packet, &rssi)) return;
   // Log every decoded packet so RF receive can be verified independently of

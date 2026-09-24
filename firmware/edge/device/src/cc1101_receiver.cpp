@@ -143,6 +143,13 @@ bool Cc1101Receiver::poll(KeruiPacket* outPacket, int* outRssi) {
   lastDecodedMs_ = nowMs;
 
   outPacket->sensorId  = sensorId;
+  // familyId and eventNibble are part of the struct's contract, so poll()
+  // fills them here. Callers currently re-derive the family from sensorId,
+  // but leaving these unset left them holding whatever was on the caller's
+  // stack — which surfaced as a garbage 32-bit `family` and a >4-bit `nibble`
+  // in the packet log, differing between two packets from the same sensor.
+  outPacket->familyId = (sensorId >> 4) & 0xFFFFF;
+  outPacket->eventNibble = (uint8_t)(sensorId & 0x0F);
   outPacket->batteryLow = false;
   *outRssi = (int8_t)readReg(REG_RSSI);
   return true;
