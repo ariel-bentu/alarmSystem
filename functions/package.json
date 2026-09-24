@@ -8,7 +8,10 @@
     "build": "tsc",
     "test": "vitest run",
     "lint": "tsc --noEmit",
-    "migrate:familyIds": "tsx scripts/migrateFamilyIds.ts"
+    "migrate:familyIds": "tsx scripts/migrateFamilyIds.ts",
+    "check:sirenAddress": "tsx scripts/checkSirenAddress.ts",
+    "dump:configInputs": "tsx scripts/dumpConfigInputs.ts",
+    "touch:project": "tsx scripts/touchProject.ts"
   },
   "dependencies": {
     "firebase-admin": "^13.0.1",

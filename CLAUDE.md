@@ -242,10 +242,18 @@ deployable on their own and deliver tamper/water/battery alerting without
 touching the device. The firmware half is NOT hardware-tested and carries an
 **EEPROM magic bump** (`sizeof(Config)` 2580 → 2548) — verify the
 `RtdbConfig.s` siren-address re-adoption before flashing, or the physical
-siren pairing is lost. The `familyId` backfill
-(`cd functions && npm run migrate:familyIds`, dry-run by default) has not
-been run; every reader derives the family from `rfId` when it is absent, so
-nothing is blocked on it.
+siren pairing is lost. Run `npm run check:sirenAddress` (read-only) first: if
+Firestore `sirenBaseAddress` or RTDB `config.s` is absent, do NOT flash. The
+`familyId` backfill (`cd functions && npm run migrate:familyIds`, dry-run by
+default) has not been run; every reader derives the family from `rfId` when
+it is absent, so nothing is blocked on it.
+
+⚠️ **RTDB `/{projectId}/config` is derived state that no sensor write
+rebuilds.** `buildRtdbConfig` runs only from the profile / rule / remote /
+project-config triggers, so the `familyId` backfill alone leaves the device
+config holding stale full-width rfIds. After migrating, run
+`npm run touch:project` to force a rebuild; `npm run dump:configInputs`
+shows exactly what the builder reads.
 
 **Stability: 18h16m clean run (2026-09-10)** — single boot, zero `twdt` reboots,
 zero stall dumps, flat heap, and crucially **four `-76` socket deaths all
