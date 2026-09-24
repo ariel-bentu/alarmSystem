@@ -1,3 +1,5 @@
+import { familyIdOf, normaliseFamilyId } from "../configure/keruiEvent";
+
 /**
  * Pure helpers for the live alarm indicator on the Operations page.
  *
@@ -62,6 +64,12 @@ export function isAlarmActive(
  * Human-readable cause. A server label is already display-ready; a device
  * rfId is resolved against the paired sensors, falling back to the raw id so
  * an unpaired sensor still names itself.
+ *
+ * The device writes the 20-bit FAMILY, not the 24-bit rfId — alarm rules
+ * match on the family, so that is what it knows fired. The sensor map is
+ * keyed by full rfId, so an exact lookup misses and the banner degrades to a
+ * bare "0x4D6A7". Both forms are therefore tried: exact first (a server or
+ * older device write may still carry a full code), then by family.
  */
 export function causeLabel(
   cause: AlarmCause | null,
@@ -72,5 +80,17 @@ export function causeLabel(
   if (label) return label;
   const rfId = cause.rfId?.trim();
   if (!rfId) return null;
-  return sensorNamesByRfId[rfId] ?? rfId;
+  const exact = sensorNamesByRfId[rfId];
+  if (exact) return exact;
+
+  // Canonicalise both sides to a family before comparing. `normaliseFamilyId`
+  // is tried first because the cause is USUALLY already a family, and running
+  // familyIdOf on one would shift it a second time and match nothing.
+  const causeFamily = normaliseFamilyId(rfId) ?? familyIdOf(rfId);
+  if (!causeFamily) return rfId;
+  for (const [id, name] of Object.entries(sensorNamesByRfId)) {
+    const family = normaliseFamilyId(id) ?? familyIdOf(id);
+    if (family === causeFamily) return name;
+  }
+  return rfId;
 }

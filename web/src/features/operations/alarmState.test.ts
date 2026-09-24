@@ -107,4 +107,23 @@ describe("causeLabel", () => {
       "Front door"
     );
   });
+
+  // The device writes the 20-bit FAMILY as the cause (alarm rules match on
+  // the family), while the sensor map is keyed by the full 24-bit rfId. An
+  // exact lookup misses and the banner showed a bare "0x4D6A7".
+  it("resolves a device-written FAMILY to its sensor name", () => {
+    expect(causeLabel({ rfId: "0x2E5B7", at: 1 }, sensorNames)).toBe(
+      "Front door"
+    );
+  });
+
+  it("matches the family case-insensitively", () => {
+    expect(causeLabel({ rfId: "0x2e5b7", at: 1 }, sensorNames)).toBe(
+      "Front door"
+    );
+  });
+
+  it("falls back to the raw family when no sensor shares it", () => {
+    expect(causeLabel({ rfId: "0xABCDE", at: 1 }, sensorNames)).toBe("0xABCDE");
+  });
 });
