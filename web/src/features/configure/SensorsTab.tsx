@@ -34,6 +34,7 @@ import {
   keruiEventLabel,
   normaliseFamilyId,
 } from "./keruiEvent";
+import { isAlreadyPaired } from "./pairGuard";
 import {
   buildInitialRules,
   reconcileRulesForRemovedSensor,
@@ -77,6 +78,17 @@ export default function SensorsTab() {
   // surprising outcome, and the alternative is hunting through every profile
   // to add the same immediate rule by hand.
   const [addToProfiles, setAddToProfiles] = useState(true);
+  // Latched for the whole of handlePair, which awaits several writes. Two
+  // clicks 1.5s apart paired family 0x309A0 twice on 2026-09-25: addDoc mints
+  // a fresh id every call, so without this the second click is a second
+  // sensor AND a second rule in every profile.
+  //
+  // A ref, not just the state flag: state updates are batched, so two clicks
+  // landing in one tick would both read `pairing === false` and both proceed.
+  // The ref is the correctness guard; `pairing` exists only to re-render the
+  // button into its disabled state.
+  const [pairing, setPairing] = useState(false);
+  const pairingRef = useRef(false);
   const pairDialogRef = useRef<HTMLDialogElement>(null);
 
   // Every close path goes through here, so Esc and the backdrop cannot leave
@@ -85,6 +97,8 @@ export default function SensorsTab() {
     setPairForm(null);
     setPairName("");
     setAddToProfiles(true);
+    pairingRef.current = false;
+    setPairing(false);
   };
 
   // Driven imperatively because showModal() is the only way to get the top
@@ -193,6 +207,21 @@ export default function SensorsTab() {
 
   const handlePair = async () => {
     if (!pairForm || !pairName.trim() || !projectId) return;
+    // Synchronous, before the first await: see pairingRef's declaration.
+    if (pairingRef.current) return;
+
+    // A family already on the list is the same physical sensor, however it
+    // got here — a double click, or the same sensor pressed twice while the
+    // dialog was open. Refuse rather than silently create a twin.
+    if (isAlreadyPaired(pairForm.rfId, sensors)) {
+      window.alert(t("cfg.sensors.alreadyPaired"));
+      closePairForm();
+      return;
+    }
+
+    pairingRef.current = true;
+    setPairing(true);
+
     const newSensor: Omit<Sensor, "id"> = {
       // The full code that was heard, kept as the descriptive record of what
       // this sensor was paired on.
@@ -219,28 +248,35 @@ export default function SensorsTab() {
       batteryAlertSentAt: null,
       waterAlertSentAt: null,
     };
-    // NOT named `ref`: that is the firebase/database import used by the events
-    // subscription above, and shadowing it here is a trap for the next edit.
-    const sensorRef = await addDoc(sensorsCol(projectId), newSensor as Sensor);
+    // finally, not a bare sequence: a write that throws must release the latch,
+    // or the dialog stays permanently unable to retry.
+    try {
+      // NOT named `ref`: that is the firebase/database import used by the events
+      // subscription above, and shadowing it here is a trap for the next edit.
+      const sensorRef = await addDoc(sensorsCol(projectId), newSensor as Sensor);
 
-    // Give the sensor an immediate rule in every profile. Without one a paired
-    // sensor is inert: it appears in the list and logs events, but no profile
-    // references it, so arming does nothing with it. This mirrors what
-    // buildInitialRules does when a profile is created — same shape, opposite
-    // direction — so the two paths cannot drift.
-    //
-    // Rules are OR'd and a sensor may appear in several, so adding one here
-    // never conflicts with a rule the user writes later.
-    if (addToProfiles && profiles.length > 0) {
-      const [rule] = buildInitialRules([sensorRef.id]);
-      await Promise.all(
-        profiles.map((p) => addDoc(rulesCol(projectId, p.id), rule as Rule))
-      );
+      // Give the sensor an immediate rule in every profile. Without one a paired
+      // sensor is inert: it appears in the list and logs events, but no profile
+      // references it, so arming does nothing with it. This mirrors what
+      // buildInitialRules does when a profile is created — same shape, opposite
+      // direction — so the two paths cannot drift.
+      //
+      // Rules are OR'd and a sensor may appear in several, so adding one here
+      // never conflicts with a rule the user writes later.
+      if (addToProfiles && profiles.length > 0) {
+        const [rule] = buildInitialRules([sensorRef.id]);
+        await Promise.all(
+          profiles.map((p) => addDoc(rulesCol(projectId, p.id), rule as Rule))
+        );
+      }
+
+      const snap = await getDocs(sensorsCol(projectId));
+      setSensors(snap.docs.map((d) => d.data()));
+      closePairForm();
+    } finally {
+      pairingRef.current = false;
+      setPairing(false);
     }
-
-    const snap = await getDocs(sensorsCol(projectId));
-    setSensors(snap.docs.map((d) => d.data()));
-    closePairForm();
   };
 
   const handleUnpair = async (sensor: Sensor) => {
@@ -556,15 +592,6 @@ export default function SensorsTab() {
                               }}
                               aria-label={t("cfg.sensors.batteryChangedLabel")}
                             />
-                            <button
-                              type="button"
-                              className="btn btn--sm"
-                              onClick={() =>
-                                void handleBatteryChangedAt(s, Date.now())
-                              }
-                            >
-                              {t("cfg.sensors.batteryTodayButton")}
-                            </button>
                           </div>
                         </div>
                       </td>
@@ -720,7 +747,7 @@ export default function SensorsTab() {
               <button
                 type="submit"
                 className="btn btn--primary"
-                disabled={!pairName.trim()}
+                disabled={!pairName.trim() || pairing}
               >
                 {t("common.save")}
               </button>

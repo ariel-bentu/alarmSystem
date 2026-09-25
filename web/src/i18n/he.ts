@@ -139,6 +139,8 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.unpair": "ביטול שיוך",
   "cfg.sensors.pair": "שיוך",
   "cfg.sensors.pairTitle": "שיוך גלאי: {rfId}",
+  "cfg.sensors.alreadyPaired":
+    "הגלאי כבר משויך — אותו התקן שולח כמה קודים, וכולם מיוצגים בשורה אחת.",
   "cfg.sensors.namePlaceholder": "לדוגמה: דלת כניסה",
   "cfg.sensors.addToProfiles": "הוספת חוק מיידי לכל הפרופילים",
   "cfg.sensors.addToProfilesHelp":
@@ -165,7 +167,6 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.batteryMonthsAgo": "הוחלפה לפני {count} חודשים",
   "cfg.sensors.batteryNotRecorded": "תאריך ההחלפה לא נרשם",
   "cfg.sensors.batteryChangedLabel": "החלפת סוללה אחרונה",
-  "cfg.sensors.batteryTodayButton": "היום",
   "cfg.sensors.batteryStale": "הסוללה דורשת החלפה",
   "cfg.sensors.water": "מים",
 

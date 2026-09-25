@@ -143,6 +143,8 @@ export const en = {
   "cfg.sensors.unpair": "Unpair",
   "cfg.sensors.pair": "Pair",
   "cfg.sensors.pairTitle": "Pair Sensor: {rfId}",
+  "cfg.sensors.alreadyPaired":
+    "This sensor is already paired — the same device sends several codes, and they all share one entry.",
   "cfg.sensors.namePlaceholder": "e.g. Front door",
   "cfg.sensors.addToProfiles": "Add an immediate rule to every profile",
   "cfg.sensors.addToProfilesHelp":
@@ -169,7 +171,6 @@ export const en = {
   "cfg.sensors.batteryMonthsAgo": "changed {count}mo ago",
   "cfg.sensors.batteryNotRecorded": "change date not recorded",
   "cfg.sensors.batteryChangedLabel": "Battery last changed",
-  "cfg.sensors.batteryTodayButton": "Today",
   "cfg.sensors.batteryStale": "battery overdue",
   "cfg.sensors.water": "water",
 
