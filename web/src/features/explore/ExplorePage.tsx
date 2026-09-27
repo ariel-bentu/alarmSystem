@@ -19,8 +19,8 @@ import { eventSubject } from "./eventSubject";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { groupItemsByDay } from "@/features/configure/groupSensorsByDay";
 import {
-  formatRelative,
-  timeOfDay,
+  relativeSuffix,
+  timeOfDaySeconds,
 } from "@/features/configure/lastSeenFormat";
 import { useT } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/en";
@@ -224,18 +224,32 @@ export default function ExplorePage() {
                     />
                     {group.items.map((ev, i) => {
                       const ts = ev.timestamp.toMillis();
+                      // Relative phrasing on the newest row only — that is the
+                      // one being checked live. null past 24h, see
+                      // relativeSuffix.
+                      const ago =
+                        group === eventDayGroups[0] && i === 0
+                          ? relativeSuffix(ts, now, t)
+                          : null;
                       return (
                         <tr
                           key={ev.id}
                           className={isSystemEvent(ev.eventType) ? "muted" : undefined}
                         >
                           {/* The date is already in the heading above, so rows
-                              show only a time. The newest event overall gets
-                              relative phrasing — it is the one being checked. */}
+                              show only a time — but to the second, because
+                              spacing between triggers is what count_in_window
+                              and multi_sensor rules are tuned from. The newest
+                              event also carries "(5 minutes ago)" beside it;
+                              that is the live-glance row, and the relative
+                              phrasing is an addition to the exact time now,
+                              never a replacement for it. */}
                           <td>
-                            {group === eventDayGroups[0] && i === 0
-                              ? formatRelative(ts, now, t)
-                              : timeOfDay(ts)}
+                            {/* .ltr keeps "14:23:05" in that order inside the
+                                RTL layout — without it the colon-separated
+                                parts get reordered. */}
+                            <span className="ltr">{timeOfDaySeconds(ts)}</span>
+                            {ago && <span className="muted"> ({ago})</span>}
                           </td>
                           {/* sensorName is "what this event is about": a
                               sensor, a profile, a remote's name, or a raw

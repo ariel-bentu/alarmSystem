@@ -35,6 +35,18 @@ export function timeOfDay(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, CLOCK);
 }
 
+/** Clock time with seconds, e.g. "10:23:45". The event timeline uses this
+ *  rather than {@link timeOfDay}: rules are planned from how far apart two
+ *  triggers landed ("the curtain fires twice, 10s apart"), and minute
+ *  resolution throws exactly that away. The sensor tables keep the shorter
+ *  form — there a "last seen" second is noise. */
+export function timeOfDaySeconds(ts: number): string {
+  return new Date(ts).toLocaleTimeString(undefined, {
+    ...CLOCK,
+    second: "2-digit",
+  });
+}
+
 /** Date and time, for anything too old for relative phrasing. */
 export function dateAndTime(ts: number): string {
   return new Date(ts).toLocaleString(undefined, {
@@ -66,6 +78,23 @@ export function formatRelative(ts: number, now: number, t: Translate): string {
   }
 
   return dateAndTime(ts);
+}
+
+/**
+ * The relative phrasing alone, or null once past the 24h window.
+ *
+ * For callers that already print an exact clock time and want "(5 minutes
+ * ago)" *beside* it. {@link formatRelative}'s date-and-time fallback is no use
+ * there — it would repeat the time it sits next to — so the absence of
+ * relative phrasing is reported as null rather than substituted for.
+ */
+export function relativeSuffix(
+  ts: number,
+  now: number,
+  t: Translate
+): string | null {
+  if (now - ts >= RELATIVE_LIMIT_MS) return null;
+  return formatRelative(ts, now, t);
 }
 
 /** Weekday and date for a group heading, e.g. "Wednesday 27/8". */

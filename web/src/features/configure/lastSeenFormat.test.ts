@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { formatRelative, timeOfDay } from "./lastSeenFormat";
+import {
+  formatRelative,
+  relativeSuffix,
+  timeOfDay,
+  timeOfDaySeconds,
+} from "./lastSeenFormat";
 
 // Fixed reference: Wednesday 2026-08-27, 14:23 local.
 const NOW = new Date(2026, 7, 27, 14, 23, 0).getTime();
@@ -45,6 +50,24 @@ describe("formatRelative", () => {
   });
 });
 
+describe("relativeSuffix", () => {
+  it("gives the relative phrasing inside the window", () => {
+    expect(relativeSuffix(NOW - 5 * MIN, NOW, en)).toBe(
+      'time.minutesAgo:{"count":5}'
+    );
+  });
+
+  // The caller already prints the exact clock time, so a date-and-time
+  // fallback would just repeat what it sits next to.
+  it("returns null past the window instead of a date string", () => {
+    expect(relativeSuffix(NOW - 25 * HOUR, NOW, en)).toBeNull();
+  });
+
+  it("returns null exactly at the 24h boundary", () => {
+    expect(relativeSuffix(NOW - 24 * HOUR, NOW, en)).toBeNull();
+  });
+});
+
 describe("timeOfDay", () => {
   it("formats hours and minutes", () => {
     const out = timeOfDay(new Date(2026, 7, 27, 10, 23).getTime());
@@ -56,6 +79,31 @@ describe("timeOfDay", () => {
   // render "05:29 PM" where these tables want "17:29".
   it("uses 24-hour time regardless of locale, never AM/PM", () => {
     const out = timeOfDay(new Date(2026, 7, 27, 17, 29).getTime());
+    expect(out).toMatch(/17/);
+    expect(out).not.toMatch(/[AP]M/i);
+  });
+
+  it("omits seconds — the sensor tables do not need them", () => {
+    const out = timeOfDay(new Date(2026, 7, 27, 10, 23, 45).getTime());
+    expect(out).not.toMatch(/45/);
+  });
+});
+
+describe("timeOfDaySeconds", () => {
+  // Seconds are the point: rules like count_in_window are planned by reading
+  // how far apart two triggers actually landed.
+  it("includes seconds", () => {
+    const out = timeOfDaySeconds(new Date(2026, 7, 27, 10, 23, 45).getTime());
+    expect(out).toMatch(/10.23.45/);
+  });
+
+  it("zero-pads all three fields", () => {
+    const out = timeOfDaySeconds(new Date(2026, 7, 27, 9, 5, 3).getTime());
+    expect(out).toMatch(/09.05.03/);
+  });
+
+  it("uses 24-hour time regardless of locale, never AM/PM", () => {
+    const out = timeOfDaySeconds(new Date(2026, 7, 27, 17, 29, 8).getTime());
     expect(out).toMatch(/17/);
     expect(out).not.toMatch(/[AP]M/i);
   });
