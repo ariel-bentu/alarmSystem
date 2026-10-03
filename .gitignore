@@ -22,3 +22,4 @@ firmware/edge/**/.pio
 # security rule, and this repo is public.
 *-firebase-adminsdk-*.json
 serviceAccount*.json
+.DS_Store
