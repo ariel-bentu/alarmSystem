@@ -52,7 +52,13 @@ export const onProjectConfigChange = onDocumentWritten(
     // would look correct and do nothing.
     if (
       before.sirenEnabled === after.sirenEnabled &&
-      before.sirenBaseAddress === after.sirenBaseAddress
+      before.sirenBaseAddress === after.sirenBaseAddress &&
+      before.nvrMode === after.nvrMode &&
+      before.nvrHost === after.nvrHost &&
+      before.nvrPort === after.nvrPort &&
+      before.nvrUser === after.nvrUser &&
+      before.nvrPassword === after.nvrPassword &&
+      before.captureCooldownSec === after.captureCooldownSec
     ) {
       return;
     }
@@ -79,6 +85,22 @@ async function rebuildConfig(projectId: string): Promise<void> {
       .collection(`projects/${projectId}/profiles/${activeProfile.id}/rules`)
       .get();
     rules = rulesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Rule));
+  } else {
+    // No active profile (disarmed). Load all rules from any profile so the
+    // full sensor list stays in r[] with a:false — camera capture can then
+    // fire on disarmed triggers. Alarm evaluation on the device gates on
+    // a:false, so no rule fires; the sensor list is only needed for capture.
+    const allRulesSnap = await db
+      .collection(`projects/${projectId}/profiles`)
+      .get();
+    for (const prof of allRulesSnap.docs) {
+      const rs = await db
+        .collection(`projects/${projectId}/profiles/${prof.id}/rules`)
+        .get();
+      for (const d of rs.docs) {
+        rules.push({ id: d.id, ...d.data() } as Rule);
+      }
+    }
   }
 
   // Always-rules are collected from EVERY profile — see buildConfig. A
@@ -115,7 +137,7 @@ async function rebuildConfig(projectId: string): Promise<void> {
   const projectData = projectDoc.exists ? projectDoc.data() : undefined;
   const sirenBaseAddress = projectData?.sirenBaseAddress as string | undefined;
 
-  if (!activeProfile && alwaysRules.length === 0) {
+  if (!activeProfile && rules.length === 0 && alwaysRules.length === 0) {
     // Nothing to evaluate — write the thin config shape with r/c omitted.
     // RTDB drops empty arrays on .set(), so writing r: [], c: [] here would
     // round-trip as if the fields were never set at all; the firmware's
@@ -157,7 +179,15 @@ async function rebuildConfig(projectId: string): Promise<void> {
     sirenEnabled,
     alwaysRules,
     remotes,
-    sirenBaseAddress
+    sirenBaseAddress,
+    {
+      nvrMode: projectData?.nvrMode,
+      nvrHost: projectData?.nvrHost,
+      nvrPort: projectData?.nvrPort,
+      nvrUser: projectData?.nvrUser,
+      nvrPassword: projectData?.nvrPassword,
+      captureCooldownSec: projectData?.captureCooldownSec,
+    }
   );
   await rtdb.ref(`${projectId}/config`).set(config);
 }

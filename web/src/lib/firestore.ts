@@ -19,6 +19,7 @@ import type {
   Rule,
   Schedule,
   AlarmEvent,
+  TimelineSnapshotDoc,
   UserDoc,
 } from "@/types";
 
@@ -45,6 +46,7 @@ const ruleConverter = converter<Rule>();
 const scheduleConverter = converter<Schedule>();
 const eventConverter = converter<AlarmEvent>();
 const userConverter = converter<UserDoc>();
+const timelineConverter = converter<TimelineSnapshotDoc>();
 
 export const usersDoc = (email: string) =>
   doc(dbSync(), "users", email.toLowerCase()).withConverter(
@@ -131,3 +133,11 @@ export const eventsCol = (projectId: string) =>
   collection(dbSync(), "projects", projectId, "events").withConverter(
     eventConverter
   ) as CollectionReference<AlarmEvent>;
+
+// SEPARATE from eventsCol: doc id is `{rfId}_{ts}`, written by
+// onSnapshotUploaded (Task 13). ExplorePage joins this onto AlarmEvent rows
+// by that same key — see TimelineSnapshotDoc.
+export const timelineCol = (projectId: string) =>
+  collection(dbSync(), "projects", projectId, "timeline").withConverter(
+    timelineConverter
+  ) as CollectionReference<TimelineSnapshotDoc>;

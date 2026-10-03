@@ -89,6 +89,9 @@ export const en = {
   "ops.sosCancel": "Cancel",
   "ops.sosTitle": "Sound the siren now",
   "ops.sosDisabled": "Siren is disabled in settings",
+  "ops.captureNow": "Capture",
+  "ops.captureNowTitle": "Grab snapshots from all cameras now",
+  "ops.captureSent": "Capture request sent",
   "ops.siren": "Siren",
   "ops.sirenDisabled": "Disabled — alarms will not sound the siren",
   "ops.sirenSounding": "Sounding",
@@ -102,6 +105,7 @@ export const en = {
   "cfg.tab.profiles": "Profiles",
   "cfg.tab.siren": "Siren",
   "cfg.tab.remotes": "Remotes",
+  "cfg.tab.camera": "Camera",
 
   // Remotes tab
   "cfg.remotes.intro":
@@ -173,6 +177,12 @@ export const en = {
   "cfg.sensors.batteryChangedLabel": "Battery last changed",
   "cfg.sensors.batteryStale": "battery overdue",
   "cfg.sensors.water": "water",
+  "cfg.sensors.outOfSight": "Out of sight",
+  "cfg.sensors.outOfSightHelp":
+    "Flag in-sight only when the camera reliably shows an intruder on trigger.",
+  "cfg.sensors.cameraChannel": "Camera",
+  "cfg.sensors.cameraChannelLabel": "Camera channel",
+  "cfg.sensors.allChannels": "All channels",
 
   // Profiles tab
   "cfg.profiles.loading": "Loading profiles…",
@@ -251,6 +261,40 @@ export const en = {
   "cfg.siren.pairInstructions":
     "Press the SET button on the siren three times, then send the pairing signal within 10 seconds. Two beeps mean success.",
 
+  // Camera tab
+  "cfg.camera.mode": "Camera mode",
+  "cfg.camera.modeOff": "Off",
+  "cfg.camera.modeCapture": "Capture snapshot",
+  "cfg.camera.modeCaptureJudge": "Capture + AI judge",
+  "cfg.camera.modeHelp":
+    "Capture takes a snapshot on every armed trigger. Capture + AI judge additionally asks an AI model to judge the snapshot before alerting.",
+  "cfg.camera.host": "NVR host",
+  "cfg.camera.hostPlaceholder": "192.168.1.50",
+  "cfg.camera.hostHelp":
+    "Local IP of your NVR. Find it in your router's device list or the NVR's network settings screen.",
+  "cfg.camera.port": "NVR port",
+  "cfg.camera.portHelp":
+    "DVRIP/Sofia management port — 34567 on most Xiongmai/iCSee NVRs. Leave unchanged unless your NVR shows a different value in its network settings.",
+  "cfg.camera.user": "NVR user",
+  "cfg.camera.password": "NVR password",
+  "cfg.camera.passwordUnchanged": "Unchanged — leave blank to keep it",
+  "cfg.camera.cooldown": "Capture cooldown (seconds)",
+  "cfg.camera.cooldownHelp":
+    "Minimum time between snapshots, to avoid flooding the NVR on repeated triggers.",
+  "cfg.camera.retention": "Snapshot retention (days)",
+  "cfg.camera.retentionHelp": "Snapshots older than this are deleted automatically.",
+  "cfg.camera.judgeProvider": "AI judge provider",
+  "cfg.camera.judgeProviderOff": "Off",
+  "cfg.camera.judgeProviderClaude": "Claude",
+  "cfg.camera.judgeRequiredWarn":
+    "Capture + AI judge requires a judge provider — otherwise every armed trigger fails safe to a breach alert.",
+  "cfg.camera.judgeModel": "Judge model",
+  "cfg.camera.judgeModelPlaceholder": "claude-sonnet-5",
+  "cfg.camera.judgePrompt": "Judge prompt",
+  "cfg.camera.judgePromptPlaceholder":
+    "Describe what should count as a breach in this snapshot…",
+  "cfg.camera.saved": "Saved.",
+
   // ---- Explore ----
   "explore.title": "Events",
   "explore.loading": "Loading events…",
@@ -292,6 +336,16 @@ export const en = {
   "explore.eventType.device_restart": "Restarted",
   "explore.eventType.device_offline": "Went offline",
   "explore.eventType.device_online": "Back online",
+  "explore.eventType.manual_capture": "Manual capture",
+  // Camera snapshots + AI verdict, joined from the separate `timeline`
+  // collection (see snapshotThumb.ts) rather than carried on the event row
+  // itself.
+  "explore.camera": "Camera",
+  "explore.snapshotAlt": "Camera {channel}",
+  "explore.browseSnapshots": "{count} photo(s)",
+  "explore.verdict.breach": "Confirmed breach (AI)",
+  "explore.verdict.safe": "False positive (AI)",
+  "explore.expandedSnapshotAlt": "Expanded camera snapshot",
 
   // ---- Members ----
   "members.title": "Members",

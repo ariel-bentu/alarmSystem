@@ -65,6 +65,26 @@ export interface Project {
   // DEFAULT_BATTERY_ALERT_MONTHS default. Zero or negative disables the
   // stale-battery alert for the whole project.
   batteryAlertMonths?: number;
+  // NVR mode — off disables snapshot capture. Optional: absent means off.
+  nvrMode?: "off" | "capture" | "capture+judge";
+  // NVR host address. Optional: required only when nvrMode is not off.
+  nvrHost?: string;
+  // NVR port. Optional: required only when nvrMode is not off.
+  nvrPort?: number;
+  // NVR user for authentication. Optional: required only when nvrMode is not off.
+  nvrUser?: string;
+  // NVR password for authentication. Optional: required only when nvrMode is not off.
+  nvrPassword?: string;
+  // Seconds to wait before allowing next snapshot after trigger. Optional: absent uses default.
+  captureCooldownSec?: number;
+  // Days to retain snapshots before deletion. Optional: absent uses default.
+  snapshotRetentionDays?: number;
+  // Judge provider for alarm-cause analysis. Optional: absent means no judgment.
+  judgeProvider?: "claude" | "null";
+  // LLM model for judging. Optional: required only when judgeProvider is set.
+  judgeModel?: string;
+  // Custom prompt for judge context. Optional: uses default when absent.
+  judgePrompt?: string;
   device: DeviceInfo;
 }
 
@@ -155,6 +175,10 @@ export interface Sensor {
   // Set when a water alert (nibble 0x5) fires, cleared when the sensor next
   // reports a normal trigger. Once per CONDITION, not once ever.
   waterAlertSentAt?: Timestamp | null;
+  // Sensor is outside camera view. Optional: absent means false.
+  outOfSight?: boolean;
+  // NVR camera channel index for this sensor. Optional: required only when sensor has a camera.
+  cameraChannel?: number;
 }
 
 export interface Condition {
@@ -240,6 +264,25 @@ export interface AlarmEvent {
   armSource?: ArmSource;
 }
 
+// A SEPARATE collection from `events` — written by onSnapshotUploaded (Task
+// 13), one doc per {rfId, ts} trigger, id `{rfId}_{ts}`. Joined onto
+// AlarmEvent rows in ExplorePage by that same key (rfId + timestamp.toMillis()
+// as epoch-ms), NOT embedded on the event doc itself.
+export interface TimelineSnapshotDoc {
+  id: string; // `${rfId}_${ts}`
+  rfId?: string;
+  sensorId?: string | null;
+  sensorName?: string;
+  timestamp?: Timestamp;
+  snapshots?: { channel: number; url: string }[];
+  // Free-text AI note, written only when the project's judge ran. There is
+  // NO structured verdict field on this doc — onSnapshotUploaded embeds the
+  // verdict in this string ("confirmed breach (AI): ...", "false positive
+  // (AI): ...", or a withheld-advisory variant that also starts "safe (AI,
+  // channel N): ..."). snapshotSummary() parses it back out for the badge.
+  aiNote?: string;
+}
+
 // ---- Realtime Database (device-facing) shapes ----
 
 export interface RtdbState {
@@ -293,4 +336,20 @@ export interface RtdbConfig {
   e: boolean; // siren_enabled (false = never fire)
   r: string[];
   c: RtdbCondition[][];
+  // NVR host. Omitted when NVR is off.
+  nh?: string;
+  // NVR port. Omitted when NVR is off.
+  np?: number;
+  // NVR user. Omitted when NVR is off.
+  nu?: string;
+  // NVR password. Omitted when NVR is off.
+  nw?: string;
+  // NVR mode: 0=off, 1=capture, 2=capture+judge. Omitted when NVR is off.
+  nm?: 0 | 1 | 2;
+  // Capture cooldown in seconds. Omitted when using default.
+  cc?: number;
+  // Per-sensor out-of-sight flags, index-aligned with r. Omitted when all false.
+  os?: boolean[];
+  // Per-sensor camera channel, index-aligned with r. Omitted when all absent.
+  cch?: number[];
 }

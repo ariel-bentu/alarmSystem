@@ -369,6 +369,81 @@ void test_family_ids_fit_exactly_and_longer_values_truncate_safely() {
   TEST_ASSERT_EQUAL_STRING("0xTOOLON", config.sensors[2].familyId);
 }
 
+// NVR connection fields (nh/np/nu/nw/nm/cc) are parsed before the r/c early
+// return, same as s/m — a config with no sensors must still deliver NVR
+// settings. Per-sensor os[]/cch[] ride index-aligned with r/c.
+void test_parses_nvr_fields() {
+  const char* json =
+    "{ \"a\":true, \"d\":30, "
+    "\"nh\":\"cam.local\", \"np\":34567, \"nu\":\"u\", \"nw\":\"p\", "
+    "\"nm\":2, \"cc\":60, "
+    "\"r\":[\"0x0061D\"], \"c\":[[{\"t\":0}]], "
+    "\"os\":[true], \"cch\":[3] }";
+  Config cfg;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
+  TEST_ASSERT_EQUAL_STRING("cam.local", cfg.nvrHost);
+  TEST_ASSERT_EQUAL_UINT16(34567, cfg.nvrPort);
+  TEST_ASSERT_EQUAL_STRING("u", cfg.nvrUser);
+  TEST_ASSERT_EQUAL_STRING("p", cfg.nvrPassword);
+  TEST_ASSERT_EQUAL_UINT8(2, cfg.nvrMode);
+  TEST_ASSERT_EQUAL_UINT16(60, cfg.captureCooldownSec);
+  TEST_ASSERT_TRUE(cfg.sensors[0].outOfSight);
+  TEST_ASSERT_EQUAL_UINT8(3, cfg.sensors[0].cameraChannel);
+}
+
+void test_nvr_fields_default_when_absent() {
+  const char* json = "{ \"a\":false, \"d\":0, \"r\":[\"0x0061D\"], \"c\":[[{\"t\":0}]] }";
+  Config cfg;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
+  TEST_ASSERT_EQUAL_UINT8(0, cfg.nvrMode);      // off
+  TEST_ASSERT_EQUAL_UINT16(45, cfg.captureCooldownSec); // default
+  TEST_ASSERT_FALSE(cfg.sensors[0].outOfSight);
+  TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[0].cameraChannel); // all
+}
+
+// The false-positive advisory: /commands.fp = { rfId, ts }, written when the
+// cloud judges a snapshot "safe". rfId is the FULL 24-bit code (matches the
+// /events key and the snapshot upload path), ts is epoch-MILLISECONDS — the
+// same uint64 reportEvent()/uploadSnapshot() use. uint32_t cannot hold a real
+// epoch-ms value (current epoch-ms ~1.7e12 is far past uint32_t's ~4.3e9
+// ceiling), so this is uint64_t, NOT the uint32_t the original brief sketched.
+void test_parse_false_positive() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"fp\": { \"rfId\": \"0x2E5B73\", \"ts\": 1696000000123 } }";
+  TEST_ASSERT_TRUE(ConfigParser::parseFalsePositive(json, rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0x2E5B73", rf);
+  TEST_ASSERT_EQUAL_UINT64(1696000000123ULL, ts);
+}
+
+void test_parse_false_positive_absent() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  TEST_ASSERT_FALSE(
+      ConfigParser::parseFalsePositive("{ \"armed\": true }", rf, sizeof(rf), &ts));
+}
+
+void test_parse_false_positive_malformed_json_is_rejected() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  TEST_ASSERT_FALSE(
+      ConfigParser::parseFalsePositive("{ \"fp\": ", rf, sizeof(rf), &ts));
+}
+
+void test_parse_false_positive_missing_rfid_is_rejected() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"fp\": { \"ts\": 1696000000123 } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseFalsePositive(json, rf, sizeof(rf), &ts));
+}
+
+void test_parse_false_positive_missing_ts_is_rejected() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"fp\": { \"rfId\": \"0x2E5B73\" } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseFalsePositive(json, rf, sizeof(rf), &ts));
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_family_ids_fit_exactly_and_longer_values_truncate_safely);
@@ -393,6 +468,13 @@ void setup() {
   RUN_TEST(test_parses_siren_base_address);
   RUN_TEST(test_absent_s_means_no_siren_address);
   RUN_TEST(test_siren_address_parsed_when_r_and_c_absent);
+  RUN_TEST(test_parses_nvr_fields);
+  RUN_TEST(test_nvr_fields_default_when_absent);
+  RUN_TEST(test_parse_false_positive);
+  RUN_TEST(test_parse_false_positive_absent);
+  RUN_TEST(test_parse_false_positive_malformed_json_is_rejected);
+  RUN_TEST(test_parse_false_positive_missing_rfid_is_rejected);
+  RUN_TEST(test_parse_false_positive_missing_ts_is_rejected);
   UNITY_END();
 }
 

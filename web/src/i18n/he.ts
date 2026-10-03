@@ -86,6 +86,9 @@ export const he: Record<TranslationKey, string> = {
   "ops.sosCancel": "ביטול",
   "ops.sosTitle": "הפעלת הצופר עכשיו",
   "ops.sosDisabled": "הצופר מושבת בהגדרות",
+  "ops.captureNow": "צלם",
+  "ops.captureNowTitle": "צלם תמונות מכל המצלמות עכשיו",
+  "ops.captureSent": "בקשת צילום נשלחה",
   "ops.siren": "צופר",
   "ops.sirenDisabled": "מושבת — אזעקות לא יפעילו את הצופר",
   "ops.sirenSounding": "פעיל",
@@ -99,6 +102,7 @@ export const he: Record<TranslationKey, string> = {
   "cfg.tab.profiles": "פרופילים",
   "cfg.tab.siren": "צופר",
   "cfg.tab.remotes": "שלטים",
+  "cfg.tab.camera": "מצלמה",
 
   // Remotes tab
   "cfg.remotes.intro":
@@ -169,6 +173,12 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.batteryChangedLabel": "החלפת סוללה אחרונה",
   "cfg.sensors.batteryStale": "הסוללה דורשת החלפה",
   "cfg.sensors.water": "מים",
+  "cfg.sensors.outOfSight": "מחוץ לטווח המצלמה",
+  "cfg.sensors.outOfSightHelp":
+    "סמנו ״בטווח המצלמה״ רק כשהמצלמה מציגה בוודאות פולש בעת הפעלה.",
+  "cfg.sensors.cameraChannel": "מצלמה",
+  "cfg.sensors.cameraChannelLabel": "ערוץ מצלמה",
+  "cfg.sensors.allChannels": "כל הערוצים",
 
   // Profiles tab
   "cfg.profiles.loading": "טוען פרופילים…",
@@ -245,6 +255,39 @@ export const he: Record<TranslationKey, string> = {
   "cfg.siren.pairInstructions":
     "לחצו שלוש פעמים על כפתור SET שבצופר, ואז שלחו את אות השיוך תוך 10 שניות. שני צפצופים מעידים על הצלחה.",
 
+  // Camera tab
+  "cfg.camera.mode": "מצב מצלמה",
+  "cfg.camera.modeOff": "כבוי",
+  "cfg.camera.modeCapture": "צילום תמונה",
+  "cfg.camera.modeCaptureJudge": "צילום + שיפוט AI",
+  "cfg.camera.modeHelp":
+    "צילום תמונה מתבצע בכל הפעלה בזמן דריכה. צילום + שיפוט AI מוסיף בקשה ממודל AI לשפוט את התמונה לפני ההתראה.",
+  "cfg.camera.host": "כתובת ה-NVR",
+  "cfg.camera.hostPlaceholder": "192.168.1.50",
+  "cfg.camera.hostHelp":
+    "כתובת ה-IP המקומית של ה-NVR. ניתן למצוא אותה ברשימת המכשירים של הראוטר או במסך הגדרות הרשת של ה-NVR.",
+  "cfg.camera.port": "פורט NVR",
+  "cfg.camera.portHelp":
+    "פורט ניהול DVRIP/Sofia — ברוב ה-NVR של Xiongmai/iCSee הוא 34567. אין צורך לשנות אלא אם ה-NVR מציג ערך אחר בהגדרות הרשת שלו.",
+  "cfg.camera.user": "משתמש NVR",
+  "cfg.camera.password": "סיסמת NVR",
+  "cfg.camera.passwordUnchanged": "ללא שינוי — השאירו ריק כדי לשמור על הסיסמה הקיימת",
+  "cfg.camera.cooldown": "צינון בין צילומים (שניות)",
+  "cfg.camera.cooldownHelp":
+    "זמן מינימלי בין צילומים, כדי לא להציף את ה-NVR בהפעלות חזרתיות.",
+  "cfg.camera.retention": "שמירת תמונות (ימים)",
+  "cfg.camera.retentionHelp": "תמונות ישנות יותר ממספר הימים הזה יימחקו אוטומטית.",
+  "cfg.camera.judgeProvider": "ספק שיפוט AI",
+  "cfg.camera.judgeProviderOff": "כבוי",
+  "cfg.camera.judgeProviderClaude": "Claude",
+  "cfg.camera.judgeRequiredWarn":
+    "צילום + שיפוט AI מחייב ספק שיפוט — אחרת כל הפעלה בזמן דריכה תיכשל בבטחה להתראת חדירה.",
+  "cfg.camera.judgeModel": "מודל השיפוט",
+  "cfg.camera.judgeModelPlaceholder": "claude-sonnet-5",
+  "cfg.camera.judgePrompt": "הנחיית השיפוט",
+  "cfg.camera.judgePromptPlaceholder": "תארו מה נחשב חדירה בתמונה הזו…",
+  "cfg.camera.saved": "נשמר.",
+
   // ---- Explore ----
   "explore.title": "אירועים",
   "explore.loading": "טוען אירועים…",
@@ -281,6 +324,14 @@ export const he: Record<TranslationKey, string> = {
   "explore.eventType.device_restart": "הופעל מחדש",
   "explore.eventType.device_offline": "מנותק",
   "explore.eventType.device_online": "חזר לפעולה",
+  "explore.eventType.manual_capture": "צילום ידני",
+  // תמונות מצלמה ואימות AI, המחוברים מאוסף timeline נפרד.
+  "explore.camera": "מצלמה",
+  "explore.snapshotAlt": "מצלמה {channel}",
+  "explore.browseSnapshots": "{count} תמונות",
+  "explore.verdict.breach": "אושרה חדירה (AI)",
+  "explore.verdict.safe": "אזעקת כזב (AI)",
+  "explore.expandedSnapshotAlt": "תמונת מצלמה מוגדלת",
 
   // ---- Members ----
   "members.title": "משתמשים",

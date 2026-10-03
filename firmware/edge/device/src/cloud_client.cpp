@@ -109,6 +109,16 @@ constexpr unsigned long kMintSocketTimeoutMs = 2500;
 constexpr unsigned long kMintResponseTimeoutMs = 15000;
 constexpr uint16_t kMintPort = 443;
 
+// Firebase Storage bucket for this project, read verbatim from
+// web/.env.local's VITE_FIREBASE_STORAGE_BUCKET (the live web app's own
+// config, not a guess) — confirmed against the real `alarm-system-100`
+// project, which uses the newer "firebasestorage.app" bucket domain rather
+// than the legacy "appspot.com" one. VERIFY AGAINST THE LIVE FIREBASE
+// CONSOLE before a hardware deploy if this project is ever recreated or
+// renamed: a wrong bucket here fails every upload (openDataClient()/upload()
+// return false, logged, no crash) but silently loses every snapshot.
+constexpr const char* kStorageBucketId = "alarm-system-100.firebasestorage.app";
+
 // Parses "https://host/path" into host + path. mintTokenUrl_ is always
 // https (Cloud Functions), so the scheme and port are fixed rather than
 // parsed.
@@ -347,6 +357,8 @@ void CloudClient::startAppAndStreams() {
 
   app_.getApp<RealtimeDatabase>(database_);
   database_.url(databaseUrl_);
+  // Same app_/custom token as above — Storage needs no separate auth setup.
+  app_.getApp<Storage>(storage_);
 
   // TODO(hardware bring-up): setInsecure() skips TLS cert validation on all
   // four connections below. Replace with proper cert pinning (FirebaseClient
@@ -768,6 +780,43 @@ void CloudClient::applyCommandsJson(const String& json) {
                     (unsigned long)pendingPairUntil_);
     }
   }
+
+  // False-positive advisory. Parsing lives in config_parser.cpp (pure,
+  // native-testable) — see ConfigParser::parseFalsePositive. Only surface it
+  // as pending when {rfId,ts} actually CHANGED, same rationale as pair's
+  // nonce check: polling re-reads the same /commands value every few
+  // seconds, and main.cpp must see each advisory exactly once.
+  char fpRfId[sizeof(lastFalsePositiveRfId_)] = {};
+  uint64_t fpTs = 0;
+  if (ConfigParser::parseFalsePositive(json.c_str(), fpRfId, sizeof(fpRfId), &fpTs)) {
+    if (!hadFalsePositive_ || fpTs != lastFalsePositiveTs_ ||
+        strcmp(fpRfId, lastFalsePositiveRfId_) != 0) {
+      hadFalsePositive_ = true;
+      strncpy(lastFalsePositiveRfId_, fpRfId, sizeof(lastFalsePositiveRfId_) - 1);
+      lastFalsePositiveRfId_[sizeof(lastFalsePositiveRfId_) - 1] = '\0';
+      lastFalsePositiveTs_ = fpTs;
+      strncpy(pendingFalsePositiveRfId_, fpRfId, sizeof(pendingFalsePositiveRfId_) - 1);
+      pendingFalsePositiveRfId_[sizeof(pendingFalsePositiveRfId_) - 1] = '\0';
+      pendingFalsePositiveTs_ = fpTs;
+      hasPendingFalsePositive_ = true;
+      Serial.printf("cloud: commands.fp -> rfId %s ts %llu\n", fpRfId,
+                    (unsigned long long)fpTs);
+    }
+  }
+
+  // Manual capture command: /commands/capture = { at: <epoch-ms> }.
+  // Surface once per new `at` value — same change-only pattern as pair/fp.
+  if (doc["capture"]["at"].is<uint64_t>()) {
+    uint64_t captureAt = doc["capture"]["at"].as<uint64_t>();
+    if (!hadCaptureCommand_ || captureAt != lastCaptureCommandTs_) {
+      hadCaptureCommand_ = true;
+      lastCaptureCommandTs_ = captureAt;
+      pendingCaptureCommandTs_ = captureAt;
+      hasPendingCapture_ = true;
+      Serial.printf("cloud: commands.capture -> at %llu\n",
+                    (unsigned long long)captureAt);
+    }
+  }
 }
 
 void CloudClient::applyConfigJson(const String& json) {
@@ -825,6 +874,22 @@ bool CloudClient::consumePairCommand(uint32_t* nonce, uint32_t* untilEpochSec) {
   *nonce = pendingPairNonce_;
   *untilEpochSec = pendingPairUntil_;
   hasPendingPair_ = false;
+  return true;
+}
+
+bool CloudClient::consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOut) {
+  if (!hasPendingFalsePositive_) return false;
+  strncpy(rfIdOut, pendingFalsePositiveRfId_, cap - 1);
+  rfIdOut[cap - 1] = '\0';
+  *tsOut = pendingFalsePositiveTs_;
+  hasPendingFalsePositive_ = false;
+  return true;
+}
+
+bool CloudClient::consumeCaptureCommand(uint64_t* tsOut) {
+  if (!hasPendingCapture_) return false;
+  *tsOut = pendingCaptureCommandTs_;
+  hasPendingCapture_ = false;
   return true;
 }
 
@@ -1069,4 +1134,100 @@ void CloudClient::reportBoot() {
   Serial.printf("cloud: reportBoot reason=%s %s (code %d)\n",
                 platformResetReason(), ok ? "ok" : "FAILED",
                 dataClient_->lastError().code());
+}
+
+// Second large-TLS path (first is reportEvent/reportAlarm's RTDB writes) —
+// same risk class flagged in the design spec, so this follows the exact
+// same guard shape: isReady() first, then the SAME heap-floor check
+// reportEvent() uses (a JPEG upload allocates at least as much as an event
+// write), then the SAME shared, already-timeout-bounded data client. No new
+// timeout surface is introduced: Storage::upload() is a SYNCHRONOUS call
+// through dataClient_, whose setSyncReadTimeout/setSyncSendTimeout
+// (kSyncTimeoutSec) and dataSslClient_'s setHandshakeTimeout/setTimeout
+// (kHandshakeTimeoutSec/kSocketTimeoutSec) already bound every blocking
+// stretch a Storage request can hit — connect, handshake, send, and read —
+// identically to how they bound database_.set()/get(). A stalled upload
+// therefore fails cleanly within single-digit seconds, never anywhere close
+// to the 60s watchdog budget.
+//
+// Best-effort and never retried: "no event buffering v1" (CLAUDE.md) applies
+// here exactly as it does to reportEvent() — a dropped snapshot is an
+// accepted loss, not a condition to hold the loop open and retry over.
+//
+// Callers (main.cpp's handleSensorEvent()) MUST call this strictly after
+// the siren/event/alarm-report block, never before or interleaved with it:
+// this can block for seconds, and nothing touching the alarm path may wait
+// on it.
+bool CloudClient::uploadSnapshot(const char* rfId, uint64_t ts, uint8_t channel,
+                                 const uint8_t* jpeg, size_t len) {
+  if (!isReady()) return false;  // no buffering v1 — drop if not connected/authed
+  if (jpeg == nullptr || len == 0) {
+    Serial.println("cloud: uploadSnapshot DROPPED — empty buffer");
+    return false;
+  }
+
+  // Same hard floor as reportEvent(): a TLS write below this does not fail
+  // cleanly on this hardware, it resets the board (see kMinBlockForEventWrite's
+  // comment on reportEvent()). A JPEG upload is at least as large a request,
+  // so reusing the event-write floor rather than the smaller poll floor is
+  // the conservative choice.
+  if (!openDataClient()) {
+    Serial.printf("cloud: uploadSnapshot %s ch%u DROPPED — no data client "
+                  "(%u contiguous bytes free)\n",
+                  rfId, channel, platformMaxAllocHeap());
+    return false;
+  }
+  const uint32_t block = platformMaxAllocHeap();
+  if (block < kMinBlockForEventWrite) {
+    Serial.printf("cloud: uploadSnapshot %s ch%u SKIPPED — %u contiguous "
+                  "bytes free, need %u\n",
+                  rfId, channel, block, kMinBlockForEventWrite);
+    return false;
+  }
+
+  // {projectId}/snapshots/{rfId}/{ts}/ch{N}.jpg — SAME {rfId}/{ts} keying as
+  // the RTDB event this snapshot belongs to (see reportEvent()'s path), so
+  // the cloud side can join the two by key alone. rfId already carries its
+  // own "0x" prefix (see dispatchSensorCode()), which is filesystem/URL-safe
+  // as a path segment.
+  //
+  // The {projectId}/snapshots/ prefix is REQUIRED, not cosmetic: storage.rules
+  // only grants the device write access under /{projectId}/snapshots/** (see
+  // storage.rules's match block), and the cloud-side onSnapshotUploaded
+  // trigger (later task) parses {projectId, rfId, timestamp, channel} out of
+  // this exact path shape. Without it, objects land at the bucket root,
+  // every upload is rejected by the rules, and even a rules change that let
+  // it through would be unparseable on the cloud side. Uses the same
+  // projectId_ member reportEvent()'s RTDB path already uses.
+  //
+  // ts is formatted with snprintf/%llu, not String's `+= (uint64_t)`: Arduino
+  // String has no reliable operator+ overload for a 64-bit integer on this
+  // platform (reportEvent() hits the exact same constraint — see its tsBuf).
+  char tsBuf[21];  // uint64 max is 20 digits + null, same sizing as reportEvent()
+  snprintf(tsBuf, sizeof(tsBuf), "%llu", (unsigned long long)ts);
+  String objectPath = projectId_ + "/snapshots/" + rfId + "/" + tsBuf +
+                      "/ch" + channel + ".jpg";
+
+  Serial.printf("cloud: uploadSnapshot %s ch%u (%u bytes, heap %u maxblock %u)\n",
+                rfId, channel, (unsigned)len, ESP.getFreeHeap(), block);
+
+  // BlobConfig/getBlob() wraps the in-memory buffer directly — no filesystem
+  // involved, unlike the library's FileConfig examples (SPIFFS/SD). `data`
+  // is only read by upload(), never written, but setBlob() takes a non-const
+  // uint8_t*; const_cast is safe here because the call is synchronous and
+  // returns before this function does.
+  BlobConfig blob(const_cast<uint8_t*>(jpeg), len);
+  bool ok = storage_.upload(
+      *dataClient_,
+      FirebaseStorage::Parent(kStorageBucketId, objectPath.c_str()),
+      getBlob(blob), "image/jpeg");
+  if (!ok) {
+    Serial.printf("cloud: uploadSnapshot %s ch%u FAILED (code %d: %s)\n",
+                  rfId, channel, dataClient_->lastError().code(),
+                  dataClient_->lastError().message().c_str());
+  } else {
+    Serial.printf("cloud: uploadSnapshot %s ch%u ok\n", rfId, channel);
+  }
+  closeDataClient();
+  return ok;
 }

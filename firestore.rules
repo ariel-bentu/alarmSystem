@@ -115,6 +115,14 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Camera snapshots + AI verdict, keyed `{rfId}_{ts}` — a SEPARATE
+      // collection from events (see web/src/types TimelineSnapshotDoc).
+      // Written only by onSnapshotUploaded (admin SDK bypasses rules).
+      match /timeline/{timelineId} {
+        allow read: if isMember(projectId);
+        allow write: if false;
+      }
+
       match /sirens/{sirenId} {
         allow read: if isMember(projectId);
         allow write: if isAdmin(projectId);

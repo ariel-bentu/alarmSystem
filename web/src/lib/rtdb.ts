@@ -68,10 +68,14 @@ export const stateAlarmCauseRef = (projectId: string): DatabaseReference =>
 
 export const commandsPairPath = (projectId: string) =>
   `${projectId}/commands/pair`;
+export const commandsCapturePath = (projectId: string) =>
+  `${projectId}/commands/capture`;
 export const stateSirenBasePath = (projectId: string) =>
   `${projectId}/state/siren_base`;
 
 export const commandsPairRef = (projectId: string): DatabaseReference =>
   ref(rtdbSync(), commandsPairPath(projectId));
+export const commandsCaptureRef = (projectId: string): DatabaseReference =>
+  ref(rtdbSync(), commandsCapturePath(projectId));
 export const stateSirenBaseRef = (projectId: string): DatabaseReference =>
   ref(rtdbSync(), stateSirenBasePath(projectId));

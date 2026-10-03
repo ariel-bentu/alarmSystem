@@ -38,6 +38,8 @@ struct SensorConfig {
   char familyId[9] = {};
   Condition conditions[4];
   uint8_t conditionCount = 0;
+  bool outOfSight = false;
+  uint8_t cameraChannel = 0;
 };
 
 struct Config {
@@ -63,6 +65,16 @@ struct Config {
   static constexpr uint8_t kMaxRemotes = 8;
   uint32_t remotes[kMaxRemotes] = {};
   uint8_t remoteCount = 0;
+
+  // NVR integration: capture a snapshot on trigger, optionally judged by the
+  // NVR's own motion/AI detection before alerting. nvrMode: 0=off,
+  // 1=capture, 2=capture+judge.
+  char nvrHost[32] = {};
+  uint16_t nvrPort = 34567;
+  char nvrUser[24] = {};
+  char nvrPassword[24] = {};
+  uint8_t nvrMode = 0;
+  uint16_t captureCooldownSec = 45;
 };
 
 // Config is persisted verbatim to EEPROM by EepromStore, so its size is part
@@ -79,6 +91,9 @@ struct Config {
 // from the full 24-bit code to the 20-bit family. SensorConfig went 158 -> 156
 // (both measured), i.e. 2 bytes x 16 sensors = 32. kMagic was bumped to
 // 0xA1A2B3B9 so the old layout is discarded rather than misread.
+// 2548 -> 2664 when NVR fields (host/port/user/password/mode + cooldown;
+// SensorConfig out-of-sight + channel) were added. Measured via a temporary
+// template-instantiation probe, not predicted. kMagic bumped to 0xA1A2B3BA.
 //
 // THE SIREN ADDRESS MUST SURVIVE THAT BUMP. A magic bump discards the whole
 // record, and Config::sirenBaseAddress is write-only device->cloud, so losing
@@ -86,7 +101,7 @@ struct Config {
 // (docs/history/siren-hub-free.md). The recovery path is RtdbConfig.s, which
 // applyPendingConfigUpdate() re-adopts when EEPROM has none. VERIFY THAT ON
 // HARDWARE before shipping this: it is the one irreversible failure here.
-static_assert(sizeof(Config) == 2548, "EEPROM layout changed - bump kMagic");
+static_assert(sizeof(Config) == 2664, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the
 // Telegram alert can name it. The device knows radio ids, not sensor or rule

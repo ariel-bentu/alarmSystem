@@ -4,6 +4,8 @@
 #include "platform_compat.h"
 
 #include "alarm_state.h"
+#include "camera_client.h"
+#include "camera_gate.h"
 #include "cc1101_receiver.h"
 #include "cloud_client.h"
 #include "eeprom_store.h"
@@ -68,6 +70,14 @@ bool armed = false;
 bool localWebEnabled = true;
 Config config;
 
+// Per-family snapshot-capture cooldown (CameraGate::shouldCapture's
+// lastCaptureMs). RAM only, deliberately: "survives nothing" is correct — a
+// reboot should allow an immediate capture, not inherit a stale cooldown
+// from before the restart. Indexed by the sensor's position in
+// config.sensors[], which has up to 16 entries (Config::sensors). 0 means
+// "never captured", matching CameraGate::shouldCapture's own sentinel.
+uint32_t lastCaptureMs[16] = {};
+
 // Which input last changed the arm state, reported to state/armed_by so the
 // Telegram alert can name it ("remote" vs "local" vs "cloud"). A fixed-code
 // remote is replayable, so attribution is the only available mitigation —
@@ -121,6 +131,23 @@ static constexpr unsigned long kSirenAddressRetryMs = 60000UL;
 // True between reporting an alarm to the cloud and clearing state/siren_active
 // again. See the falling-edge clear in loop().
 bool alarmReportedToCloud = false;
+
+// Identity of the trigger CURRENTLY sustaining the siren, for matching the
+// cloud's false-positive advisory (/commands/fp = {rfId, ts}).
+//
+// AlarmState::TriggerCause (alarm_state.h) only stores the 20-bit FAMILY and
+// no timestamp at all, so it cannot be compared against the advisory, which
+// is keyed by the FULL 24-bit rfId and an epoch-ms ts — the same {rfId, ts}
+// used for the /events key and the snapshot upload path. This is why that
+// identity is captured separately, here, at the moment the siren is turned
+// on for a sensor trigger (handleSensorEvent) rather than read back out of
+// AlarmState.
+//
+// Empty rfId means "no active trigger to match" — cleared whenever the siren
+// goes idle (loop()'s falling edge) and whenever an advisory consumes it, so
+// a stale identity can never be matched against a LATER, unrelated alarm.
+char activeAlarmRfId[11] = {};
+uint64_t activeAlarmTs = 0;
 unsigned long lastHeartbeatMs = 0;
 static constexpr unsigned long kHeartbeatIntervalMs = 10000UL;
 
@@ -263,8 +290,24 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   Serial.printf("[alarm] %s (%s %s) armed=%d fire=%d sirenEnabled=%d\n",
                 familyId, rfId, event, config.armed, shouldFire,
                 config.sirenEnabled);
+  // ONE timestamp for the whole trigger, computed here (not re-read later),
+  // so reportEvent's /events key, the snapshot upload path, AND the
+  // false-positive-advisory match below all agree on the exact same
+  // {rfId, ts} — the correlation key the cloud joins everything by. Same
+  // epoch-ms source reportEvent()/uploadSnapshot() use internally
+  // (time(nullptr) * 1000); uint64_t, NOT uint32_t, for the same overflow
+  // reason documented on CloudClient::uploadSnapshot().
+  const uint64_t triggerTs = (uint64_t)time(nullptr) * 1000ULL;
   if (shouldFire && config.sirenEnabled) {
     siren.turnOn(config.sirenDurationSec, now);
+    // Record what this siren activation is FOR, so a later false-positive
+    // advisory ({rfId, ts}) can be checked against the trigger that is
+    // actually sounding it, instead of blindly silencing whatever happens to
+    // be active. STRICTLY for that match — never read by anything that
+    // could use it to raise an alarm.
+    strncpy(activeAlarmRfId, rfId, sizeof(activeAlarmRfId) - 1);
+    activeAlarmRfId[sizeof(activeAlarmRfId) - 1] = '\0';
+    activeAlarmTs = triggerTs;
   }
   cloudClient.reportEvent(rfId, event, batteryLow, rssi);
   // Reported whenever the alarm fires, NOT gated on sirenEnabled: turning the
@@ -275,6 +318,86 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   if (shouldFire) {
     cloudClient.reportAlarm(cause.rfId, cause.conditionType);
     alarmReportedToCloud = true;
+  }
+
+  // --- Camera snapshot capture, STRICTLY AFTER the block above ---
+  //
+  // Everything that matters for the alarm itself (rule evaluation, the
+  // siren, the event report, the alarm report) is already done by this
+  // point. Capture runs last and can never delay or gate any of it: a slow
+  // or failed NVR grab / Storage upload only costs a missing photo, never a
+  // late siren or a dropped alarm report. This is the design spec's second
+  // large-TLS path (the first is reportEvent/reportAlarm's RTDB writes) and
+  // carries the same watchdog/socket-death risk documented in
+  // docs/history/ — kept best-effort and bounded for exactly that reason.
+  //
+  // Find the paired SensorConfig for this family. An unpaired/unknown sensor
+  // (no match) must NOT capture — shouldCapture() needs real per-sensor
+  // fields (outOfSight, cameraChannel) that only exist once paired, and an
+  // unpaired trigger is already just logged elsewhere.
+  int sensorIndex = -1;
+  for (uint8_t i = 0; i < config.sensorCount && i < 16; i++) {
+    if (strcmp(config.sensors[i].familyId, familyId) == 0) {
+      sensorIndex = i;
+      break;
+    }
+  }
+  if (sensorIndex >= 0) {
+    const SensorConfig& sensor = config.sensors[sensorIndex];
+    if (CameraGate::shouldCapture(config, sensor, cloudClient.isReady(), now,
+                                  lastCaptureMs[sensorIndex])) {
+      // Reuses triggerTs (computed once, above) rather than re-reading
+      // time(nullptr) here — this is the SAME {rfId, ts} as the
+      // /events/{rfId}/{ts} key reportEvent() just wrote AND the
+      // activeAlarmRfId/activeAlarmTs record above, so the cloud can join
+      // the event, the snapshot, and (if it comes back false-positive) the
+      // advisory it writes, all by this one key with no extra signalling.
+      const uint64_t snapshotTs = triggerTs;
+
+      uint8_t channels[3];
+      uint8_t channelCount = 0;
+      CameraGate::channelsFor(sensor, channels, channelCount);
+
+      // WATCHDOG: this loop is the one place in the whole capture path that
+      // can run long enough to matter. cameraChannel == 0 (capture ALL
+      // channels — channelsFor()'s default) means up to 3 iterations, each
+      // with an ~8s CameraClient::grab() (its own IoDeadline) followed by an
+      // up-to-~20s CloudClient::uploadSnapshot() (bounded by the shared data
+      // client's kHandshakeTimeoutSec/kSocketTimeoutSec/kSyncTimeoutSec) —
+      // worst case ~84s in this one handleSensorEvent() call. The task
+      // watchdog budget is kWatchdogTimeoutSec = 60s and is fed only once
+      // per loop() iteration (top of loop()), so without explicit feeds here
+      // a slow-but-progressing NVR plus a cold/reconnecting data client
+      // could exceed 60s and panic-reboot the device — right after a real
+      // alarm trigger, which is the worst possible moment. This is the exact
+      // failure class docs/history/tls-handshake-watchdog-reboot.md and
+      // cloud_client.cpp's mintCustomToken() response-wait loop both guard
+      // against: feed explicitly before every stretch that can block for
+      // seconds, same idiom as mintCustomToken()'s
+      // `while (...) { platformFeedWatchdog(); ... }`. Feeding before BOTH
+      // calls (not just once per channel) means no single grab-or-upload
+      // stretch (each individually well under 60s) ever accumulates
+      // unfed — only the SUM across channels was the risk, and that sum is
+      // now fed through on every step.
+      uint8_t uploaded = 0;
+      for (uint8_t c = 0; c < channelCount; c++) {
+        platformFeedWatchdog();
+        std::vector<uint8_t> buf;
+        if (!CameraClient::grab(config, channels[c], buf)) continue;
+        platformFeedWatchdog();
+        if (cloudClient.uploadSnapshot(rfId, snapshotTs, channels[c],
+                                       buf.data(), buf.size())) {
+          uploaded++;
+        }
+      }
+      // Cooldown starts on this ATTEMPT, not only on success: a camera or
+      // NVR that is down should not be hammered with a retry on every
+      // single trigger in the meantime — the next normal-cadence trigger
+      // after the cooldown gets another try regardless.
+      lastCaptureMs[sensorIndex] = now;
+      Serial.printf("[camera] %s capture attempt: %u/%u channel(s) uploaded\n",
+                    familyId, uploaded, channelCount);
+    }
   }
 }
 
@@ -1088,6 +1211,16 @@ void loop() {
     cloudClient.clearAlarm();
   }
 
+  // The siren going idle — for ANY reason (auto-off, manual disarm, a
+  // false-positive advisory) — means there is no longer an active trigger to
+  // match against. Clearing here (rather than only where it is consumed)
+  // means a later advisory for a trigger that has since auto-expired is
+  // correctly treated as stale, not matched against whatever comes next.
+  if (!siren.isActive() && activeAlarmRfId[0] != '\0') {
+    activeAlarmRfId[0] = '\0';
+    activeAlarmTs = 0;
+  }
+
   bool cloudSettled = cloudClient.isReady() ||
                        millis() - normalOperationStartMs > kDnsUsersStartFallbackMs;
 
@@ -1184,11 +1317,65 @@ void loop() {
     }
   }
 
+  // False-positive advisory — the cloud judged a snapshot "safe" and wants
+  // the siren silenced, but ONLY for the exact trigger it is vouching for.
+  //
+  // STRICTLY SUBTRACTIVE: this path may only call siren.turnOff(). It must
+  // never arm/disarm, never touch alarmState, and never run when there is no
+  // match — a stale or mismatched advisory (wrong rfId, wrong ts, or no
+  // siren currently active at all) is a silent no-op, logged and nothing
+  // else. The match is against activeAlarmRfId/activeAlarmTs, captured in
+  // handleSensorEvent() at the moment THIS siren activation started — not
+  // against AlarmState::TriggerCause, which only has the 20-bit family and
+  // no timestamp and so cannot distinguish this trigger from a later one on
+  // the same sensor.
+  char fpRfId[11] = {};
+  uint64_t fpTs = 0;
+  if (cloudClient.consumeFalsePositive(fpRfId, sizeof(fpRfId), &fpTs)) {
+    if (siren.isActive() && activeAlarmRfId[0] != '\0' &&
+        fpTs == activeAlarmTs && strcmp(fpRfId, activeAlarmRfId) == 0) {
+      Serial.printf("[camera] false-positive advisory: stopping siren for %s\n",
+                    fpRfId);
+      siren.turnOff();
+      activeAlarmRfId[0] = '\0';
+      activeAlarmTs = 0;
+    } else {
+      Serial.printf("[camera] false-positive advisory: no match (stale/not-current) "
+                    "for %s, no-op\n", fpRfId);
+    }
+  }
+
   // Gated so the ~2.4KB Config inside is only ever allocated when there is
   // actually an update to apply, and out-of-line so its frame is never part
   // of loop()'s.
   if (cloudClient.hasPendingConfigUpdate()) {
     applyPendingConfigUpdate();
+  }
+
+  // Manual capture command from the web UI: /commands/capture = { at: <ms> }.
+  // Grabs ALL channels regardless of sensor config — this is an explicit user
+  // request, not a sensor-triggered capture. Uses "MANUAL" as the rfId so the
+  // timeline entry is labelled separately from sensor events. NVR mode must be
+  // non-off (nm != 0) and the cloud must be ready (same gate as sensor capture).
+  uint64_t captureCommandTs = 0;
+  if (cloudClient.consumeCaptureCommand(&captureCommandTs) &&
+      config.nvrMode != 0 && cloudClient.isReady()) {
+    Serial.printf("[camera] manual capture requested at %llu\n",
+                  (unsigned long long)captureCommandTs);
+    uint8_t channels[3] = {1, 2, 3};
+    uint8_t channelCount = 3;
+    uint8_t uploaded = 0;
+    for (uint8_t c = 0; c < channelCount; c++) {
+      platformFeedWatchdog();
+      std::vector<uint8_t> buf;
+      if (!CameraClient::grab(config, channels[c], buf)) continue;
+      platformFeedWatchdog();
+      if (cloudClient.uploadSnapshot("MANUAL", captureCommandTs, channels[c],
+                                     buf.data(), buf.size()))
+        uploaded++;
+    }
+    Serial.printf("[camera] manual capture: %u/%u channel(s) uploaded\n",
+                  uploaded, channelCount);
   }
 
   if (localWebEnabled) {

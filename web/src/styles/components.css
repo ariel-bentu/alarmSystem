@@ -70,8 +70,41 @@
   font-size: var(--fs-sm);
 }
 
+.btn--active {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+  transform: translateY(1px);
+  background: var(--surface-raised, rgba(255,255,255,0.08));
+}
+
 .btn--block {
   width: 100%;
+}
+
+/* Auto-dismissing toast */
+.toast {
+  position: fixed;
+  bottom: var(--sp-5);
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-raised, #333);
+  color: var(--text, #fff);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius, 6px);
+  font-size: var(--fs-sm);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  pointer-events: none;
+  animation: toast-in 0.2s ease, toast-out 0.3s ease 2.7s forwards;
+  z-index: 9999;
+  white-space: nowrap;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }
 
 /* Inline busy indicator. Sized in `em` and drawn in currentColor so it works
@@ -409,6 +442,27 @@
   background: color-mix(in srgb, var(--warn) 15%, transparent);
   border-color: var(--warn);
   color: var(--warn);
+}
+
+/* ---------- Snapshot thumbnails (Explore timeline) ---------- */
+
+/* Plain button wrapper so the thumbnail is keyboard-reachable and gets a
+   focus ring, without inheriting default button chrome. */
+.snapshot-thumb-btn {
+  display: inline-flex;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+  line-height: 0;
+}
+.snapshot-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  display: block;
 }
 
 .dot {
