@@ -4,6 +4,8 @@
 #include "platform_compat.h"
 
 #include "alarm_state.h"
+#include "camera_client.h"
+#include "camera_gate.h"
 #include "cc1101_receiver.h"
 #include "cloud_client.h"
 #include "eeprom_store.h"
@@ -67,6 +69,14 @@ LocalWebServer localWebServer;
 bool armed = false;
 bool localWebEnabled = true;
 Config config;
+
+// Per-family snapshot-capture cooldown (CameraGate::shouldCapture's
+// lastCaptureMs). RAM only, deliberately: "survives nothing" is correct — a
+// reboot should allow an immediate capture, not inherit a stale cooldown
+// from before the restart. Indexed by the sensor's position in
+// config.sensors[], which has up to 16 entries (Config::sensors). 0 means
+// "never captured", matching CameraGate::shouldCapture's own sentinel.
+uint32_t lastCaptureMs[16] = {};
 
 // Which input last changed the arm state, reported to state/armed_by so the
 // Telegram alert can name it ("remote" vs "local" vs "cloud"). A fixed-code
@@ -275,6 +285,71 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   if (shouldFire) {
     cloudClient.reportAlarm(cause.rfId, cause.conditionType);
     alarmReportedToCloud = true;
+  }
+
+  // --- Camera snapshot capture, STRICTLY AFTER the block above ---
+  //
+  // Everything that matters for the alarm itself (rule evaluation, the
+  // siren, the event report, the alarm report) is already done by this
+  // point. Capture runs last and can never delay or gate any of it: a slow
+  // or failed NVR grab / Storage upload only costs a missing photo, never a
+  // late siren or a dropped alarm report. This is the design spec's second
+  // large-TLS path (the first is reportEvent/reportAlarm's RTDB writes) and
+  // carries the same watchdog/socket-death risk documented in
+  // docs/history/ — kept best-effort and bounded for exactly that reason.
+  //
+  // Find the paired SensorConfig for this family. An unpaired/unknown sensor
+  // (no match) must NOT capture — shouldCapture() needs real per-sensor
+  // fields (outOfSight, cameraChannel) that only exist once paired, and an
+  // unpaired trigger is already just logged elsewhere.
+  int sensorIndex = -1;
+  for (uint8_t i = 0; i < config.sensorCount && i < 16; i++) {
+    if (strcmp(config.sensors[i].familyId, familyId) == 0) {
+      sensorIndex = i;
+      break;
+    }
+  }
+  if (sensorIndex >= 0) {
+    const SensorConfig& sensor = config.sensors[sensorIndex];
+    if (CameraGate::shouldCapture(config, sensor, cloudClient.isReady(), now,
+                                  lastCaptureMs[sensorIndex])) {
+      // One timestamp for the WHOLE trigger, captured once before any
+      // grab() (each of which can block for several seconds) — not
+      // re-read per channel. The cloud side correlates image <-> event by
+      // {rfId, ts} (see the design spec), and task 13's cross-channel
+      // "first breach wins / all-safe required" judging is keyed on this
+      // same pair per trigger, not per channel.
+      //
+      // Matches reportEvent()'s own epoch-ms source exactly (time(nullptr)
+      // * 1000) so this trigger's snapshot path segment lines up with the
+      // /events/{rfId}/{ts} key that call just wrote, letting the cloud
+      // join the two by key alone with no extra signalling. uint64_t, NOT
+      // uint32_t — epoch-ms does not fit in 32 bits (see uploadSnapshot's
+      // declaration for the overflow math); truncating here would corrupt
+      // the correlation key silently.
+      const uint64_t snapshotTs = (uint64_t)time(nullptr) * 1000ULL;
+
+      uint8_t channels[3];
+      uint8_t channelCount = 0;
+      CameraGate::channelsFor(sensor, channels, channelCount);
+
+      uint8_t uploaded = 0;
+      for (uint8_t c = 0; c < channelCount; c++) {
+        std::vector<uint8_t> buf;
+        if (!CameraClient::grab(config, channels[c], buf)) continue;
+        if (cloudClient.uploadSnapshot(rfId, snapshotTs, channels[c],
+                                       buf.data(), buf.size())) {
+          uploaded++;
+        }
+      }
+      // Cooldown starts on this ATTEMPT, not only on success: a camera or
+      // NVR that is down should not be hammered with a retry on every
+      // single trigger in the meantime — the next normal-cadence trigger
+      // after the cooldown gets another try regardless.
+      lastCaptureMs[sensorIndex] = now;
+      Serial.printf("[camera] %s capture attempt: %u/%u channel(s) uploaded\n",
+                    familyId, uploaded, channelCount);
+    }
   }
 }
 

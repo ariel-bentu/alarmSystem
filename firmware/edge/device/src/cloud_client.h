@@ -12,6 +12,11 @@
 
 #define ENABLE_CUSTOM_TOKEN
 #define ENABLE_DATABASE
+// Storage: snapshot uploads (uploadSnapshot). Uses the SAME authenticated
+// app_/custom token as the RTDB path below — see startAppAndStreams(), which
+// calls app_.getApp<Storage>(storage_) right next to the existing
+// app_.getApp<RealtimeDatabase>(database_) call. No separate auth flow.
+#define ENABLE_STORAGE
 #include <FirebaseClient.h>
 
 #include "alarm_state.h"
@@ -115,6 +120,30 @@ class CloudClient {
   // very different bugs that look identical from the outside.
   void reportBoot();
 
+  // Upload one JPEG snapshot to Firebase Storage, object path
+  // {projectId}/snapshots/{rfId}/{ts}/ch{channel}.jpg — the SAME
+  // {rfId}/{ts} keying as the RTDB event this snapshot belongs to, so the
+  // cloud side can join them (see the design spec). Best-effort: returns
+  // false and logs exactly one line on ANY failure (not ready, no data
+  // client, upload error) — never throws, never blocks past the same
+  // bounded deadlines the rest of this class already uses
+  // (kHandshakeTimeoutSec / kSocketTimeoutSec / kSyncTimeoutSec govern the
+  // shared data client regardless of which Firebase service is calling
+  // through it). Caller's responsibility, same as reportEvent(): this must
+  // run strictly AFTER the alarm/siren/event-report path, never before or
+  // interleaved with it — see main.cpp's handleSensorEvent().
+  //
+  // `ts` is epoch MILLISECONDS — the exact same unit and source
+  // (time(nullptr) * 1000) as the key reportEvent() writes to
+  // /events/{rfId}/{ts}. uint64_t, NOT uint32_t: a uint32_t cannot hold a
+  // real epoch-ms value at all (current epoch-ms is already ~1.7e12, far
+  // past 2^32 ~= 4.3e9 — that range was exhausted on 1970-02-19). Truncating
+  // to 32 bits would silently corrupt the path's correlation key, which is
+  // the entire point of this field — see the design spec's "{rfId}/{ts}
+  // exactly matches the /events key" requirement.
+  bool uploadSnapshot(const char* rfId, uint64_t ts, uint8_t channel,
+                      const uint8_t* jpeg, size_t len);
+
   // Registered once in begin(); main.cpp polls these via getters rather
   // than a callback, to keep main.cpp's control flow linear.
   bool consumeArmedCommand(bool* armed);    // true if a new value arrived since last call
@@ -204,6 +233,12 @@ class CloudClient {
 
   FirebaseApp app_;
   RealtimeDatabase database_;
+  // Snapshot uploads. Bound to the SAME app_ (and so the same custom token)
+  // as database_ — see startAppAndStreams(). Uses the shared dataClient_ /
+  // dataSslClient_ for the actual TLS connection, exactly like every
+  // database_ call, so it is covered by the same heap/handshake/timeout
+  // guards and never opens a fifth concurrent TLS connection.
+  Storage storage_;
 
   AsyncResult dataResult_;
 
