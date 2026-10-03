@@ -20,4 +20,21 @@ namespace ConfigParser {
 // array-length mismatch or exactly one of r/c present is a parse failure.
 bool parseConfigJson(const char* json, Config* out);
 
+// Parses a polled /commands payload's `fp` (false-positive advisory) key:
+// `{ "fp": { "rfId": "0x..", "ts": <epoch-ms> } }`. Returns false (leaving
+// the out-params untouched) when `fp` is absent or malformed.
+//
+// `rfId` is the FULL 24-bit code (e.g. "0x0061DA"), the same width as the
+// /events/{rfId}/{ts} key and the snapshot upload path — NOT the 20-bit
+// family TriggerCause stores. Matching against the currently-sounding
+// siren therefore cannot use AlarmState::TriggerCause directly; see
+// main.cpp's activeAlarmRfId_/activeAlarmTs_.
+//
+// `ts` is epoch MILLISECONDS, the same uint64 unit reportEvent()/
+// uploadSnapshot() use (time(nullptr) * 1000). A uint32_t cannot hold a
+// real epoch-ms value (current epoch-ms is already ~1.7e12, far past
+// uint32_t's ~4.3e9 ceiling) — do not narrow this.
+bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
+                        uint64_t* tsOut);
+
 }  // namespace ConfigParser

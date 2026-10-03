@@ -780,6 +780,29 @@ void CloudClient::applyCommandsJson(const String& json) {
                     (unsigned long)pendingPairUntil_);
     }
   }
+
+  // False-positive advisory. Parsing lives in config_parser.cpp (pure,
+  // native-testable) — see ConfigParser::parseFalsePositive. Only surface it
+  // as pending when {rfId,ts} actually CHANGED, same rationale as pair's
+  // nonce check: polling re-reads the same /commands value every few
+  // seconds, and main.cpp must see each advisory exactly once.
+  char fpRfId[sizeof(lastFalsePositiveRfId_)] = {};
+  uint64_t fpTs = 0;
+  if (ConfigParser::parseFalsePositive(json.c_str(), fpRfId, sizeof(fpRfId), &fpTs)) {
+    if (!hadFalsePositive_ || fpTs != lastFalsePositiveTs_ ||
+        strcmp(fpRfId, lastFalsePositiveRfId_) != 0) {
+      hadFalsePositive_ = true;
+      strncpy(lastFalsePositiveRfId_, fpRfId, sizeof(lastFalsePositiveRfId_) - 1);
+      lastFalsePositiveRfId_[sizeof(lastFalsePositiveRfId_) - 1] = '\0';
+      lastFalsePositiveTs_ = fpTs;
+      strncpy(pendingFalsePositiveRfId_, fpRfId, sizeof(pendingFalsePositiveRfId_) - 1);
+      pendingFalsePositiveRfId_[sizeof(pendingFalsePositiveRfId_) - 1] = '\0';
+      pendingFalsePositiveTs_ = fpTs;
+      hasPendingFalsePositive_ = true;
+      Serial.printf("cloud: commands.fp -> rfId %s ts %llu\n", fpRfId,
+                    (unsigned long long)fpTs);
+    }
+  }
 }
 
 void CloudClient::applyConfigJson(const String& json) {
@@ -837,6 +860,15 @@ bool CloudClient::consumePairCommand(uint32_t* nonce, uint32_t* untilEpochSec) {
   *nonce = pendingPairNonce_;
   *untilEpochSec = pendingPairUntil_;
   hasPendingPair_ = false;
+  return true;
+}
+
+bool CloudClient::consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOut) {
+  if (!hasPendingFalsePositive_) return false;
+  strncpy(rfIdOut, pendingFalsePositiveRfId_, cap - 1);
+  rfIdOut[cap - 1] = '\0';
+  *tsOut = pendingFalsePositiveTs_;
+  hasPendingFalsePositive_ = false;
   return true;
 }
 

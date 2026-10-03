@@ -171,4 +171,34 @@ bool parseConfigJson(const char* json, Config* out) {
   return true;
 }
 
+bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
+                        uint64_t* tsOut) {
+  JsonDocument doc;
+  if (deserializeJson(doc, json)) return false;
+
+  JsonVariant fp = doc["fp"];
+  if (fp.isNull() || !fp.is<JsonObject>()) return false;
+
+  JsonVariant rfId = fp["rfId"];
+  if (!rfId.is<const char*>()) return false;
+
+  // ts rides as a JSON number. ArduinoJson's variant can produce it as
+  // uint64_t directly (RTDB sends it unquoted) — reject rather than accept
+  // a missing/non-numeric value, since a false-positive advisory with no
+  // timestamp can never match anything and should be visibly ignored
+  // upstream in CloudClient rather than silently treated as ts=0.
+  JsonVariant ts = fp["ts"];
+  if (!ts.is<uint64_t>() && !ts.is<long long>() && !ts.is<unsigned long long>()) {
+    // ArduinoJson 7's is<T>() is picky about the exact integer type it
+    // stored; fall back to a numeric-type check so any integral JSON number
+    // is accepted regardless of which C++ integer type backs it.
+    if (!ts.is<long>() && !ts.is<unsigned long>() && !ts.is<int>()) return false;
+  }
+
+  strncpy(rfIdOut, rfId.as<const char*>(), cap - 1);
+  rfIdOut[cap - 1] = '\0';
+  *tsOut = ts.as<uint64_t>();
+  return true;
+}
+
 }  // namespace ConfigParser

@@ -401,6 +401,49 @@ void test_nvr_fields_default_when_absent() {
   TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[0].cameraChannel); // all
 }
 
+// The false-positive advisory: /commands.fp = { rfId, ts }, written when the
+// cloud judges a snapshot "safe". rfId is the FULL 24-bit code (matches the
+// /events key and the snapshot upload path), ts is epoch-MILLISECONDS — the
+// same uint64 reportEvent()/uploadSnapshot() use. uint32_t cannot hold a real
+// epoch-ms value (current epoch-ms ~1.7e12 is far past uint32_t's ~4.3e9
+// ceiling), so this is uint64_t, NOT the uint32_t the original brief sketched.
+void test_parse_false_positive() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"fp\": { \"rfId\": \"0x2E5B73\", \"ts\": 1696000000123 } }";
+  TEST_ASSERT_TRUE(ConfigParser::parseFalsePositive(json, rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0x2E5B73", rf);
+  TEST_ASSERT_EQUAL_UINT64(1696000000123ULL, ts);
+}
+
+void test_parse_false_positive_absent() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  TEST_ASSERT_FALSE(
+      ConfigParser::parseFalsePositive("{ \"armed\": true }", rf, sizeof(rf), &ts));
+}
+
+void test_parse_false_positive_malformed_json_is_rejected() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  TEST_ASSERT_FALSE(
+      ConfigParser::parseFalsePositive("{ \"fp\": ", rf, sizeof(rf), &ts));
+}
+
+void test_parse_false_positive_missing_rfid_is_rejected() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"fp\": { \"ts\": 1696000000123 } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseFalsePositive(json, rf, sizeof(rf), &ts));
+}
+
+void test_parse_false_positive_missing_ts_is_rejected() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"fp\": { \"rfId\": \"0x2E5B73\" } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseFalsePositive(json, rf, sizeof(rf), &ts));
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_family_ids_fit_exactly_and_longer_values_truncate_safely);
@@ -427,6 +470,11 @@ void setup() {
   RUN_TEST(test_siren_address_parsed_when_r_and_c_absent);
   RUN_TEST(test_parses_nvr_fields);
   RUN_TEST(test_nvr_fields_default_when_absent);
+  RUN_TEST(test_parse_false_positive);
+  RUN_TEST(test_parse_false_positive_absent);
+  RUN_TEST(test_parse_false_positive_malformed_json_is_rejected);
+  RUN_TEST(test_parse_false_positive_missing_rfid_is_rejected);
+  RUN_TEST(test_parse_false_positive_missing_ts_is_rejected);
   UNITY_END();
 }
 

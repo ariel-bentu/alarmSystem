@@ -131,6 +131,23 @@ static constexpr unsigned long kSirenAddressRetryMs = 60000UL;
 // True between reporting an alarm to the cloud and clearing state/siren_active
 // again. See the falling-edge clear in loop().
 bool alarmReportedToCloud = false;
+
+// Identity of the trigger CURRENTLY sustaining the siren, for matching the
+// cloud's false-positive advisory (/commands/fp = {rfId, ts}).
+//
+// AlarmState::TriggerCause (alarm_state.h) only stores the 20-bit FAMILY and
+// no timestamp at all, so it cannot be compared against the advisory, which
+// is keyed by the FULL 24-bit rfId and an epoch-ms ts — the same {rfId, ts}
+// used for the /events key and the snapshot upload path. This is why that
+// identity is captured separately, here, at the moment the siren is turned
+// on for a sensor trigger (handleSensorEvent) rather than read back out of
+// AlarmState.
+//
+// Empty rfId means "no active trigger to match" — cleared whenever the siren
+// goes idle (loop()'s falling edge) and whenever an advisory consumes it, so
+// a stale identity can never be matched against a LATER, unrelated alarm.
+char activeAlarmRfId[11] = {};
+uint64_t activeAlarmTs = 0;
 unsigned long lastHeartbeatMs = 0;
 static constexpr unsigned long kHeartbeatIntervalMs = 10000UL;
 
@@ -273,8 +290,24 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   Serial.printf("[alarm] %s (%s %s) armed=%d fire=%d sirenEnabled=%d\n",
                 familyId, rfId, event, config.armed, shouldFire,
                 config.sirenEnabled);
+  // ONE timestamp for the whole trigger, computed here (not re-read later),
+  // so reportEvent's /events key, the snapshot upload path, AND the
+  // false-positive-advisory match below all agree on the exact same
+  // {rfId, ts} — the correlation key the cloud joins everything by. Same
+  // epoch-ms source reportEvent()/uploadSnapshot() use internally
+  // (time(nullptr) * 1000); uint64_t, NOT uint32_t, for the same overflow
+  // reason documented on CloudClient::uploadSnapshot().
+  const uint64_t triggerTs = (uint64_t)time(nullptr) * 1000ULL;
   if (shouldFire && config.sirenEnabled) {
     siren.turnOn(config.sirenDurationSec, now);
+    // Record what this siren activation is FOR, so a later false-positive
+    // advisory ({rfId, ts}) can be checked against the trigger that is
+    // actually sounding it, instead of blindly silencing whatever happens to
+    // be active. STRICTLY for that match — never read by anything that
+    // could use it to raise an alarm.
+    strncpy(activeAlarmRfId, rfId, sizeof(activeAlarmRfId) - 1);
+    activeAlarmRfId[sizeof(activeAlarmRfId) - 1] = '\0';
+    activeAlarmTs = triggerTs;
   }
   cloudClient.reportEvent(rfId, event, batteryLow, rssi);
   // Reported whenever the alarm fires, NOT gated on sirenEnabled: turning the
@@ -313,21 +346,13 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
     const SensorConfig& sensor = config.sensors[sensorIndex];
     if (CameraGate::shouldCapture(config, sensor, cloudClient.isReady(), now,
                                   lastCaptureMs[sensorIndex])) {
-      // One timestamp for the WHOLE trigger, captured once before any
-      // grab() (each of which can block for several seconds) — not
-      // re-read per channel. The cloud side correlates image <-> event by
-      // {rfId, ts} (see the design spec), and task 13's cross-channel
-      // "first breach wins / all-safe required" judging is keyed on this
-      // same pair per trigger, not per channel.
-      //
-      // Matches reportEvent()'s own epoch-ms source exactly (time(nullptr)
-      // * 1000) so this trigger's snapshot path segment lines up with the
-      // /events/{rfId}/{ts} key that call just wrote, letting the cloud
-      // join the two by key alone with no extra signalling. uint64_t, NOT
-      // uint32_t — epoch-ms does not fit in 32 bits (see uploadSnapshot's
-      // declaration for the overflow math); truncating here would corrupt
-      // the correlation key silently.
-      const uint64_t snapshotTs = (uint64_t)time(nullptr) * 1000ULL;
+      // Reuses triggerTs (computed once, above) rather than re-reading
+      // time(nullptr) here — this is the SAME {rfId, ts} as the
+      // /events/{rfId}/{ts} key reportEvent() just wrote AND the
+      // activeAlarmRfId/activeAlarmTs record above, so the cloud can join
+      // the event, the snapshot, and (if it comes back false-positive) the
+      // advisory it writes, all by this one key with no extra signalling.
+      const uint64_t snapshotTs = triggerTs;
 
       uint8_t channels[3];
       uint8_t channelCount = 0;
@@ -1186,6 +1211,16 @@ void loop() {
     cloudClient.clearAlarm();
   }
 
+  // The siren going idle — for ANY reason (auto-off, manual disarm, a
+  // false-positive advisory) — means there is no longer an active trigger to
+  // match against. Clearing here (rather than only where it is consumed)
+  // means a later advisory for a trigger that has since auto-expired is
+  // correctly treated as stale, not matched against whatever comes next.
+  if (!siren.isActive() && activeAlarmRfId[0] != '\0') {
+    activeAlarmRfId[0] = '\0';
+    activeAlarmTs = 0;
+  }
+
   bool cloudSettled = cloudClient.isReady() ||
                        millis() - normalOperationStartMs > kDnsUsersStartFallbackMs;
 
@@ -1279,6 +1314,34 @@ void loop() {
                     (unsigned long)nowSec, (unsigned long)pairUntil);
     } else {
       runSirenPairing();
+    }
+  }
+
+  // False-positive advisory — the cloud judged a snapshot "safe" and wants
+  // the siren silenced, but ONLY for the exact trigger it is vouching for.
+  //
+  // STRICTLY SUBTRACTIVE: this path may only call siren.turnOff(). It must
+  // never arm/disarm, never touch alarmState, and never run when there is no
+  // match — a stale or mismatched advisory (wrong rfId, wrong ts, or no
+  // siren currently active at all) is a silent no-op, logged and nothing
+  // else. The match is against activeAlarmRfId/activeAlarmTs, captured in
+  // handleSensorEvent() at the moment THIS siren activation started — not
+  // against AlarmState::TriggerCause, which only has the 20-bit family and
+  // no timestamp and so cannot distinguish this trigger from a later one on
+  // the same sensor.
+  char fpRfId[11] = {};
+  uint64_t fpTs = 0;
+  if (cloudClient.consumeFalsePositive(fpRfId, sizeof(fpRfId), &fpTs)) {
+    if (siren.isActive() && activeAlarmRfId[0] != '\0' &&
+        fpTs == activeAlarmTs && strcmp(fpRfId, activeAlarmRfId) == 0) {
+      Serial.printf("[camera] false-positive advisory: stopping siren for %s\n",
+                    fpRfId);
+      siren.turnOff();
+      activeAlarmRfId[0] = '\0';
+      activeAlarmTs = 0;
+    } else {
+      Serial.printf("[camera] false-positive advisory: no match (stale/not-current) "
+                    "for %s, no-op\n", fpRfId);
     }
   }
 

@@ -155,6 +155,19 @@ class CloudClient {
   // already passed, so a command left in RTDB cannot make a device pair
   // itself on reboot days later.
   bool consumePairCommand(uint32_t* nonce, uint32_t* untilEpochSec);
+  // False-positive advisory: /commands/fp = { rfId: "0x..", ts: <epoch-ms> },
+  // written when the cloud judges a snapshot "safe". Returns true once per
+  // NEW advisory (change-only-surfaces-once, same pattern as
+  // consumeConfigUpdate) — re-polling the same {rfId,ts} does not re-fire.
+  //
+  // rfId is the FULL 24-bit code (matches /events/{rfId} and the snapshot
+  // upload path), NOT the 20-bit family AlarmState::TriggerCause stores.
+  // ts is epoch-MILLISECONDS, same uint64 reportEvent()/uploadSnapshot() use
+  // — main.cpp is responsible for matching this against whatever it recorded
+  // as the currently-sounding trigger's {rfId, ts} before acting on it. This
+  // call is STRICTLY ADVISORY: it never decides on its own to touch the
+  // siren or arm state.
+  bool consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOut);
   // Lets callers avoid putting a ~2.4KB Config on the 4KB cont stack unless
   // there is actually an update to take — see main.cpp's loop().
   bool hasPendingConfigUpdate() const { return hasPendingConfig_; }
@@ -361,6 +374,16 @@ class CloudClient {
   uint32_t pendingPairNonce_ = 0;
   uint32_t pendingPairUntil_ = 0;
   bool hasPendingPair_ = false;
+
+  // Last-seen false-positive advisory, so re-polling the same {rfId,ts}
+  // (polling re-reads the same /commands value every few seconds) doesn't
+  // repeatedly surface it as "new" — mirrors lastPairNonce_/hadPairNonce_.
+  char lastFalsePositiveRfId_[16] = {};
+  uint64_t lastFalsePositiveTs_ = 0;
+  bool hadFalsePositive_ = false;
+  char pendingFalsePositiveRfId_[16] = {};
+  uint64_t pendingFalsePositiveTs_ = 0;
+  bool hasPendingFalsePositive_ = false;
 
   bool mintCustomToken();
   // Parse a polled /commands or /config payload. Actual config parsing lives
