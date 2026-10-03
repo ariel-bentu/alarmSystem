@@ -264,7 +264,11 @@ export const he: Record<TranslationKey, string> = {
     "צילום תמונה מתבצע בכל הפעלה בזמן דריכה. צילום + שיפוט AI מוסיף בקשה ממודל AI לשפוט את התמונה לפני ההתראה.",
   "cfg.camera.host": "כתובת ה-NVR",
   "cfg.camera.hostPlaceholder": "192.168.1.50",
+  "cfg.camera.hostHelp":
+    "כתובת ה-IP המקומית של ה-NVR. ניתן למצוא אותה ברשימת המכשירים של הראוטר או במסך הגדרות הרשת של ה-NVR.",
   "cfg.camera.port": "פורט NVR",
+  "cfg.camera.portHelp":
+    "פורט ניהול DVRIP/Sofia — ברוב ה-NVR של Xiongmai/iCSee הוא 34567. אין צורך לשנות אלא אם ה-NVR מציג ערך אחר בהגדרות הרשת שלו.",
   "cfg.camera.user": "משתמש NVR",
   "cfg.camera.password": "סיסמת NVR",
   "cfg.camera.passwordUnchanged": "ללא שינוי — השאירו ריק כדי לשמור על הסיסמה הקיימת",

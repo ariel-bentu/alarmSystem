@@ -270,7 +270,11 @@ export const en = {
     "Capture takes a snapshot on every armed trigger. Capture + AI judge additionally asks an AI model to judge the snapshot before alerting.",
   "cfg.camera.host": "NVR host",
   "cfg.camera.hostPlaceholder": "192.168.1.50",
+  "cfg.camera.hostHelp":
+    "Local IP of your NVR. Find it in your router's device list or the NVR's network settings screen.",
   "cfg.camera.port": "NVR port",
+  "cfg.camera.portHelp":
+    "DVRIP/Sofia management port — 34567 on most Xiongmai/iCSee NVRs. Leave unchanged unless your NVR shows a different value in its network settings.",
   "cfg.camera.user": "NVR user",
   "cfg.camera.password": "NVR password",
   "cfg.camera.passwordUnchanged": "Unchanged — leave blank to keep it",

@@ -142,6 +142,7 @@ export default function CameraTab() {
               onChange={(e) => setNvrHost(e.target.value)}
               placeholder={t("cfg.camera.hostPlaceholder")}
             />
+            <p className="muted">{t("cfg.camera.hostHelp")}</p>
           </div>
 
           <div className="field">
@@ -157,6 +158,7 @@ export default function CameraTab() {
               value={nvrPort}
               onChange={(e) => setNvrPort(e.target.value)}
             />
+            <p className="muted">{t("cfg.camera.portHelp")}</p>
           </div>
 
           <div className="field">
