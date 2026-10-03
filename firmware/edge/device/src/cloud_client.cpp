@@ -1138,13 +1138,22 @@ bool CloudClient::uploadSnapshot(const char* rfId, uint64_t ts, uint8_t channel,
   // own "0x" prefix (see dispatchSensorCode()), which is filesystem/URL-safe
   // as a path segment.
   //
+  // The {projectId}/snapshots/ prefix is REQUIRED, not cosmetic: storage.rules
+  // only grants the device write access under /{projectId}/snapshots/** (see
+  // storage.rules's match block), and the cloud-side onSnapshotUploaded
+  // trigger (later task) parses {projectId, rfId, timestamp, channel} out of
+  // this exact path shape. Without it, objects land at the bucket root,
+  // every upload is rejected by the rules, and even a rules change that let
+  // it through would be unparseable on the cloud side. Uses the same
+  // projectId_ member reportEvent()'s RTDB path already uses.
+  //
   // ts is formatted with snprintf/%llu, not String's `+= (uint64_t)`: Arduino
   // String has no reliable operator+ overload for a 64-bit integer on this
   // platform (reportEvent() hits the exact same constraint — see its tsBuf).
   char tsBuf[21];  // uint64 max is 20 digits + null, same sizing as reportEvent()
   snprintf(tsBuf, sizeof(tsBuf), "%llu", (unsigned long long)ts);
-  String objectPath =
-      String(rfId) + "/" + tsBuf + "/ch" + channel + ".jpg";
+  String objectPath = projectId_ + "/snapshots/" + rfId + "/" + tsBuf +
+                      "/ch" + channel + ".jpg";
 
   Serial.printf("cloud: uploadSnapshot %s ch%u (%u bytes, heap %u maxblock %u)\n",
                 rfId, channel, (unsigned)len, ESP.getFreeHeap(), block);

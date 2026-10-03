@@ -630,7 +630,7 @@ git commit -m "feat(firmware): CameraClient capture gate (tested) + DVRIP grab (
 - Test: hardware only (Phase 6); no new native test (socket I/O)
 
 **Interfaces:**
-- Produces: `bool CloudClient::uploadSnapshot(const char* rfId, uint32_t ts, uint8_t channel, const uint8_t* jpeg, size_t len)` — PUTs the bytes to Firebase Storage object `{projectId}/snapshots/{rfId}/{ts}/ch{N}.jpg` using the already-minted Firebase token. Best-effort: returns false and logs on failure, never blocks.
+- Produces: `bool CloudClient::uploadSnapshot(const char* rfId, uint64_t ts, uint8_t channel, const uint8_t* jpeg, size_t len)` — PUTs the bytes to Firebase Storage object `{projectId}/snapshots/{rfId}/{ts}/ch{N}.jpg` using the already-minted Firebase token. Best-effort: returns false and logs on failure, never blocks. NOTE: `ts` MUST be epoch-milliseconds wall-clock (`(uint64_t)time(nullptr) * 1000ULL`), computed once per trigger — the SAME value `reportEvent` uses for its `/events/{rfId}/{ts}` key (cloud_client.cpp ~893). It is NOT `handleSensorEvent`'s `now` (that is `millis()` uptime) and NOT `uint32_t` (epoch-ms overflows 32 bits). The two keys must be identical or the cloud cannot correlate the image to its event.
 - Consumes: `CameraClient::shouldCapture`, `channelsFor`, `grab`; per-family `lastCaptureMs` map in `main.cpp` (RAM only).
 
 - [ ] **Step 1: Add the capture call in `main.cpp`**

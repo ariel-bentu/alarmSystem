@@ -333,10 +333,33 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
       uint8_t channelCount = 0;
       CameraGate::channelsFor(sensor, channels, channelCount);
 
+      // WATCHDOG: this loop is the one place in the whole capture path that
+      // can run long enough to matter. cameraChannel == 0 (capture ALL
+      // channels — channelsFor()'s default) means up to 3 iterations, each
+      // with an ~8s CameraClient::grab() (its own IoDeadline) followed by an
+      // up-to-~20s CloudClient::uploadSnapshot() (bounded by the shared data
+      // client's kHandshakeTimeoutSec/kSocketTimeoutSec/kSyncTimeoutSec) —
+      // worst case ~84s in this one handleSensorEvent() call. The task
+      // watchdog budget is kWatchdogTimeoutSec = 60s and is fed only once
+      // per loop() iteration (top of loop()), so without explicit feeds here
+      // a slow-but-progressing NVR plus a cold/reconnecting data client
+      // could exceed 60s and panic-reboot the device — right after a real
+      // alarm trigger, which is the worst possible moment. This is the exact
+      // failure class docs/history/tls-handshake-watchdog-reboot.md and
+      // cloud_client.cpp's mintCustomToken() response-wait loop both guard
+      // against: feed explicitly before every stretch that can block for
+      // seconds, same idiom as mintCustomToken()'s
+      // `while (...) { platformFeedWatchdog(); ... }`. Feeding before BOTH
+      // calls (not just once per channel) means no single grab-or-upload
+      // stretch (each individually well under 60s) ever accumulates
+      // unfed — only the SUM across channels was the risk, and that sum is
+      // now fed through on every step.
       uint8_t uploaded = 0;
       for (uint8_t c = 0; c < channelCount; c++) {
+        platformFeedWatchdog();
         std::vector<uint8_t> buf;
         if (!CameraClient::grab(config, channels[c], buf)) continue;
+        platformFeedWatchdog();
         if (cloudClient.uploadSnapshot(rfId, snapshotTs, channels[c],
                                        buf.data(), buf.size())) {
           uploaded++;
