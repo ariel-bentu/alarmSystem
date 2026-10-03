@@ -44,11 +44,15 @@ class EepromStore {
   // sizeof(Config) 2580 -> 2548. A stale record must be DISCARDED, not
   // misread as the new layout.
   //
+  // Bumped B9 -> BA when the NVR fields (Config::nvrHost/nvrPort/nvrUser/
+  // nvrPassword/nvrMode/captureCooldownSec and SensorConfig::outOfSight/
+  // cameraChannel) were added, changing sizeof(Config) 2548 -> 2664.
+  //
   // The siren address is the casualty of any bump here: it lives in this
   // record, is write-only device->cloud, and a discarded record silently
   // breaks the physical siren pairing. RtdbConfig.s is the recovery path —
   // see alarm_state.h's note and verify it on hardware.
-  static constexpr uint32_t kMagic = 0xA1A2B3B9;
+  static constexpr uint32_t kMagic = 0xA1A2B3BA;
 
   bool begin();
   bool load(bool* armed, bool* localWebEnabled, Config* config);
