@@ -297,8 +297,15 @@ export async function handleSnapshotUpload(
 // unimportable under vitest.
 const SNAPSHOT_BUCKET = "alarm-system-100.firebasestorage.app";
 
+// MUST match the bucket's region: a Storage-triggered function can only listen
+// to a bucket in its own region (a europe-west1 function cannot trigger on a
+// us-east1 bucket). The bucket is in us-east1 (kept in the US to stay on the
+// free tier), so THIS function alone runs in us-east1 — every other function
+// stays europe-west1. If the bucket is ever moved, change this too.
+const SNAPSHOT_BUCKET_REGION = "us-east1";
+
 export const onSnapshotUploaded = onObjectFinalized(
-  { region: "europe-west1", secrets: [ANTHROPIC_API_KEY], bucket: SNAPSHOT_BUCKET },
+  { region: SNAPSHOT_BUCKET_REGION, secrets: [ANTHROPIC_API_KEY], bucket: SNAPSHOT_BUCKET },
   async (event) => {
     const objectName = event.data.name;
     const bucketName = event.data.bucket;
