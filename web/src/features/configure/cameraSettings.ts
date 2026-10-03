@@ -113,19 +113,22 @@ export function validateNvrSettings(
       ? input.judgePrompt
       : undefined;
 
-  return {
-    ok: true,
-    value: {
-      nvrMode: nvrMode as NvrMode,
-      nvrHost,
-      nvrPort,
-      nvrUser,
-      nvrPassword,
-      captureCooldownSec,
-      snapshotRetentionDays,
-      judgeProvider,
-      judgeModel,
-      judgePrompt,
-    },
+  // Firestore's updateDoc REJECTS any field whose value is `undefined` (unlike
+  // a missing key). nvrMode/nvrPort/captureCooldownSec/snapshotRetentionDays are
+  // guaranteed defined here (validation returned ok:false above otherwise); the
+  // rest are optional and must be OMITTED when blank, not set to undefined.
+  const value: NvrSettingsValue = {
+    nvrMode: nvrMode as NvrMode,
+    nvrPort,
+    captureCooldownSec,
+    snapshotRetentionDays,
   };
+  if (nvrHost !== undefined) value.nvrHost = nvrHost;
+  if (nvrUser !== undefined) value.nvrUser = nvrUser;
+  if (nvrPassword !== undefined) value.nvrPassword = nvrPassword;
+  if (judgeProvider !== undefined) value.judgeProvider = judgeProvider;
+  if (judgeModel !== undefined) value.judgeModel = judgeModel;
+  if (judgePrompt !== undefined) value.judgePrompt = judgePrompt;
+
+  return { ok: true, value };
 }

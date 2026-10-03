@@ -15,6 +15,29 @@ describe("validateNvrSettings", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("omits blank optional fields entirely (never sets them to undefined)", () => {
+    // Firestore's updateDoc rejects any field whose value is `undefined`, so a
+    // config with blank optional fields must not carry those keys at all.
+    const r = validateNvrSettings({
+      nvrMode: "capture",
+      nvrPort: 34567,
+      captureCooldownSec: 45,
+      snapshotRetentionDays: 14,
+      // nvrHost / nvrUser / nvrPassword / judgeProvider / judgeModel /
+      // judgePrompt all left out → blank
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // No enumerable key may hold `undefined`.
+    for (const [key, v] of Object.entries(r.value)) {
+      expect(v, `field "${key}" must not be undefined`).not.toBeUndefined();
+    }
+    // And the blank optionals must be ABSENT, not present-with-undefined.
+    expect("judgeModel" in r.value).toBe(false);
+    expect("judgePrompt" in r.value).toBe(false);
+    expect("nvrHost" in r.value).toBe(false);
+  });
+
   it("rejects a bad port", () => {
     expect(
       validateNvrSettings({
