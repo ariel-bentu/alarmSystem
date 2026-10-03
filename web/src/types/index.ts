@@ -264,6 +264,25 @@ export interface AlarmEvent {
   armSource?: ArmSource;
 }
 
+// A SEPARATE collection from `events` — written by onSnapshotUploaded (Task
+// 13), one doc per {rfId, ts} trigger, id `{rfId}_{ts}`. Joined onto
+// AlarmEvent rows in ExplorePage by that same key (rfId + timestamp.toMillis()
+// as epoch-ms), NOT embedded on the event doc itself.
+export interface TimelineSnapshotDoc {
+  id: string; // `${rfId}_${ts}`
+  rfId?: string;
+  sensorId?: string | null;
+  sensorName?: string;
+  timestamp?: Timestamp;
+  snapshots?: { channel: number; url: string }[];
+  // Free-text AI note, written only when the project's judge ran. There is
+  // NO structured verdict field on this doc — onSnapshotUploaded embeds the
+  // verdict in this string ("confirmed breach (AI): ...", "false positive
+  // (AI): ...", or a withheld-advisory variant that also starts "safe (AI,
+  // channel N): ..."). snapshotSummary() parses it back out for the badge.
+  aiNote?: string;
+}
+
 // ---- Realtime Database (device-facing) shapes ----
 
 export interface RtdbState {

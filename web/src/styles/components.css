@@ -411,6 +411,27 @@
   color: var(--warn);
 }
 
+/* ---------- Snapshot thumbnails (Explore timeline) ---------- */
+
+/* Plain button wrapper so the thumbnail is keyboard-reachable and gets a
+   focus ring, without inheriting default button chrome. */
+.snapshot-thumb-btn {
+  display: inline-flex;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+  line-height: 0;
+}
+.snapshot-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  display: block;
+}
+
 .dot {
   display: inline-block;
   inline-size: 10px;

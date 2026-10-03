@@ -13,9 +13,10 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { useProject } from "@/app/ProjectProvider";
-import { eventsCol } from "@/lib/firestore";
+import { eventsCol, timelineCol } from "@/lib/firestore";
 import { liveWindowStart, mergeEventPages } from "./eventPaging";
 import { eventSubject } from "./eventSubject";
+import { snapshotSummary } from "./snapshotThumb";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { groupItemsByDay } from "@/features/configure/groupSensorsByDay";
 import {
@@ -24,7 +25,7 @@ import {
 } from "@/features/configure/lastSeenFormat";
 import { useT } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/en";
-import type { AlarmEvent } from "@/types";
+import type { AlarmEvent, TimelineSnapshotDoc } from "@/types";
 
 // Events older than the live window load a page at a time. "Load all" loops
 // this same page size rather than issuing one unbounded query, so a long
@@ -83,6 +84,20 @@ export default function ExplorePage() {
   const [exhausted, setExhausted] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
+  // Camera snapshots + AI verdict live on a SEPARATE collection
+  // (projects/{id}/timeline, doc id `{rfId}_{ts}`) written by
+  // onSnapshotUploaded — never on the AlarmEvent row itself. Kept as a flat
+  // map keyed by that same id so each rendered row can look itself up in
+  // O(1); un-matched rows (the vast majority, since most triggers have no
+  // camera) simply get `undefined` back from the map.
+  const [timelineById, setTimelineById] = useState<
+    Map<string, TimelineSnapshotDoc>
+  >(new Map());
+
+  // Full-size view of one clicked snapshot. null = closed.
+  const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
+  const lightboxRef = useRef<HTMLDialogElement>(null);
+
   // Paging walks a document cursor, not a computed date: with a fixed page
   // size, nothing about a timestamp says where page 2 begins.
   const cursor = useRef<QueryDocumentSnapshot<AlarmEvent> | null>(null);
@@ -124,6 +139,32 @@ export default function ExplorePage() {
 
     return unsub;
   }, [projectId]);
+
+  // Separate listener over the whole `timeline` collection (unbounded by the
+  // live/history day split above — a snapshot can land anytime after the
+  // triggering event). This mirrors the events listener's lifecycle: one
+  // subscription per project, cleaned up via the returned unsubscribe when
+  // the project changes or the page unmounts.
+  useEffect(() => {
+    setTimelineById(new Map());
+    if (!projectId) return;
+
+    const unsub = onSnapshot(timelineCol(projectId), (snap) => {
+      setTimelineById(new Map(snap.docs.map((d) => [d.id, d.data()])));
+    });
+
+    return unsub;
+  }, [projectId]);
+
+  // Native <dialog> + showModal(), same pattern as the pair dialog in
+  // SensorsTab: the platform gives focus trapping, Esc-to-close and the top
+  // layer for free, none of which happen from merely rendering `open`.
+  useEffect(() => {
+    const el = lightboxRef.current;
+    if (!el) return;
+    if (expandedUrl && !el.open) el.showModal();
+    if (!expandedUrl && el.open) el.close();
+  }, [expandedUrl]);
 
   /** Fetch the next page of history. Returns false once the end is reached. */
   const loadPage = useCallback(async (): Promise<boolean> => {
@@ -211,6 +252,7 @@ export default function ExplorePage() {
                   <th>{t("explore.event")}</th>
                   <th>{t("explore.batteryLow")}</th>
                   <th>{t("explore.rssi")}</th>
+                  <th>{t("explore.camera")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -220,7 +262,7 @@ export default function ExplorePage() {
                       date={group.date}
                       isToday={group.isToday}
                       isNever={group.isNever}
-                      colSpan={5}
+                      colSpan={6}
                     />
                     {group.items.map((ev, i) => {
                       const ts = ev.timestamp.toMillis();
@@ -231,6 +273,20 @@ export default function ExplorePage() {
                         group === eventDayGroups[0] && i === 0
                           ? relativeSuffix(ts, now, t)
                           : null;
+                      // The join: onSnapshotUploaded writes the timeline doc
+                      // id as `${rfId}_${ts}` using the SAME epoch-ms the
+                      // device/cloud stamped the triggering event with, so
+                      // this key recreates that id from the displayed row.
+                      const timelineKey = `${ev.rfId}_${ts}`;
+                      const timelineEntry = timelineById.get(timelineKey);
+                      const { hasImages, verdictLabel } =
+                        snapshotSummary(timelineEntry);
+                      const verdictKey: TranslationKey | undefined =
+                        verdictLabel === "Confirmed breach (AI)"
+                          ? "explore.verdict.breach"
+                          : verdictLabel === "False positive (AI)"
+                            ? "explore.verdict.safe"
+                            : undefined;
                       return (
                         <tr
                           key={ev.id}
@@ -290,6 +346,50 @@ export default function ExplorePage() {
                               "—"
                             )}
                           </td>
+                          {/* Snapshots + AI verdict come from the SEPARATE
+                              `timeline` collection, joined above by
+                              `${rfId}_${ts}` — most rows have no match
+                              (no camera on the sensor, or NVR off), hence the
+                              "—" fallback matching the other radio-only
+                              columns. */}
+                          <td>
+                            {hasImages ? (
+                              <div className="row" style={{ gap: "var(--sp-2)" }}>
+                                {timelineEntry?.snapshots?.map((snap) => (
+                                  <button
+                                    key={snap.channel}
+                                    type="button"
+                                    className="snapshot-thumb-btn"
+                                    onClick={() => setExpandedUrl(snap.url)}
+                                    aria-label={t("explore.snapshotAlt", {
+                                      channel: snap.channel,
+                                    })}
+                                  >
+                                    <img
+                                      src={snap.url}
+                                      alt={t("explore.snapshotAlt", {
+                                        channel: snap.channel,
+                                      })}
+                                      className="snapshot-thumb"
+                                    />
+                                  </button>
+                                ))}
+                                {verdictKey && (
+                                  <span
+                                    className={
+                                      verdictLabel === "Confirmed breach (AI)"
+                                        ? "badge badge--danger"
+                                        : "badge badge--ok"
+                                    }
+                                  >
+                                    {t(verdictKey)}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -335,6 +435,31 @@ export default function ExplorePage() {
           </div>
         )}
       </div>
+
+      {/* Lightbox: click a thumbnail to see it full-size, click again or the
+          backdrop (native <dialog> behaviour) to close. No existing
+          image-expand precedent elsewhere in the app, so this keeps the
+          interaction to that one gesture rather than inventing a fuller
+          gallery/carousel. */}
+      <dialog
+        ref={lightboxRef}
+        className="modal"
+        onClose={() => setExpandedUrl(null)}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setExpandedUrl(null);
+        }}
+      >
+        {expandedUrl && (
+          <div className="modal__body">
+            <img
+              src={expandedUrl}
+              alt={t("explore.expandedSnapshotAlt")}
+              style={{ maxWidth: "100%", maxHeight: "80vh", display: "block" }}
+              onClick={() => setExpandedUrl(null)}
+            />
+          </div>
+        )}
+      </dialog>
     </div>
   );
 }

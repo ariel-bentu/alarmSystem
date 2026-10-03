@@ -317,6 +317,12 @@ export const he: Record<TranslationKey, string> = {
   "explore.eventType.device_restart": "הופעל מחדש",
   "explore.eventType.device_offline": "מנותק",
   "explore.eventType.device_online": "חזר לפעולה",
+  // תמונות מצלמה ואימות AI, המחוברים מאוסף timeline נפרד.
+  "explore.camera": "מצלמה",
+  "explore.snapshotAlt": "מצלמה {channel}",
+  "explore.verdict.breach": "אושרה חדירה (AI)",
+  "explore.verdict.safe": "אזעקת כזב (AI)",
+  "explore.expandedSnapshotAlt": "תמונת מצלמה מוגדלת",
 
   // ---- Members ----
   "members.title": "משתמשים",

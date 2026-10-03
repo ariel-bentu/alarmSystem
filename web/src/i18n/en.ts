@@ -329,6 +329,14 @@ export const en = {
   "explore.eventType.device_restart": "Restarted",
   "explore.eventType.device_offline": "Went offline",
   "explore.eventType.device_online": "Back online",
+  // Camera snapshots + AI verdict, joined from the separate `timeline`
+  // collection (see snapshotThumb.ts) rather than carried on the event row
+  // itself.
+  "explore.camera": "Camera",
+  "explore.snapshotAlt": "Camera {channel}",
+  "explore.verdict.breach": "Confirmed breach (AI)",
+  "explore.verdict.safe": "False positive (AI)",
+  "explore.expandedSnapshotAlt": "Expanded camera snapshot",
 
   // ---- Members ----
   "members.title": "Members",
