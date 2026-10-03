@@ -68,6 +68,25 @@ function toRtdbCondition(
   return { t, ...x };
 }
 
+// NVR settings bundle, kept as one object so the trailing param stays
+// order-independent and self-documenting rather than six more positional
+// scalars. Everything optional: a project with NVR off (or not yet
+// configured) passes nothing, and no NVR keys are emitted.
+export interface NvrSettings {
+  nvrMode?: "off" | "capture" | "capture+judge";
+  nvrHost?: string;
+  nvrPort?: number;
+  nvrUser?: string;
+  nvrPassword?: string;
+  captureCooldownSec?: number;
+}
+
+const NVR_MODE_CODE: Record<"off" | "capture" | "capture+judge", 0 | 1 | 2> = {
+  off: 0,
+  capture: 1,
+  "capture+judge": 2,
+};
+
 /**
  * Build the RTDB config object from the active-on-device profile's data.
  * @param rules - All rules belonging to the active profile
@@ -80,6 +99,9 @@ function toRtdbCondition(
  * @param sirenBaseAddress - The device's own siren identity ("0x..."), echoed
  *   back so a device whose EEPROM was wiped can re-adopt it rather than
  *   generating a new address the physical siren is not paired to
+ * @param nvr - Project-level NVR connection settings. Values come from
+ *   Firestore project data at runtime — never hardcode secrets here, this
+ *   repo is public. Absent or mode "off"/undefined emits no NVR keys at all.
  */
 export function buildRtdbConfig(
   rules: Rule[],
@@ -89,7 +111,8 @@ export function buildRtdbConfig(
   sirenEnabled = true,
   alwaysRules: Rule[] = [],
   remotes: Remote[] = [],
-  sirenBaseAddress?: string
+  sirenBaseAddress?: string,
+  nvr?: NvrSettings
 ): RtdbConfig {
   const sensorMap = new Map<string, Sensor>();
   for (const s of sensors) {
@@ -141,6 +164,24 @@ export function buildRtdbConfig(
     }
   }
 
+  // Per-sensor camera flags, index-aligned with r. Built by walking r back to
+  // the Sensor that produced each family — rIndex alone only maps rfId to
+  // index, not back to the originating sensor doc, so this re-derives the
+  // family for every sensor and matches it against r's entries. Omitted
+  // entirely (both arrays) when every entry is default, mirroring how m/s
+  // are omitted: this config is polled every 5s and most projects have no
+  // NVR configured at all.
+  const familyToSensor = new Map<string, Sensor>();
+  for (const sensor of sensors) {
+    const family = sensorFamilyId(sensor);
+    if (family && !familyToSensor.has(family)) {
+      familyToSensor.set(family, sensor);
+    }
+  }
+  const os = r.map((rfId) => familyToSensor.get(rfId)?.outOfSight === true);
+  const cch = r.map((rfId) => familyToSensor.get(rfId)?.cameraChannel ?? 0);
+  const hasCameraFlags = os.some((v) => v) || cch.some((v) => v !== 0);
+
   const indexOfRfId = (rfId: string) => rIndex.get(rfId) ?? -1;
   const conditionsByRfId = new Map<string, RtdbCondition[]>();
   for (const rfId of r) {
@@ -183,6 +224,29 @@ export function buildRtdbConfig(
     c,
     ...(m.length > 0 ? { m } : {}),
     ...sirenKey(sirenBaseAddress),
+    ...nvrKeys(nvr),
+    ...(hasCameraFlags ? { os, cch } : {}),
+  };
+}
+
+/**
+ * The `nh/np/nu/nw/nm/cc` keys, or {} when NVR is off or unconfigured.
+ * Shared shape with sirenKey's omit-when-absent contract: RTDB rejects
+ * undefined, and an explicit `nm: undefined` would show up in toEqual
+ * comparisons.
+ */
+function nvrKeys(
+  nvr?: NvrSettings
+): Pick<RtdbConfig, "nh" | "np" | "nu" | "nw" | "nm" | "cc"> {
+  const mode = nvr?.nvrMode;
+  if (!mode || mode === "off") return {};
+  return {
+    nm: NVR_MODE_CODE[mode],
+    ...(nvr.nvrHost ? { nh: nvr.nvrHost } : {}),
+    ...(nvr.nvrPort ? { np: nvr.nvrPort } : {}),
+    ...(nvr.nvrUser ? { nu: nvr.nvrUser } : {}),
+    ...(nvr.nvrPassword ? { nw: nvr.nvrPassword } : {}),
+    ...(nvr.captureCooldownSec !== undefined ? { cc: nvr.captureCooldownSec } : {}),
   };
 }
 

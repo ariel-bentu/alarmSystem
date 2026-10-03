@@ -398,3 +398,36 @@ describe("buildRtdbConfig — always-on rules", () => {
     expect(config.s).toBeUndefined();
   });
 });
+
+describe("buildRtdbConfig — NVR + per-sensor camera fields", () => {
+  it("emits NVR fields and index-aligned per-sensor camera flags", () => {
+    const cfg = buildRtdbConfig(
+      [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],
+      [{ ...sensors[0], id: "s1", rfId: "0x0061DA", outOfSight: true, cameraChannel: 2 } as any],
+      true, 30, true, [], [], undefined,
+      { nvrMode: "capture+judge", nvrHost: "h", nvrPort: 34567, nvrUser: "u", nvrPassword: "p", captureCooldownSec: 60 }
+    );
+    expect(cfg.nm).toBe(2);
+    expect(cfg.nh).toBe("h");
+    expect(cfg.np).toBe(34567);
+    expect(cfg.nu).toBe("u");
+    expect(cfg.nw).toBe("p");
+    expect(cfg.cc).toBe(60);
+    expect(cfg.os).toEqual([true]);
+    expect(cfg.cch).toEqual([2]);
+  });
+
+  it("omits os/cch when every sensor is default", () => {
+    const cfg = buildRtdbConfig(
+      [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],
+      [sensors[0]],
+      true, 30, true, [], [], undefined,
+      undefined
+    );
+    expect(cfg.os).toBeUndefined();
+    expect(cfg.cch).toBeUndefined();
+    expect(cfg.nm).toBeUndefined();
+    expect(cfg.nh).toBeUndefined();
+    expect(cfg.cc).toBeUndefined();
+  });
+});

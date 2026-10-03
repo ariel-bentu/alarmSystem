@@ -157,7 +157,15 @@ async function rebuildConfig(projectId: string): Promise<void> {
     sirenEnabled,
     alwaysRules,
     remotes,
-    sirenBaseAddress
+    sirenBaseAddress,
+    {
+      nvrMode: projectData?.nvrMode,
+      nvrHost: projectData?.nvrHost,
+      nvrPort: projectData?.nvrPort,
+      nvrUser: projectData?.nvrUser,
+      nvrPassword: projectData?.nvrPassword,
+      captureCooldownSec: projectData?.captureCooldownSec,
+    }
   );
   await rtdb.ref(`${projectId}/config`).set(config);
 }
