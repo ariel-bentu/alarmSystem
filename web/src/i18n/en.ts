@@ -102,6 +102,7 @@ export const en = {
   "cfg.tab.profiles": "Profiles",
   "cfg.tab.siren": "Siren",
   "cfg.tab.remotes": "Remotes",
+  "cfg.tab.camera": "Camera",
 
   // Remotes tab
   "cfg.remotes.intro":
@@ -256,6 +257,36 @@ export const en = {
   "cfg.siren.learnTimedOut": "Learn mode may have timed out — press SET again immediately before retrying.",
   "cfg.siren.pairInstructions":
     "Press the SET button on the siren three times, then send the pairing signal within 10 seconds. Two beeps mean success.",
+
+  // Camera tab
+  "cfg.camera.mode": "Camera mode",
+  "cfg.camera.modeOff": "Off",
+  "cfg.camera.modeCapture": "Capture snapshot",
+  "cfg.camera.modeCaptureJudge": "Capture + AI judge",
+  "cfg.camera.modeHelp":
+    "Capture takes a snapshot on every armed trigger. Capture + AI judge additionally asks an AI model to judge the snapshot before alerting.",
+  "cfg.camera.host": "NVR host",
+  "cfg.camera.hostPlaceholder": "192.168.1.50",
+  "cfg.camera.port": "NVR port",
+  "cfg.camera.user": "NVR user",
+  "cfg.camera.password": "NVR password",
+  "cfg.camera.passwordUnchanged": "Unchanged — leave blank to keep it",
+  "cfg.camera.cooldown": "Capture cooldown (seconds)",
+  "cfg.camera.cooldownHelp":
+    "Minimum time between snapshots, to avoid flooding the NVR on repeated triggers.",
+  "cfg.camera.retention": "Snapshot retention (days)",
+  "cfg.camera.retentionHelp": "Snapshots older than this are deleted automatically.",
+  "cfg.camera.judgeProvider": "AI judge provider",
+  "cfg.camera.judgeProviderOff": "Off",
+  "cfg.camera.judgeProviderClaude": "Claude",
+  "cfg.camera.judgeRequiredWarn":
+    "Capture + AI judge requires a judge provider — otherwise every armed trigger fails safe to a breach alert.",
+  "cfg.camera.judgeModel": "Judge model",
+  "cfg.camera.judgeModelPlaceholder": "claude-sonnet-5",
+  "cfg.camera.judgePrompt": "Judge prompt",
+  "cfg.camera.judgePromptPlaceholder":
+    "Describe what should count as a breach in this snapshot…",
+  "cfg.camera.saved": "Saved.",
 
   // ---- Explore ----
   "explore.title": "Events",

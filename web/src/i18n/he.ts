@@ -99,6 +99,7 @@ export const he: Record<TranslationKey, string> = {
   "cfg.tab.profiles": "פרופילים",
   "cfg.tab.siren": "צופר",
   "cfg.tab.remotes": "שלטים",
+  "cfg.tab.camera": "מצלמה",
 
   // Remotes tab
   "cfg.remotes.intro":
@@ -250,6 +251,35 @@ export const he: Record<TranslationKey, string> = {
   "cfg.siren.learnTimedOut": "ייתכן שמצב הלמידה פג — לחצו שוב על SET מיד לפני הניסיון הבא.",
   "cfg.siren.pairInstructions":
     "לחצו שלוש פעמים על כפתור SET שבצופר, ואז שלחו את אות השיוך תוך 10 שניות. שני צפצופים מעידים על הצלחה.",
+
+  // Camera tab
+  "cfg.camera.mode": "מצב מצלמה",
+  "cfg.camera.modeOff": "כבוי",
+  "cfg.camera.modeCapture": "צילום תמונה",
+  "cfg.camera.modeCaptureJudge": "צילום + שיפוט AI",
+  "cfg.camera.modeHelp":
+    "צילום תמונה מתבצע בכל הפעלה בזמן דריכה. צילום + שיפוט AI מוסיף בקשה ממודל AI לשפוט את התמונה לפני ההתראה.",
+  "cfg.camera.host": "כתובת ה-NVR",
+  "cfg.camera.hostPlaceholder": "192.168.1.50",
+  "cfg.camera.port": "פורט NVR",
+  "cfg.camera.user": "משתמש NVR",
+  "cfg.camera.password": "סיסמת NVR",
+  "cfg.camera.passwordUnchanged": "ללא שינוי — השאירו ריק כדי לשמור על הסיסמה הקיימת",
+  "cfg.camera.cooldown": "צינון בין צילומים (שניות)",
+  "cfg.camera.cooldownHelp":
+    "זמן מינימלי בין צילומים, כדי לא להציף את ה-NVR בהפעלות חזרתיות.",
+  "cfg.camera.retention": "שמירת תמונות (ימים)",
+  "cfg.camera.retentionHelp": "תמונות ישנות יותר ממספר הימים הזה יימחקו אוטומטית.",
+  "cfg.camera.judgeProvider": "ספק שיפוט AI",
+  "cfg.camera.judgeProviderOff": "כבוי",
+  "cfg.camera.judgeProviderClaude": "Claude",
+  "cfg.camera.judgeRequiredWarn":
+    "צילום + שיפוט AI מחייב ספק שיפוט — אחרת כל הפעלה בזמן דריכה תיכשל בבטחה להתראת חדירה.",
+  "cfg.camera.judgeModel": "מודל השיפוט",
+  "cfg.camera.judgeModelPlaceholder": "claude-sonnet-5",
+  "cfg.camera.judgePrompt": "הנחיית השיפוט",
+  "cfg.camera.judgePromptPlaceholder": "תארו מה נחשב חדירה בתמונה הזו…",
+  "cfg.camera.saved": "נשמר.",
 
   // ---- Explore ----
   "explore.title": "אירועים",
