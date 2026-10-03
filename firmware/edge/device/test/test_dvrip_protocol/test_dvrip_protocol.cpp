@@ -45,6 +45,41 @@ void test_snap_body_contains_channel() {
   TEST_ASSERT_NOT_NULL(strstr(body, "\"Name\" : \"OPSNAP\""));
 }
 
+void test_parse_header_reads_fields() {
+  uint8_t buf[20] = {};
+  buf[0] = 0xFF;
+  buf[4] = 0x5F; // session 0x5F
+  buf[14] = 0x19;
+  buf[15] = 0x06; // msgId 1561
+  buf[16] = 0x10; // bodyLen 16
+  Dvrip::Header h = Dvrip::parseHeader(buf, sizeof(buf));
+  TEST_ASSERT_TRUE(h.ok);
+  TEST_ASSERT_EQUAL_UINT16(1561, h.msgId);
+  TEST_ASSERT_EQUAL_UINT32(0x5F, h.sessionId);
+  TEST_ASSERT_EQUAL_UINT32(16, h.bodyLen);
+}
+
+void test_parse_header_rejects_short() {
+  uint8_t buf[10] = {};
+  TEST_ASSERT_FALSE(Dvrip::parseHeader(buf, sizeof(buf)).ok);
+}
+
+void test_login_ret_and_session() {
+  const char* body =
+    "{ \"Ret\" : 100, \"SessionID\" : \"0x0000007B\" }";
+  TEST_ASSERT_EQUAL_INT(100, Dvrip::loginRet(body));
+  char sid[16] = {};
+  TEST_ASSERT_NOT_NULL(Dvrip::sessionIdFromLogin(body, sid));
+  TEST_ASSERT_EQUAL_STRING("0x0000007B", sid);
+}
+
+void test_is_jpeg_true_and_false() {
+  uint8_t jpeg[4] = {0xFF, 0xD8, 0x12, 0x34};
+  uint8_t notjpeg[4] = {'{', '"', 'R', 'e'};
+  TEST_ASSERT_TRUE(Dvrip::isJpeg(jpeg, 4));
+  TEST_ASSERT_FALSE(Dvrip::isJpeg(notjpeg, 4));
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_sofia_hash_empty_password_vector);
@@ -52,6 +87,10 @@ void setup() {
   RUN_TEST(test_build_frame_rejects_small_buffer);
   RUN_TEST(test_login_body_contains_user_and_hash);
   RUN_TEST(test_snap_body_contains_channel);
+  RUN_TEST(test_parse_header_reads_fields);
+  RUN_TEST(test_parse_header_rejects_short);
+  RUN_TEST(test_login_ret_and_session);
+  RUN_TEST(test_is_jpeg_true_and_false);
   UNITY_END();
 }
 void loop() {}

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 
 // RFC 1321 MD5 - Public domain reference implementation
 // Compact variant based on RFC 1321
@@ -186,4 +187,48 @@ void Dvrip::snapBody(uint8_t channel, const char* sid, char* out, size_t cap) {
   std::snprintf(out, cap,
     "{ \"Name\" : \"OPSNAP\", \"SessionID\" : \"%s\", "
     "\"OPSNAP\" : { \"Channel\" : %u } }", sid, (unsigned)channel);
+}
+
+Dvrip::Header Dvrip::parseHeader(const uint8_t* b, size_t len) {
+  Header h{};
+  if (len < 20) {
+    h.ok = false;
+    return h;
+  }
+  h.sessionId = (uint32_t)b[4] | ((uint32_t)b[5] << 8) | ((uint32_t)b[6] << 16) | ((uint32_t)b[7] << 24);
+  h.msgId = (uint16_t)b[14] | ((uint16_t)b[15] << 8);
+  h.bodyLen = (uint32_t)b[16] | ((uint32_t)b[17] << 8) | ((uint32_t)b[18] << 16) | ((uint32_t)b[19] << 24);
+  h.ok = true;
+  return h;
+}
+
+int Dvrip::loginRet(const char* body) {
+  const char* p = std::strstr(body, "\"Ret\"");
+  if (!p) return -1;
+  p = std::strchr(p, ':');
+  if (!p) return -1;
+  return std::atoi(p + 1);
+}
+
+const char* Dvrip::sessionIdFromLogin(const char* body, char out[16]) {
+  const char* p = std::strstr(body, "\"SessionID\"");
+  if (!p) return nullptr;
+  p = std::strchr(p, '"');
+  if (!p) return nullptr;      // opening of "SessionID"
+  p = std::strchr(p + 1, '"');
+  if (!p) return nullptr;  // closing
+  p = std::strchr(p + 1, '"');
+  if (!p) return nullptr;  // opening of value
+  const char* start = p + 1;
+  const char* end = std::strchr(start, '"');
+  if (!end) return nullptr;
+  size_t n = (size_t)(end - start);
+  if (n > 15) n = 15;
+  std::memcpy(out, start, n);
+  out[n] = '\0';
+  return out;
+}
+
+bool Dvrip::isJpeg(const uint8_t* b, size_t len) {
+  return len >= 2 && b[0] == 0xFF && b[1] == 0xD8;
 }
