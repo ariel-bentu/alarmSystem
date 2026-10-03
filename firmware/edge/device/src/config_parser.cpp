@@ -6,7 +6,15 @@
 namespace ConfigParser {
 
 bool parseConfigJson(const char* json, Config* out) {
-  StaticJsonDocument<4096> doc;
+  // Bumped 4096 -> 6144 when the NVR connection fields (nh/np/nu/nw/nm/cc)
+  // and per-sensor os[]/cch[] arrays were added — a 16-sensor, 4-condition,
+  // 8-participant worst case plus the new fields runs ~6.5KB of raw JSON.
+  // Note: measured empirically that ArduinoJson 7.4.3's StaticJsonDocument<N>
+  // is a deprecated shim over JsonDocument (see compatibility.hpp) — N only
+  // feeds a cosmetic capacity() getter, the backing store is heap-allocated
+  // and grows on demand, so this bump is documentation of true load, not a
+  // hard limit that was actually at risk of NoMemory.
+  StaticJsonDocument<6144> doc;
   DeserializationError err = deserializeJson(doc, json);
   if (err) return false;
 
@@ -37,6 +45,21 @@ bool parseConfigJson(const char* json, Config* out) {
     }
   }
 
+  // NVR connection + capture settings, echoed from the project's camera
+  // config. Parsed BEFORE the r/c early return below, for the same reason as
+  // `s`/`m` — a config with no sensors must still deliver NVR settings (e.g.
+  // so the device can keep a capture session alive independent of rules).
+  // nvrMode: 0=off, 1=capture, 2=capture+judge.
+  strncpy(out->nvrHost, doc["nh"] | "", sizeof(out->nvrHost) - 1);
+  out->nvrHost[sizeof(out->nvrHost) - 1] = '\0';
+  out->nvrPort = doc["np"] | 34567;
+  strncpy(out->nvrUser, doc["nu"] | "", sizeof(out->nvrUser) - 1);
+  out->nvrUser[sizeof(out->nvrUser) - 1] = '\0';
+  strncpy(out->nvrPassword, doc["nw"] | "", sizeof(out->nvrPassword) - 1);
+  out->nvrPassword[sizeof(out->nvrPassword) - 1] = '\0';
+  out->nvrMode = doc["nm"] | 0;
+  out->captureCooldownSec = doc["cc"] | 45;
+
   JsonArray r = doc["r"];
   JsonArray c = doc["c"];
   // Paired with onProfileChange.ts: RTDB drops empty arrays on .set(), so
@@ -58,6 +81,16 @@ bool parseConfigJson(const char* json, Config* out) {
     // shorter — so this is the same strncpy against a smaller buffer.
     strncpy(sensor.familyId, r[i].as<const char*>(), sizeof(sensor.familyId) - 1);
     sensor.familyId[sizeof(sensor.familyId) - 1] = '\0';
+
+    // Per-sensor camera flags ride as two index-aligned OPTIONAL arrays next
+    // to r/c, rather than inside each condition object, so the existing r/c
+    // loop and its early-return contract stay untouched. Missing or short
+    // means "no override" (visible, not out of bounds, not RTDB's
+    // empty-array-drop quirk).
+    JsonArray os = doc["os"];
+    JsonArray cch = doc["cch"];
+    sensor.outOfSight = (!os.isNull() && i < os.size()) ? (os[i] | false) : false;
+    sensor.cameraChannel = (!cch.isNull() && i < cch.size()) ? (cch[i] | 0) : 0;
 
     JsonArray conditions = c[i];
     sensor.conditionCount = 0;

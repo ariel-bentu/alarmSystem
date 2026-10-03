@@ -369,6 +369,38 @@ void test_family_ids_fit_exactly_and_longer_values_truncate_safely() {
   TEST_ASSERT_EQUAL_STRING("0xTOOLON", config.sensors[2].familyId);
 }
 
+// NVR connection fields (nh/np/nu/nw/nm/cc) are parsed before the r/c early
+// return, same as s/m — a config with no sensors must still deliver NVR
+// settings. Per-sensor os[]/cch[] ride index-aligned with r/c.
+void test_parses_nvr_fields() {
+  const char* json =
+    "{ \"a\":true, \"d\":30, "
+    "\"nh\":\"cam.local\", \"np\":34567, \"nu\":\"u\", \"nw\":\"p\", "
+    "\"nm\":2, \"cc\":60, "
+    "\"r\":[\"0x0061D\"], \"c\":[[{\"t\":0}]], "
+    "\"os\":[true], \"cch\":[3] }";
+  Config cfg;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
+  TEST_ASSERT_EQUAL_STRING("cam.local", cfg.nvrHost);
+  TEST_ASSERT_EQUAL_UINT16(34567, cfg.nvrPort);
+  TEST_ASSERT_EQUAL_STRING("u", cfg.nvrUser);
+  TEST_ASSERT_EQUAL_STRING("p", cfg.nvrPassword);
+  TEST_ASSERT_EQUAL_UINT8(2, cfg.nvrMode);
+  TEST_ASSERT_EQUAL_UINT16(60, cfg.captureCooldownSec);
+  TEST_ASSERT_TRUE(cfg.sensors[0].outOfSight);
+  TEST_ASSERT_EQUAL_UINT8(3, cfg.sensors[0].cameraChannel);
+}
+
+void test_nvr_fields_default_when_absent() {
+  const char* json = "{ \"a\":false, \"d\":0, \"r\":[\"0x0061D\"], \"c\":[[{\"t\":0}]] }";
+  Config cfg;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
+  TEST_ASSERT_EQUAL_UINT8(0, cfg.nvrMode);      // off
+  TEST_ASSERT_EQUAL_UINT16(45, cfg.captureCooldownSec); // default
+  TEST_ASSERT_FALSE(cfg.sensors[0].outOfSight);
+  TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[0].cameraChannel); // all
+}
+
 void setup() {
   UNITY_BEGIN();
   RUN_TEST(test_family_ids_fit_exactly_and_longer_values_truncate_safely);
@@ -393,6 +425,8 @@ void setup() {
   RUN_TEST(test_parses_siren_base_address);
   RUN_TEST(test_absent_s_means_no_siren_address);
   RUN_TEST(test_siren_address_parsed_when_r_and_c_absent);
+  RUN_TEST(test_parses_nvr_fields);
+  RUN_TEST(test_nvr_fields_default_when_absent);
   UNITY_END();
 }
 
