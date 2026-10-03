@@ -1089,9 +1089,9 @@ git commit -m "feat(web): project NVR + judge settings tab"
 - Test: `web/src/features/explore/snapshotThumb.test.ts`
 
 **Interfaces:**
-- Consumes: timeline entries now carrying `snapshots?: {channel,url}[]` and `judge?: {verdict,reason,model,channel,at}` (written by Task 13).
-- Produces (pure): `snapshotSummary(entry): { hasImages: boolean; verdictLabel?: string }` — verdictLabel "Confirmed breach (AI)" / "False positive (AI)" / undefined.
-- Produces (UI): a thumbnail row on entries with snapshots, click-to-expand, and a verdict badge when present.
+- Consumes: the SEPARATE `projects/{id}/timeline` collection (doc id `{rfId}_{ts}`) that Task 13 writes, carrying `snapshots?: {channel,url}[]` and `judge?: {verdict,reason,model,channel,at}`. NOTE: ExplorePage renders `AlarmEvent` rows from the `events` collection — snapshots are NOT on those rows. Task 16 must subscribe to `timeline` as well and JOIN snapshot/judge data onto the displayed event rows by key `AlarmEvent.rfId + AlarmEvent.timestamp.toMillis()` ↔ timeline doc id `{rfId}_{ts}` (same epoch-ms the device uses). Build a `Map<"{rfId}_{ts}", TimelineSnapshotDoc>` and look each event up in it.
+- Produces (pure): `snapshotSummary(entry): { hasImages: boolean; verdictLabel?: string }` — verdictLabel "Confirmed breach (AI)" / "False positive (AI)" / undefined. `entry` is the joined timeline doc (or undefined if none).
+- Produces (UI): a thumbnail row on event rows that have a matching timeline snapshot doc, click-to-expand, and a verdict badge when present.
 
 - [ ] **Step 1: Write the failing pure test**
 
@@ -1244,6 +1244,14 @@ Enable `capture+judge`. Then verify on hardware:
 - (a) An armed trigger the judge rules **"safe"** → the siren STOPS for that trigger (advisory matched).
 - (b) A **mismatched/stale** advisory (different `{rfId,ts}`) → **no-op**, siren unaffected.
 - (c) **WiFi pulled** → a trigger alarms and sirens exactly as today; no capture attempted; alarm never waits.
+- (d) **`alarm_cause` race check (from the final review):** `/{projectId}/state/alarm_cause` has
+  two writers — the device `reportAlarm` (carries `rfId`) and server `onSensorEvent` (label only,
+  no `rfId`). The judge's armed-gate only fires when the **device-written** cause (with `rfId`) is
+  what `onSnapshotUploaded` reads. If the server's label-only cause wins the race, the judge is
+  skipped and the siren simply runs its course — the SAFE direction (never suppresses a breach,
+  only skips a false-positive cancellation). Confirm on hardware that the device-written cause wins
+  often enough that the "safe" suppression in (a) actually fires in practice; if it rarely does,
+  that is a tuning/ordering follow-up, not a safety bug.
 
 Record results in `docs/testing-device-liveness.md` or a new `docs/history/` entry.
 
