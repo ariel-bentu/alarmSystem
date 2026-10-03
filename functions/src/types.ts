@@ -120,6 +120,10 @@ export interface Sensor {
   // ever — without the marker a leaking sensor would Telegram on every
   // packet, which is every few seconds. Same shape as deadAlertSentAt.
   waterAlertSentAt?: Timestamp | null;
+  // Sensor is outside camera view. Optional: absent means false.
+  outOfSight?: boolean;
+  // NVR camera channel index for this sensor. Optional: required only when sensor has a camera.
+  cameraChannel?: number;
 }
 
 export interface Profile {
@@ -229,6 +233,26 @@ export interface Project {
   // DEFAULT_BATTERY_ALERT_MONTHS default. Zero or negative disables the
   // stale-battery alert for the whole project.
   batteryAlertMonths?: number;
+  // NVR mode — off disables snapshot capture. Optional: absent means off.
+  nvrMode?: "off" | "capture" | "capture+judge";
+  // NVR host address. Optional: required only when nvrMode is not off.
+  nvrHost?: string;
+  // NVR port. Optional: required only when nvrMode is not off.
+  nvrPort?: number;
+  // NVR user for authentication. Optional: required only when nvrMode is not off.
+  nvrUser?: string;
+  // NVR password for authentication. Optional: required only when nvrMode is not off.
+  nvrPassword?: string;
+  // Seconds to wait before allowing next snapshot after trigger. Optional: absent uses default.
+  captureCooldownSec?: number;
+  // Days to retain snapshots before deletion. Optional: absent uses default.
+  snapshotRetentionDays?: number;
+  // Judge provider for alarm-cause analysis. Optional: absent means no judgment.
+  judgeProvider?: "claude" | "null";
+  // LLM model for judging. Optional: required only when judgeProvider is set.
+  judgeModel?: string;
+  // Custom prompt for judge context. Optional: uses default when absent.
+  judgePrompt?: string;
   device: DeviceInfo;
 }
 
@@ -302,6 +326,22 @@ export interface RtdbConfig {
   // Single value, not an array: multi-siren is a TODO (see todo.txt), and
   // the firmware TX path drives one address today.
   s?: number;
+  // NVR host. Omitted when NVR is off.
+  nh?: string;
+  // NVR port. Omitted when NVR is off.
+  np?: number;
+  // NVR user. Omitted when NVR is off.
+  nu?: string;
+  // NVR password. Omitted when NVR is off.
+  nw?: string;
+  // NVR mode: 0=off, 1=capture, 2=capture+judge. Omitted when NVR is off.
+  nm?: 0 | 1 | 2;
+  // Capture cooldown in seconds. Omitted when using default.
+  cc?: number;
+  // Per-sensor out-of-sight flags, index-aligned with r. Omitted when all false.
+  os?: boolean[];
+  // Per-sensor camera channel, index-aligned with r. Omitted when all absent.
+  cch?: number[];
 }
 
 // Who caused an arm/disarm. The cloud sources (app/schedule/telegram) come
