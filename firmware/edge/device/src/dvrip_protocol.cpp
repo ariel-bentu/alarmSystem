@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#include <cstdio>
 
 // RFC 1321 MD5 - Public domain reference implementation
 // Compact variant based on RFC 1321
@@ -155,4 +156,34 @@ void Dvrip::sofiaHash(const char* password, char out[9]) {
     out[i] = cs[n];
   }
   out[8] = '\0';
+}
+
+size_t Dvrip::buildFrame(uint16_t msgId, const char* body, uint32_t session,
+                         uint8_t* out, size_t cap) {
+  size_t bodyLen = std::strlen(body) + 2; // + 0x0a 0x00
+  size_t total = 20 + bodyLen;
+  if (cap < total) return 0;
+  std::memset(out, 0, 20);
+  out[0] = 0xFF;
+  out[4] = session & 0xFF; out[5] = (session >> 8) & 0xFF;
+  out[6] = (session >> 16) & 0xFF; out[7] = (session >> 24) & 0xFF;
+  out[14] = msgId & 0xFF; out[15] = (msgId >> 8) & 0xFF;
+  out[16] = bodyLen & 0xFF; out[17] = (bodyLen >> 8) & 0xFF;
+  out[18] = (bodyLen >> 16) & 0xFF; out[19] = (bodyLen >> 24) & 0xFF;
+  std::memcpy(out + 20, body, bodyLen - 2);
+  out[20 + bodyLen - 2] = 0x0a;
+  out[20 + bodyLen - 1] = 0x00;
+  return total;
+}
+
+void Dvrip::loginBody(const char* user, const char* pw, char* out, size_t cap) {
+  std::snprintf(out, cap,
+    "{ \"EncryptType\" : \"MD5\", \"LoginType\" : \"DVRIP-Web\", "
+    "\"PassWord\" : \"%s\", \"UserName\" : \"%s\" }", pw, user);
+}
+
+void Dvrip::snapBody(uint8_t channel, const char* sid, char* out, size_t cap) {
+  std::snprintf(out, cap,
+    "{ \"Name\" : \"OPSNAP\", \"SessionID\" : \"%s\", "
+    "\"OPSNAP\" : { \"Channel\" : %u } }", sid, (unsigned)channel);
 }
