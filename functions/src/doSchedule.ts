@@ -24,6 +24,7 @@ import { CronSpec, isDue } from "./cronMatch";
 import { scheduleTick } from "./scheduleTick";
 import { deadSensorCheck } from "./deadSensorCheck";
 import { checkDeviceLiveness } from "./deviceLiveness";
+import { snapshotCleanup } from "./snapshotCleanup";
 
 const TIME_ZONE = "Asia/Jerusalem";
 
@@ -55,6 +56,13 @@ const schedules: ScheduledTask[] = [
     hour: 12,
     weekDay: "*",
     callback: deadSensorCheck,
+  },
+  {
+    desc: "snapshot retention",
+    min: 0,
+    hour: 12,
+    weekDay: "*",
+    callback: snapshotCleanup,
   },
 ];
 
