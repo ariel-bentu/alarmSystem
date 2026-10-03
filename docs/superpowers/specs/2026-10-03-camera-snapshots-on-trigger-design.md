@@ -426,8 +426,30 @@ Firestore timeline entry (augmented):
 5. **Hardware soak** of the firmware capture/upload/advisory path before
    declaring the device half production-ready.
 
+## Considered and deferred: the NVR's own human detection
+
+Probed 2026-10-03. This NVR *does* support on-box human/vehicle classification
+(the `Detect` config carries `PEARule` with `TypeHuman:1`/`TypeVehicle:1`,
+plus `PEAInHuman`/`SmartMotionHuman`/`HumanDetect` keys), and its alarm event
+stream is subscribable over DVRIP (`OPAlarmManager Start → Ret:100`). It is
+currently **disabled** — only pixel `MotionDetect` is on.
+
+**Deferred** because, on a cheap Xiongmai board, on-box human detection is
+documented as unreliable outdoors — shadows, distance, night, and cluttered
+scenes defeat it; the "98–99% false-alert reduction" is unverified marketing.
+Making an unreliable classifier the thing that *suppresses* an alarm risks
+silencing a real intrusion. The cloud vision judge reasons about the actual
+scene (and your specific false-positive sources) and is the better authority.
+
+If revisited, the intended role is a **free local pre-filter / confidence hint
+and correlation signal** (NVR human-event ↔ Kerui trigger by time+channel),
+**advisory only** — never the alarm-suppression authority. That stays the
+vision judge's job. Enabling it would require a (reversible) `SetConfig` write
+to the NVR; untouched for v1.
+
 ## Out of scope (v1)
 
+- The NVR's own human/PEA detection (see "Considered and deferred" above).
 - Live video / streaming (snapshots only).
 - On-device detection.
 - Event/image buffering across outages (consistent with "No event buffering
