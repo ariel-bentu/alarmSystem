@@ -49,6 +49,7 @@ import {
   DEFAULT_BATTERY_ALERT_MONTHS,
 } from "./batteryAge";
 import { groupItemsByDay } from "./groupSensorsByDay";
+import { cameraChannelLabel, normalizeChannel } from "./cameraSensorConfig";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { useT } from "@/i18n/I18nProvider";
 
@@ -339,6 +340,30 @@ export default function SensorsTab() {
     );
   };
 
+  const handleOutOfSightChange = async (sensor: Sensor, outOfSight: boolean) => {
+    if (!projectId) return;
+    await updateDoc(sensorDoc(projectId, sensor.id), { outOfSight });
+    setSensors((prev) =>
+      prev.map((s) => (s.id === sensor.id ? { ...s, outOfSight } : s))
+    );
+  };
+
+  // `channel` is already normalized (undefined = "all channels"); written as
+  // null rather than omitted because Firestore's updateDoc otherwise leaves a
+  // previously-set cameraChannel untouched instead of clearing it.
+  const handleCameraChannelChange = async (
+    sensor: Sensor,
+    channel: number | undefined
+  ) => {
+    if (!projectId) return;
+    await updateDoc(sensorDoc(projectId, sensor.id), {
+      cameraChannel: channel ?? null,
+    });
+    setSensors((prev) =>
+      prev.map((s) => (s.id === sensor.id ? { ...s, cameraChannel: channel } : s))
+    );
+  };
+
   // Recording a replacement ALSO clears batteryAlertSentAt. That pairing is
   // what re-arms the alert for the next cycle — without it each sensor would
   // Telegram once, ever, and go quiet for every battery after the first.
@@ -473,6 +498,9 @@ export default function SensorsTab() {
                   <th title={t("cfg.sensors.alertAfterDaysHelp")}>
                     {t("cfg.sensors.alertAfterDays")}
                   </th>
+                  <th title={t("cfg.sensors.outOfSightHelp")}>
+                    {t("cfg.sensors.cameraChannel")}
+                  </th>
                   <th />
                 </tr>
               </thead>
@@ -484,7 +512,7 @@ export default function SensorsTab() {
                       date={group.date}
                       isToday={group.isToday}
                       isNever={group.isNever}
-                      colSpan={5}
+                      colSpan={6}
                     />
                     {group.items.map((s) => {
                   const sighting = pairedSighting(s);
@@ -609,6 +637,37 @@ export default function SensorsTab() {
                           title={t("cfg.sensors.neverAlert")}
                           aria-label={t("cfg.sensors.alertAfterDays")}
                         />
+                      </td>
+                      <td>
+                        <label className="check">
+                          <input
+                            type="checkbox"
+                            checked={s.outOfSight ?? false}
+                            onChange={(e) =>
+                              void handleOutOfSightChange(s, e.target.checked)
+                            }
+                          />
+                          <span>{t("cfg.sensors.outOfSight")}</span>
+                        </label>
+                        <select
+                          className="input input--narrow"
+                          value={s.cameraChannel ?? ""}
+                          onChange={(e) =>
+                            void handleCameraChannelChange(
+                              s,
+                              normalizeChannel(e.target.value)
+                            )
+                          }
+                          aria-label={t("cfg.sensors.cameraChannelLabel")}
+                        >
+                          <option value="">{t("cfg.sensors.allChannels")}</option>
+                          {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+                            <option key={n} value={n}>
+                              {cameraChannelLabel(n)}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="muted">{t("cfg.sensors.outOfSightHelp")}</p>
                       </td>
                       <td>
                         <button

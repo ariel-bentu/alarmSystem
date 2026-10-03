@@ -169,6 +169,12 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.batteryChangedLabel": "החלפת סוללה אחרונה",
   "cfg.sensors.batteryStale": "הסוללה דורשת החלפה",
   "cfg.sensors.water": "מים",
+  "cfg.sensors.outOfSight": "מחוץ לטווח המצלמה",
+  "cfg.sensors.outOfSightHelp":
+    "סמנו ״בטווח המצלמה״ רק כשהמצלמה מציגה בוודאות פולש בעת הפעלה.",
+  "cfg.sensors.cameraChannel": "מצלמה",
+  "cfg.sensors.cameraChannelLabel": "ערוץ מצלמה",
+  "cfg.sensors.allChannels": "כל הערוצים",
 
   // Profiles tab
   "cfg.profiles.loading": "טוען פרופילים…",

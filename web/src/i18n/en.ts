@@ -173,6 +173,12 @@ export const en = {
   "cfg.sensors.batteryChangedLabel": "Battery last changed",
   "cfg.sensors.batteryStale": "battery overdue",
   "cfg.sensors.water": "water",
+  "cfg.sensors.outOfSight": "Out of sight",
+  "cfg.sensors.outOfSightHelp":
+    "Flag in-sight only when the camera reliably shows an intruder on trigger.",
+  "cfg.sensors.cameraChannel": "Camera",
+  "cfg.sensors.cameraChannelLabel": "Camera channel",
+  "cfg.sensors.allChannels": "All channels",
 
   // Profiles tab
   "cfg.profiles.loading": "Loading profiles…",
