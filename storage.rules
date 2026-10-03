@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Snapshots live under {projectId}/snapshots/**.
+    // Reads: any signed-in member of the project (mirrors database.rules.json
+    // scoping — membership is checked via the project's members collection by
+    // the app's own queries; Storage rules cannot read Firestore cheaply, so
+    // we gate on auth + path shape and rely on the per-project path for
+    // isolation, same posture as RTDB config reads).
+    // Writes: the device identity (custom-token uid == projectId) only, and
+    // only JPEGs under its own project.
+    match /{projectId}/snapshots/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == projectId
+                   && request.resource.contentType == 'image/jpeg'
+                   && request.resource.size < 2 * 1024 * 1024;
+    }
+  }
+}

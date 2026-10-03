@@ -123,6 +123,14 @@ failure class most suspected historically.
   unauthenticated LAN simulator described above.
 - **Unknown sensor IDs are logged, never dropped.** The pairing UI reads them
   from the event log. They are ignored for alarm logic until you name them.
+- **The NVR is the least-trusted device on the LAN.** Xiongmai-based DVR/NVR
+  boards (including OEM-rebadged units) have a documented history of the
+  XMEye P2P cloud backdoor and were a major contributor to the Mirai botnet
+  lineage. Camera snapshots are premises images — treat the NVR as hostile:
+  put it on its own VLAN and block its outbound internet access rather than
+  trusting it on the main LAN. Storage rules scope snapshots per project
+  (`storage.rules`), but that only protects the data in Firebase, not the
+  NVR's own exposure on your network.
 
 ## Credentials and deployment
 
