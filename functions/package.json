@@ -2,7 +2,9 @@
   "name": "alarm-functions",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": "20" },
+  "engines": {
+    "node": "20"
+  },
   "main": "lib/index.js",
   "scripts": {
     "build": "tsc",
@@ -15,8 +17,10 @@
     "touch:project": "tsx scripts/touchProject.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "firebase-admin": "^13.0.1",
-    "firebase-functions": "^6.1.1"
+    "firebase-functions": "^6.1.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
