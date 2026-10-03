@@ -358,9 +358,18 @@ Design specs and implementation plans are in [`docs/superpowers/`](docs/superpow
 
 **Working on hardware.** The device boots, provisions WiFi, mints its Firebase
 token, decodes real sensors, evaluates rules, drives the siren hub-free, serves
-the LAN UI, and writes events with Telegram alerts confirmed. 127 native unit
+the LAN UI, and writes events with Telegram alerts confirmed. 143 native unit
 tests pass. Longest verified clean run: **18h16m**, single boot, zero watchdog
 reboots, flat heap.
+
+**Camera snapshots on trigger** — on every armed trigger the device grabs a
+JPEG from each live NVR channel and uploads it to Firebase Storage.
+`onSnapshotUploaded` augments the timeline, and in `capture+judge` mode it
+calls an AI vision judge to either send a Telegram breach photo or write a
+false-positive advisory. A Manual Capture button in the Operations page
+triggers all cameras immediately, recorded as a standalone timeline entry.
+The capture pipeline is deployed and working; the AI judge path is deployed but
+not yet exercised on a real armed trigger.
 
 **Known gaps** — the device-liveness and offline-alert work is committed but
 not yet hardware-tested; the Telegram webhook is not registered, so bot

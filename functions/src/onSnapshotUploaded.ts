@@ -161,7 +161,7 @@ export async function handleSnapshotUpload(
       break;
     }
   }
-  const sensorName = sensor?.name ?? rfId;
+  const sensorName = sensor?.name ?? (rfId === "MANUAL" ? "Manual capture" : rfId);
 
   // --- 1. Always augment the timeline, regardless of mode/armed state ---
   const url = await deps.downloadUrl(projectId, objectName);
@@ -189,6 +189,12 @@ export async function handleSnapshotUpload(
   });
 
   // --- 2. Judge gate ---
+  // Manual captures have no alarm to confirm or deny — skip the judge entirely.
+  if (rfId === "MANUAL") {
+    console.log(`onSnapshotUploaded: manual capture for ${projectId} — skipping judge`);
+    return;
+  }
+
   if (project.nvrMode !== "capture+judge") {
     console.log(
       `onSnapshotUploaded: nvrMode=${project.nvrMode ?? "off"} for ${projectId} — skipping judge`

@@ -3,7 +3,7 @@
 //
 // The sensor list deliberately lives in Configure, not here: this page is for
 // acting on the system, not inspecting it.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getDocs,
   onSnapshot,
@@ -26,6 +26,7 @@ import {
   commandsArmedRef,
   commandsArmedViaRef,
   commandsSirenRef,
+  commandsCaptureRef,
 } from "@/lib/rtdb";
 import { useOnlineStatus } from "@/lib/useOnlineStatus";
 import { useT } from "@/i18n/I18nProvider";
@@ -96,6 +97,13 @@ export default function OperationsPage() {
   // button; null when idle.
   const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  };
   // SOS is armed by a first press and only fires on a second. It sits near the
   // Disarm button that gets tapped at bedtime, and an accidental siren at
   // 2am is a genuinely costly mistake, so a single stray tap must not sound it.
@@ -267,6 +275,20 @@ export default function OperationsPage() {
     }
   };
 
+  // Manual camera capture: writes commands/capture = { at: <epoch-ms> }.
+  // The device polls this and grabs all channels, uploading to Storage.
+  // Uses Date.now() as the timestamp so the web UI and timeline can correlate.
+  const handleCaptureNow = async () => {
+    if (!projectId || !canArm || busy) return;
+    setPending("capture");
+    try {
+      await set(commandsCaptureRef(projectId), { at: Date.now() });
+      showToast(t("ops.captureSent"));
+    } finally {
+      setPending(null);
+    }
+  };
+
   // "No project selected" is a real, actionable state — but only once we know
   // there is genuinely no project. While the doc is still being fetched it is
   // simply unknown, and saying so would flash a wrong answer on every load.
@@ -376,6 +398,20 @@ export default function OperationsPage() {
           <span aria-hidden="true">🆘</span>
         )}{" "}
         {sosArmed ? t("ops.sosConfirm") : t("ops.sos")}
+      </button>
+      <button
+        type="button"
+        className="btn btn--sm"
+        onClick={() => void handleCaptureNow()}
+        disabled={!canArm || busy}
+        title={t("ops.captureNowTitle")}
+      >
+        {pending === "capture" ? (
+          <span className="spinner" aria-hidden="true" />
+        ) : (
+          <span aria-hidden="true">📷</span>
+        )}{" "}
+        {t("ops.captureNow")}
       </button>
     </div>
   );
@@ -552,6 +588,7 @@ export default function OperationsPage() {
             )}
           </section>
       </>
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }

@@ -89,6 +89,9 @@ export const en = {
   "ops.sosCancel": "Cancel",
   "ops.sosTitle": "Sound the siren now",
   "ops.sosDisabled": "Siren is disabled in settings",
+  "ops.captureNow": "Capture",
+  "ops.captureNowTitle": "Grab snapshots from all cameras now",
+  "ops.captureSent": "Capture request sent",
   "ops.siren": "Siren",
   "ops.sirenDisabled": "Disabled — alarms will not sound the siren",
   "ops.sirenSounding": "Sounding",
@@ -329,11 +332,13 @@ export const en = {
   "explore.eventType.device_restart": "Restarted",
   "explore.eventType.device_offline": "Went offline",
   "explore.eventType.device_online": "Back online",
+  "explore.eventType.manual_capture": "Manual capture",
   // Camera snapshots + AI verdict, joined from the separate `timeline`
   // collection (see snapshotThumb.ts) rather than carried on the event row
   // itself.
   "explore.camera": "Camera",
   "explore.snapshotAlt": "Camera {channel}",
+  "explore.browseSnapshots": "{count} photo(s)",
   "explore.verdict.breach": "Confirmed breach (AI)",
   "explore.verdict.safe": "False positive (AI)",
   "explore.expandedSnapshotAlt": "Expanded camera snapshot",

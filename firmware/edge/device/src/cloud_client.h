@@ -168,6 +168,11 @@ class CloudClient {
   // call is STRICTLY ADVISORY: it never decides on its own to touch the
   // siren or arm state.
   bool consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOut);
+  // Manual capture command: /commands/capture = { at: <epoch-ms> }, written
+  // by the web UI. Returns true once per NEW request (change-only, same nonce
+  // pattern as pair/fp). ts is the epoch-ms the web UI stamped; the device
+  // uses it as the snapshot/event key so the timeline can be joined.
+  bool consumeCaptureCommand(uint64_t* tsOut);
   // Lets callers avoid putting a ~2.4KB Config on the 4KB cont stack unless
   // there is actually an update to take — see main.cpp's loop().
   bool hasPendingConfigUpdate() const { return hasPendingConfig_; }
@@ -384,6 +389,11 @@ class CloudClient {
   char pendingFalsePositiveRfId_[16] = {};
   uint64_t pendingFalsePositiveTs_ = 0;
   bool hasPendingFalsePositive_ = false;
+
+  uint64_t lastCaptureCommandTs_ = 0;
+  bool hadCaptureCommand_ = false;
+  uint64_t pendingCaptureCommandTs_ = 0;
+  bool hasPendingCapture_ = false;
 
   bool mintCustomToken();
   // Parse a polled /commands or /config payload. Actual config parsing lives

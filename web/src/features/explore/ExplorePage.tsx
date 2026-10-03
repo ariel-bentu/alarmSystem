@@ -94,8 +94,11 @@ export default function ExplorePage() {
     Map<string, TimelineSnapshotDoc>
   >(new Map());
 
-  // Full-size view of one clicked snapshot. null = closed.
-  const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
+  // Gallery state: null = closed, otherwise the snapshots array + current index.
+  const [gallery, setGallery] = useState<{
+    snapshots: { url: string; channel: number }[];
+    index: number;
+  } | null>(null);
   const lightboxRef = useRef<HTMLDialogElement>(null);
 
   // Paging walks a document cursor, not a computed date: with a fixed page
@@ -162,9 +165,9 @@ export default function ExplorePage() {
   useEffect(() => {
     const el = lightboxRef.current;
     if (!el) return;
-    if (expandedUrl && !el.open) el.showModal();
-    if (!expandedUrl && el.open) el.close();
-  }, [expandedUrl]);
+    if (gallery && !el.open) el.showModal();
+    if (!gallery && el.open) el.close();
+  }, [gallery]);
 
   /** Fetch the next page of history. Returns false once the end is reached. */
   const loadPage = useCallback(async (): Promise<boolean> => {
@@ -223,11 +226,36 @@ export default function ExplorePage() {
   }, []);
 
   const events = mergeEventPages(live, history);
-  const eventDayGroups = groupItemsByDay(
-    events,
-    (ev) => ev.timestamp.toMillis(),
+
+  // Build the set of timeline keys that already have a matching event row.
+  // Timeline entries with no match are manual captures (rfId="MANUAL") or
+  // orphans — surface them as standalone rows so manual captures are visible.
+  const eventKeys = new Set(events.map((ev) => `${ev.rfId}_${ev.timestamp.toMillis()}`));
+  const orphanTimeline = Array.from(timelineById.values()).filter(
+    (tl) => tl.timestamp && !eventKeys.has(tl.id)
+  );
+
+  // Unified row type: real event or orphan timeline entry.
+  type Row =
+    | { kind: "event"; ev: AlarmEvent }
+    | { kind: "timeline"; tl: TimelineSnapshotDoc };
+
+  const rows: Row[] = [
+    ...events.map((ev): Row => ({ kind: "event", ev })),
+    ...orphanTimeline.map((tl): Row => ({ kind: "timeline", tl })),
+  ].sort((a, b) => {
+    const tsA = a.kind === "event" ? a.ev.timestamp.toMillis() : a.tl.timestamp!.toMillis();
+    const tsB = b.kind === "event" ? b.ev.timestamp.toMillis() : b.tl.timestamp!.toMillis();
+    return tsB - tsA; // newest first
+  });
+
+  const rowDayGroups = groupItemsByDay(
+    rows,
+    (r) => r.kind === "event" ? r.ev.timestamp.toMillis() : r.tl.timestamp!.toMillis(),
     now
   );
+
+  const eventDayGroups = rowDayGroups;
 
   if (!project) {
     return <p>{t("ops.noProject")}</p>;
@@ -240,7 +268,7 @@ export default function ExplorePage() {
       <div className="card">
         {loading ? (
           <p>{t("explore.loading")}</p>
-        ) : events.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="muted">{t("explore.noEvents")}</p>
         ) : (
           <div className="table-wrap">
@@ -264,19 +292,75 @@ export default function ExplorePage() {
                       isNever={group.isNever}
                       colSpan={6}
                     />
-                    {group.items.map((ev, i) => {
-                      const ts = ev.timestamp.toMillis();
-                      // Relative phrasing on the newest row only — that is the
-                      // one being checked live. null past 24h, see
-                      // relativeSuffix.
+                    {group.items.map((row, i) => {
+                      const ts = row.kind === "event"
+                        ? row.ev.timestamp.toMillis()
+                        : row.tl.timestamp!.toMillis();
                       const ago =
                         group === eventDayGroups[0] && i === 0
                           ? relativeSuffix(ts, now, t)
                           : null;
-                      // The join: onSnapshotUploaded writes the timeline doc
-                      // id as `${rfId}_${ts}` using the SAME epoch-ms the
-                      // device/cloud stamped the triggering event with, so
-                      // this key recreates that id from the displayed row.
+
+                      // Orphan timeline row (manual capture — no event in the
+                      // events collection).
+                      if (row.kind === "timeline") {
+                        const tl = row.tl;
+                        const { hasImages, verdictLabel } = snapshotSummary(tl);
+                        const verdictKey: TranslationKey | undefined =
+                          verdictLabel === "Confirmed breach (AI)"
+                            ? "explore.verdict.breach"
+                            : verdictLabel === "False positive (AI)"
+                              ? "explore.verdict.safe"
+                              : undefined;
+                        return (
+                          <tr key={tl.id}>
+                            <td>
+                              <span className="ltr">{timeOfDaySeconds(ts)}</span>
+                              {ago && <span className="muted"> ({ago})</span>}
+                            </td>
+                            <td>{tl.sensorName ?? "—"}</td>
+                            <td>{t("explore.eventType.manual_capture" as TranslationKey)}</td>
+                            <td>{"—"}</td>
+                            <td>{"—"}</td>
+                            <td>
+                              {hasImages ? (
+                                <div className="row" style={{ gap: "var(--sp-2)", alignItems: "center" }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn--sm"
+                                    onClick={() =>
+                                      setGallery({
+                                        snapshots: tl.snapshots!,
+                                        index: 0,
+                                      })
+                                    }
+                                  >
+                                    {t("explore.browseSnapshots", {
+                                      count: tl.snapshots!.length,
+                                    })}
+                                  </button>
+                                  {verdictKey && (
+                                    <span
+                                      className={
+                                        verdictLabel === "Confirmed breach (AI)"
+                                          ? "badge badge--danger"
+                                          : "badge badge--ok"
+                                      }
+                                    >
+                                      {t(verdictKey)}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      // Normal event row.
+                      const ev = row.ev;
                       const timelineKey = `${ev.rfId}_${ts}`;
                       const timelineEntry = timelineById.get(timelineKey);
                       const { hasImages, verdictLabel } =
@@ -292,29 +376,10 @@ export default function ExplorePage() {
                           key={ev.id}
                           className={isSystemEvent(ev.eventType) ? "muted" : undefined}
                         >
-                          {/* The date is already in the heading above, so rows
-                              show only a time — but to the second, because
-                              spacing between triggers is what count_in_window
-                              and multi_sensor rules are tuned from. The newest
-                              event also carries "(5 minutes ago)" beside it;
-                              that is the live-glance row, and the relative
-                              phrasing is an addition to the exact time now,
-                              never a replacement for it. */}
                           <td>
-                            {/* .ltr keeps "14:23:05" in that order inside the
-                                RTL layout — without it the colon-separated
-                                parts get reordered. */}
                             <span className="ltr">{timeOfDaySeconds(ts)}</span>
                             {ago && <span className="muted"> ({ago})</span>}
                           </td>
-                          {/* sensorName is "what this event is about": a
-                              sensor, a profile, a remote's name, or a raw
-                              reset reason. armSource says WHICH of those an
-                              arm/disarm row carries — without it a profile
-                              name was rendered as a remote. eventSubject()
-                              translates and decorates per event type — see
-                              there. Rows written before it was stored are
-                              empty, hence the System fallback. */}
                           <td>
                             {eventSubject(
                               ev.eventType,
@@ -328,10 +393,6 @@ export default function ExplorePage() {
                           <td>
                             {t(`explore.eventType.${ev.eventType}` as TranslationKey)}
                           </td>
-                          {/* Battery and RSSI describe a radio packet. An
-                              arm/disarm came from the app, so showing "No"
-                              and "0" would invent data that was never
-                              measured. */}
                           <td>
                             {hasRadioData(ev)
                               ? ev.batteryLow
@@ -346,34 +407,23 @@ export default function ExplorePage() {
                               "—"
                             )}
                           </td>
-                          {/* Snapshots + AI verdict come from the SEPARATE
-                              `timeline` collection, joined above by
-                              `${rfId}_${ts}` — most rows have no match
-                              (no camera on the sensor, or NVR off), hence the
-                              "—" fallback matching the other radio-only
-                              columns. */}
                           <td>
                             {hasImages ? (
-                              <div className="row" style={{ gap: "var(--sp-2)" }}>
-                                {timelineEntry?.snapshots?.map((snap) => (
-                                  <button
-                                    key={snap.channel}
-                                    type="button"
-                                    className="snapshot-thumb-btn"
-                                    onClick={() => setExpandedUrl(snap.url)}
-                                    aria-label={t("explore.snapshotAlt", {
-                                      channel: snap.channel,
-                                    })}
-                                  >
-                                    <img
-                                      src={snap.url}
-                                      alt={t("explore.snapshotAlt", {
-                                        channel: snap.channel,
-                                      })}
-                                      className="snapshot-thumb"
-                                    />
-                                  </button>
-                                ))}
+                              <div className="row" style={{ gap: "var(--sp-2)", alignItems: "center" }}>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm"
+                                  onClick={() =>
+                                    setGallery({
+                                      snapshots: timelineEntry!.snapshots!,
+                                      index: 0,
+                                    })
+                                  }
+                                >
+                                  {t("explore.browseSnapshots", {
+                                    count: timelineEntry!.snapshots!.length,
+                                  })}
+                                </button>
                                 {verdictKey && (
                                   <span
                                     className={
@@ -430,32 +480,50 @@ export default function ExplorePage() {
             <span className="muted spacer">
               {loadingMore
                 ? t("explore.loadingMore")
-                : t("explore.loadedCount", { count: events.length })}
+                : t("explore.loadedCount", { count: rows.length })}
             </span>
           </div>
         )}
       </div>
 
-      {/* Lightbox: click a thumbnail to see it full-size, click again or the
-          backdrop (native <dialog> behaviour) to close. No existing
-          image-expand precedent elsewhere in the app, so this keeps the
-          interaction to that one gesture rather than inventing a fuller
-          gallery/carousel. */}
+      {/* Gallery modal: Browse button opens this; prev/next navigate channels;
+          Esc or the close button dismisses it. */}
       <dialog
         ref={lightboxRef}
         className="modal"
-        onClose={() => setExpandedUrl(null)}
+        onClose={() => setGallery(null)}
         onClick={(e) => {
-          if (e.target === e.currentTarget) setExpandedUrl(null);
+          if (e.target === e.currentTarget) setGallery(null);
         }}
       >
-        {expandedUrl && (
-          <div className="modal__body">
+        {gallery && (
+          <div className="modal__body" style={{ minWidth: "min(90vw, 600px)" }}>
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: "var(--sp-2)" }}>
+              <div className="row" style={{ gap: "var(--sp-2)" }}>
+                {gallery.snapshots.map((snap, i) => (
+                  <button
+                    key={snap.channel}
+                    type="button"
+                    className={"btn btn--sm" + (i === gallery.index ? " btn--active" : "")}
+                    onClick={() => setGallery((g) => g && { ...g, index: i })}
+                  >
+                    {t("explore.snapshotAlt", { channel: snap.channel })}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => setGallery(null)}
+                aria-label={t("common.close")}
+              >
+                ✕
+              </button>
+            </div>
             <img
-              src={expandedUrl}
-              alt={t("explore.expandedSnapshotAlt")}
-              style={{ maxWidth: "100%", maxHeight: "80vh", display: "block" }}
-              onClick={() => setExpandedUrl(null)}
+              src={gallery.snapshots[gallery.index].url}
+              alt={t("explore.snapshotAlt", { channel: gallery.snapshots[gallery.index].channel })}
+              style={{ maxWidth: "100%", maxHeight: "70vh", display: "block", margin: "0 auto" }}
             />
           </div>
         )}

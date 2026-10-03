@@ -1352,6 +1352,32 @@ void loop() {
     applyPendingConfigUpdate();
   }
 
+  // Manual capture command from the web UI: /commands/capture = { at: <ms> }.
+  // Grabs ALL channels regardless of sensor config — this is an explicit user
+  // request, not a sensor-triggered capture. Uses "MANUAL" as the rfId so the
+  // timeline entry is labelled separately from sensor events. NVR mode must be
+  // non-off (nm != 0) and the cloud must be ready (same gate as sensor capture).
+  uint64_t captureCommandTs = 0;
+  if (cloudClient.consumeCaptureCommand(&captureCommandTs) &&
+      config.nvrMode != 0 && cloudClient.isReady()) {
+    Serial.printf("[camera] manual capture requested at %llu\n",
+                  (unsigned long long)captureCommandTs);
+    uint8_t channels[3] = {1, 2, 3};
+    uint8_t channelCount = 3;
+    uint8_t uploaded = 0;
+    for (uint8_t c = 0; c < channelCount; c++) {
+      platformFeedWatchdog();
+      std::vector<uint8_t> buf;
+      if (!CameraClient::grab(config, channels[c], buf)) continue;
+      platformFeedWatchdog();
+      if (cloudClient.uploadSnapshot("MANUAL", captureCommandTs, channels[c],
+                                     buf.data(), buf.size()))
+        uploaded++;
+    }
+    Serial.printf("[camera] manual capture: %u/%u channel(s) uploaded\n",
+                  uploaded, channelCount);
+  }
+
   if (localWebEnabled) {
     if (mdnsStarted) platformMdnsUpdate();
     localWebServer.setStatus(armed, siren.isActive());

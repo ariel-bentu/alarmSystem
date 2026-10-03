@@ -803,6 +803,20 @@ void CloudClient::applyCommandsJson(const String& json) {
                     (unsigned long long)fpTs);
     }
   }
+
+  // Manual capture command: /commands/capture = { at: <epoch-ms> }.
+  // Surface once per new `at` value — same change-only pattern as pair/fp.
+  if (doc["capture"]["at"].is<uint64_t>()) {
+    uint64_t captureAt = doc["capture"]["at"].as<uint64_t>();
+    if (!hadCaptureCommand_ || captureAt != lastCaptureCommandTs_) {
+      hadCaptureCommand_ = true;
+      lastCaptureCommandTs_ = captureAt;
+      pendingCaptureCommandTs_ = captureAt;
+      hasPendingCapture_ = true;
+      Serial.printf("cloud: commands.capture -> at %llu\n",
+                    (unsigned long long)captureAt);
+    }
+  }
 }
 
 void CloudClient::applyConfigJson(const String& json) {
@@ -869,6 +883,13 @@ bool CloudClient::consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOu
   rfIdOut[cap - 1] = '\0';
   *tsOut = pendingFalsePositiveTs_;
   hasPendingFalsePositive_ = false;
+  return true;
+}
+
+bool CloudClient::consumeCaptureCommand(uint64_t* tsOut) {
+  if (!hasPendingCapture_) return false;
+  *tsOut = pendingCaptureCommandTs_;
+  hasPendingCapture_ = false;
   return true;
 }
 

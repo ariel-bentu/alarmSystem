@@ -273,9 +273,32 @@ seen at 28h/31.76h — that needs ~36h.
 schedules, timeline, simulator), all Cloud Functions, invite-only access,
 per-project Telegram config.
 
+**Camera snapshots on trigger (2026-10-03) — deployed, judge untested on hardware.**
+On every armed trigger the device grabs a JPEG from each live NVR channel via
+DVRIP/Sofia OPSNAP (port 34567), uploads to Firebase Storage under
+`{projectId}/snapshots/{rfId}/{ts}/ch{N}.jpg`, and the `onSnapshotUploaded`
+Cloud Function augments the timeline. The Events page joins timeline docs onto
+event rows and shows a Browse button that opens a channel-gallery modal.
+In `capture+judge` mode `onSnapshotUploaded` calls the Anthropic Vision API and
+either sends a Telegram breach photo or writes a false-positive advisory to
+`/{projectId}/commands/fp`; judge code is deployed but has not been exercised
+on real hardware yet. A **Manual Capture** button in Operations writes
+`/{projectId}/commands/capture` (same nonce-change pattern as pair/fp); the
+device polls it and grabs all channels immediately, recorded as a standalone
+"Manual capture" timeline row (rfId=`"MANUAL"`, no matching events row — the
+Events page surfaces these as orphan timeline entries). Auto-dismiss toast
+confirms the capture request in the UI. NVR config (host, port, user, password,
+mode, cooldown, retention, judge provider/model/prompt) lives in Firestore
+`projects/{projectId}` and is picked up by the device via the existing
+`onProjectConfigChange` → RTDB rebuild path (NVR fields added to guard).
+Sensors in `r[]` are now kept even when disarmed (all profile rules loaded,
+not just the active one) so the device always knows its full sensor list.
+
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing
 guide below. `RelaySiren` is built but unused (the RF path supersedes it).
+The AI judge in `onSnapshotUploaded` is deployed but not yet exercised on
+real hardware (no armed trigger with a live Anthropic key in the field yet).
 
 ## Next
 
@@ -283,8 +306,9 @@ guide below. `RelaySiren` is built but unused (the RF path supersedes it).
 2. Track [FirebaseClient#333](https://github.com/mobizt/FirebaseClient/issues/333)
    (filed 2026-09-10); if fixed upstream, retire `patch_firebase.py`
 3. Test and deploy the watchdog / offline-alert work (`docs/testing-device-liveness.md`)
-4. Run in parallel with W184
-5. Register the Telegram webhook so bot commands work
-6. Decommission W184
+4. Exercise the AI judge on a real armed trigger to verify the breach/safe path
+5. Run in parallel with W184
+6. Register the Telegram webhook so bot commands work
+7. Decommission W184
 
 See `todo.txt` for smaller known gaps.
