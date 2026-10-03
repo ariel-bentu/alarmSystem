@@ -19,3 +19,4 @@ export { grantTenantAccess } from "./grantTenantAccess";
 export { deviceIngest } from "./deviceIngest";
 export { mintDeviceToken } from "./mintDeviceToken";
 export { onSirenAddress } from "./onSirenAddress";
+export { onSnapshotUploaded } from "./onSnapshotUploaded";

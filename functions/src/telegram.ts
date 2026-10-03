@@ -35,6 +35,43 @@ export async function sendTelegram(
   }
 }
 
+/**
+ * Send a photo via Telegram Bot API's sendPhoto, multipart/form-data.
+ * Mirrors sendTelegram's error handling (log on !res.ok, never throw) so a
+ * Telegram outage cannot take down the caller — in onSnapshotUploaded's
+ * case, a breach has already been judged and the timeline note is what
+ * matters most; the photo is best-effort on top of that.
+ *
+ * caption uses the same parse_mode: "HTML" as sendTelegram, so the "⚠
+ * Confirmed breach — <sensor>, camera <N> — <reason>" caption can reuse the
+ * same escaping conventions as every other alert.
+ */
+export async function sendTelegramPhoto(
+  botToken: string,
+  chatId: string,
+  jpeg: Buffer,
+  caption: string
+): Promise<void> {
+  const url = `https://api.telegram.org/bot${botToken}/sendPhoto`;
+  const form = new FormData();
+  form.append("chat_id", chatId);
+  form.append("caption", caption);
+  form.append("parse_mode", "HTML");
+  // Buffer's ArrayBufferLike can be a SharedArrayBuffer, which BlobPart's
+  // typing rejects — copy into a plain Uint8Array<ArrayBuffer> first.
+  form.append(
+    "photo",
+    new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" }),
+    "snapshot.jpg"
+  );
+
+  const res = await fetch(url, { method: "POST", body: form });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`Telegram sendPhoto API error: ${res.status} ${body}`);
+  }
+}
+
 // --- Pure formatters (unit-tested) ---
 
 export function formatSensorAlert(sensorName: string, eventType: string): string {
