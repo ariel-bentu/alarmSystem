@@ -4,8 +4,16 @@
  *
  * Two writers, deliberately different shapes:
  *  - the server (onSensorEvent) knows the rule, so it writes a ready `label`
+ *    AND the `rfId` that fired. The rfId was added for per-sensor breach
+ *    certainty (onAlarm reads the sensor's definiteBreach from it) and it
+ *    also unblocked onSnapshotUploaded's armed gate, which compares the
+ *    cause's family to the snapshot's and could never match a label-only
+ *    cause — so the AI judge never ran on server-evaluated alarms before.
  *  - the device knows only the rfId that fired (it has no rule or sensor
  *    *names*), so it writes `rfId` and leaves the naming to onAlarm
+ *
+ * `label` still wins for DISPLAY when both are present; the rfId is for
+ * identifying the sensor, not naming it.
  *
  * onAlarm is the single alarm notifier and normalises both into one message.
  */

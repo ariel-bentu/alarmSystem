@@ -179,9 +179,15 @@ export const onSensorEvent = onValueCreated(
     // server sound the siren at all" switch; the device-side sirenEnabled is
     // its own gate on the firmware path.
     if (keruiEvent === "tamper") {
-      await rtdb
-        .ref(`${projectId}/state/alarm_cause`)
-        .set({ label: `${sensor.name} tampered`, at: Date.now() });
+      await rtdb.ref(`${projectId}/state/alarm_cause`).set({
+        label: `${sensor.name} tampered`,
+        // rfId alongside the label so onAlarm can resolve the sensor's breach
+        // certainty, and so onSnapshotUploaded's armed gate (which compares
+        // the cause's family to the snapshot's) can match at all. The label
+        // still wins for DISPLAY — see resolveCauseLabel.
+        rfId: sensor.rfId,
+        at: Date.now(),
+      });
       if (project.serverActions.triggerSiren) {
         await rtdb.ref(`${projectId}/state/siren_active`).set(true);
       }
@@ -270,7 +276,7 @@ export const onSensorEvent = onValueCreated(
       // and duplicate the message.
       await rtdb
         .ref(`${projectId}/state/alarm_cause`)
-        .set({ label, at: Date.now() });
+        .set({ label, rfId: sensor.rfId, at: Date.now() });
 
       // If entry_delay, we note it but still fire (server doesn't implement delay timer in v1)
       if (project.serverActions.triggerSiren) {

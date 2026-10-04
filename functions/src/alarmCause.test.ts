@@ -139,3 +139,28 @@ describe("resolveCauseLabel", () => {
     );
   });
 });
+
+describe("a server cause carrying both label and rfId", () => {
+  // onSensorEvent now writes both. Pinned so a future narrowing of
+  // parseCause cannot silently drop the rfId and take the certainty lookup
+  // with it.
+  it("parseCause keeps both fields", () => {
+    expect(parseCause({ label: "Night motion", rfId: "0x0061D", at: 5 })).toEqual({
+      label: "Night motion",
+      rfId: "0x0061D",
+      at: 5,
+    });
+  });
+
+  // DISPLAY still prefers the label; only certainty uses the rfId.
+  it("resolveCauseLabel still prefers the label", () => {
+    expect(
+      resolveCauseLabel(
+        { label: "Night motion", rfId: "0x0061D", at: 5 },
+        [],
+        { "0x0061D": "Garden PIR" },
+        { "0x0061D": "s1" }
+      )
+    ).toBe("Night motion");
+  });
+});
