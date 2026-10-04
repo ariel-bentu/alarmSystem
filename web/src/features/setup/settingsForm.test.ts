@@ -4,6 +4,8 @@ import {
   formFromProject,
   isDirty,
   normalizeNotifyChannels,
+  PUSHOVER_SOUNDS_LONG,
+  PUSHOVER_SOUNDS_SHORT,
 } from "./settingsForm";
 import { DEFAULT_BATTERY_ALERT_MONTHS } from "@/features/configure/batteryAge";
 
@@ -18,6 +20,9 @@ const base: SettingsForm = {
   notifyEverySensorTrigger: true,
   batteryAlertMonths: DEFAULT_BATTERY_ALERT_MONTHS,
   notifyChannels: ["telegram"],
+  pushoverSound: "",
+  pushoverRetrySec: 60,
+  pushoverExpireSec: 3600,
 };
 
 describe("isDirty", () => {
@@ -81,6 +86,9 @@ describe("formFromProject", () => {
       notifyEverySensorTrigger: false,
       batteryAlertMonths: DEFAULT_BATTERY_ALERT_MONTHS,
       notifyChannels: ["telegram"],
+      pushoverSound: "",
+      pushoverRetrySec: 60,
+      pushoverExpireSec: 3600,
     });
   });
 
@@ -233,5 +241,65 @@ describe("notifyChannels in the form", () => {
   // every render.
   it("is not dirty when the same channels are listed", () => {
     expect(isDirty(base, { ...base, notifyChannels: ["telegram"] })).toBe(false);
+  });
+});
+
+describe("Pushover sound and retry settings", () => {
+  const source = {
+    name: "Home",
+    telegramBotToken: "tok",
+    telegramChatId: "-100",
+    sirenDurationSec: 120,
+    timezone: "Asia/Jerusalem",
+    serverActions: { sendTelegram: true, triggerSiren: false },
+  };
+
+  // "" is a real choice — Pushover's own default tone — so absent must map to
+  // it rather than to a sound chosen on the owner's behalf.
+  it("defaults an absent sound to the empty (Pushover default) value", () => {
+    expect(formFromProject(source).pushoverSound).toBe("");
+  });
+
+  it("defaults retry and expire to the API-sane values", () => {
+    const f = formFromProject(source);
+    expect(f.pushoverRetrySec).toBe(60);
+    expect(f.pushoverExpireSec).toBe(3600);
+  });
+
+  it("reads explicit values", () => {
+    const f = formFromProject({
+      ...source,
+      pushoverSound: "persistent",
+      pushoverRetrySec: 30,
+      pushoverExpireSec: 600,
+    });
+    expect(f.pushoverSound).toBe("persistent");
+    expect(f.pushoverRetrySec).toBe(30);
+    expect(f.pushoverExpireSec).toBe(600);
+  });
+
+  // `??` not `||`: the server clamps these, so a stored 0 must survive to the
+  // input and read as visibly wrong rather than be silently replaced.
+  it("keeps an explicit zero rather than substituting the default", () => {
+    const f = formFromProject({ ...source, pushoverRetrySec: 0 });
+    expect(f.pushoverRetrySec).toBe(0);
+  });
+
+  it("is dirty when any of the three changes", () => {
+    expect(isDirty(base, { ...base, pushoverSound: "siren" })).toBe(true);
+    expect(isDirty(base, { ...base, pushoverRetrySec: 30 })).toBe(true);
+    expect(isDirty(base, { ...base, pushoverExpireSec: 600 })).toBe(true);
+  });
+
+  // The five long sounds are the point of the picker; a short sound re-sent
+  // every retry interval is what made an emergency alert feel wrong.
+  it("lists the long sounds separately from the short ones", () => {
+    expect(PUSHOVER_SOUNDS_LONG).toContain("persistent");
+    expect(PUSHOVER_SOUNDS_LONG).toContain("echo");
+    expect(PUSHOVER_SOUNDS_SHORT).toContain("siren");
+    // No sound may appear in both lists, or the picker would show duplicates.
+    for (const s of PUSHOVER_SOUNDS_LONG) {
+      expect(PUSHOVER_SOUNDS_SHORT).not.toContain(s);
+    }
   });
 });

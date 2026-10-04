@@ -401,6 +401,19 @@ export const en = {
   "settings.pushoverConfigured": "Pushover credentials are set",
   "settings.pushoverCriticalAlertsHint":
     "Pushover plays through a muted ringer only after you enable Critical Alerts inside the Pushover app.",
+  "settings.notifications": "Notifications",
+  "settings.pushoverSound": "Pushover sound",
+  "settings.pushoverSoundHelp":
+    "Only the long sounds keep playing. An emergency alert re-sends the notification every repeat interval rather than holding one continuous tone, so a short sound gives you a series of brief blips instead of an alarm. Pick a long sound (Persistent is the most insistent) if an alert has to wake you.",
+  "settings.pushoverSoundDefault": "Pushover default (your app setting)",
+  "settings.pushoverSoundLong": "Long — keeps playing",
+  "settings.pushoverSoundShort": "Short — one shot",
+  "settings.pushoverRetry": "Repeat every (seconds)",
+  "settings.pushoverRetryHelp":
+    "How often an emergency alert re-alerts until you acknowledge it in the Pushover app. Minimum 30 seconds. Applies to definite-breach alarms only.",
+  "settings.pushoverExpire": "Give up after (seconds)",
+  "settings.pushoverExpireHelp":
+    "How long an unacknowledged emergency alert keeps repeating before it stops. Maximum 10800 (3 hours). Pushover also stops after 50 attempts.",
   "settings.sirenAndAlarm": "Siren & Server Alarm",
   "settings.sirenDuration": "Siren Duration (seconds)",
   "settings.batteryAlertMonths": "Battery age alert (months)",

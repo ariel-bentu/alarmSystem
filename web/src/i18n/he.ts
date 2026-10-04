@@ -386,6 +386,19 @@ export const he: Record<TranslationKey, string> = {
   "settings.pushoverConfigured": "פרטי Pushover מוגדרים",
   "settings.pushoverCriticalAlertsHint":
     "Pushover ישמיע צליל גם כשהטלפון במצב שקט רק לאחר הפעלת Critical Alerts באפליקציית Pushover.",
+  "settings.notifications": "התראות",
+  "settings.pushoverSound": "צליל Pushover",
+  "settings.pushoverSoundHelp":
+    "רק הצלילים הארוכים ממשיכים להתנגן. התראת חירום נשלחת מחדש בכל מרווח חזרה במקום להשמיע צליל רצוף, ולכן צליל קצר מתקבל כרצף צפצופים ולא כאזעקה. בחרו צליל ארוך (Persistent הוא המתמיד ביותר) אם ההתראה צריכה להעיר אתכם.",
+  "settings.pushoverSoundDefault": "ברירת המחדל של Pushover (ההגדרה באפליקציה)",
+  "settings.pushoverSoundLong": "ארוך — ממשיך להתנגן",
+  "settings.pushoverSoundShort": "קצר — חד-פעמי",
+  "settings.pushoverRetry": "חזרה כל (שניות)",
+  "settings.pushoverRetryHelp":
+    "כל כמה זמן התראת חירום תישלח שוב עד לאישור באפליקציית Pushover. מינימום 30 שניות. חל על אזעקות מחיישני פריצה ודאית בלבד.",
+  "settings.pushoverExpire": "הפסקה לאחר (שניות)",
+  "settings.pushoverExpireHelp":
+    "כמה זמן התראת חירום שלא אושרה תמשיך לחזור לפני שתיפסק. מקסימום 10800 (3 שעות). Pushover עוצר גם לאחר 50 ניסיונות.",
   "settings.sirenAndAlarm": "צופר ואזעקת שרת",
   "settings.sirenDuration": "משך הצופר (שניות)",
   "settings.batteryAlertMonths": "התראת גיל סוללה (חודשים)",

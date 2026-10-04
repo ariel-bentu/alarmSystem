@@ -67,6 +67,12 @@ export interface Project {
   // Read-only mirror maintained by the set:notifyKey script. The credentials
   // themselves live in a server-only subcollection no client may read.
   pushoverConfigured?: boolean;
+  // Built-in Pushover sound name; absent/"" means the user's default tone.
+  // Only alien/climb/persistent/echo/updown loop — see settingsForm.ts.
+  pushoverSound?: string;
+  // Priority-2 repeat interval and give-up window, in seconds.
+  pushoverRetrySec?: number;
+  pushoverExpireSec?: number;
   // Months after which a sensor battery is considered overdue for
   // replacement. Optional: project docs predate it, and absent means the
   // DEFAULT_BATTERY_ALERT_MONTHS default. Zero or negative disables the

@@ -18,6 +18,10 @@ import {
   formFromProject,
   isDirty,
   normalizeNotifyChannels,
+  PUSHOVER_SOUNDS_LONG,
+  PUSHOVER_SOUNDS_SHORT,
+  RETRY_MIN_SEC,
+  EXPIRE_MAX_SEC,
 } from "./settingsForm";
 
 // Inline help marker: a "?" button that toggles a visible instruction panel on
@@ -124,6 +128,9 @@ export default function SettingsPage() {
         timezone: form.timezone,
         notifyEverySensorTrigger: form.notifyEverySensorTrigger,
         notifyChannels: form.notifyChannels,
+        pushoverSound: form.pushoverSound,
+        pushoverRetrySec: form.pushoverRetrySec,
+        pushoverExpireSec: form.pushoverExpireSec,
         serverActions: {
           sendTelegram: form.sendTelegram,
           triggerSiren: form.triggerSiren,
@@ -197,7 +204,7 @@ export default function SettingsPage() {
 
         <section className="card">
           <div className="card__header">
-            <h2 className="card__title">{t("settings.telegram")}</h2>
+            <h2 className="card__title">{t("settings.notifications")}</h2>
           </div>
           <div className="field">
             <label className="field__label" htmlFor="bot-token">
@@ -283,6 +290,89 @@ export default function SettingsPage() {
                 </p>
               ))}
           </div>
+
+          {/* Pushover-only options, shown only when that channel is on —
+              they would be noise for a Telegram-only project. */}
+          {form.notifyChannels.includes("pushover") && (
+            <>
+              <div className="field">
+                <label className="field__label" htmlFor="pushover-sound">
+                  {t("settings.pushoverSound")}
+                  <Help
+                    text={t("settings.pushoverSoundHelp")}
+                    label={t("settings.help")}
+                  />
+                </label>
+                <select
+                  id="pushover-sound"
+                  className="input"
+                  value={form.pushoverSound}
+                  onChange={(e) => setField("pushoverSound", e.target.value)}
+                >
+                  <option value="">{t("settings.pushoverSoundDefault")}</option>
+                  {/* Long sounds first and labelled: an emergency alert
+                      re-sends every `retry` seconds rather than sustaining a
+                      tone, so a short sound is the reason one can fail to
+                      feel like an alarm. */}
+                  <optgroup label={t("settings.pushoverSoundLong")}>
+                    {PUSHOVER_SOUNDS_LONG.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={t("settings.pushoverSoundShort")}>
+                    {PUSHOVER_SOUNDS_SHORT.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="pushover-retry">
+                  {t("settings.pushoverRetry")}
+                  <Help
+                    text={t("settings.pushoverRetryHelp")}
+                    label={t("settings.help")}
+                  />
+                </label>
+                <input
+                  id="pushover-retry"
+                  className="input"
+                  type="number"
+                  min={RETRY_MIN_SEC}
+                  value={form.pushoverRetrySec}
+                  onChange={(e) =>
+                    setField("pushoverRetrySec", Number(e.target.value))
+                  }
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="pushover-expire">
+                  {t("settings.pushoverExpire")}
+                  <Help
+                    text={t("settings.pushoverExpireHelp")}
+                    label={t("settings.help")}
+                  />
+                </label>
+                <input
+                  id="pushover-expire"
+                  className="input"
+                  type="number"
+                  min={RETRY_MIN_SEC}
+                  max={EXPIRE_MAX_SEC}
+                  value={form.pushoverExpireSec}
+                  onChange={(e) =>
+                    setField("pushoverExpireSec", Number(e.target.value))
+                  }
+                />
+              </div>
+            </>
+          )}
         </section>
 
         <section className="card">

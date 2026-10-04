@@ -42,7 +42,55 @@ export interface SettingsForm {
   notifyEverySensorTrigger: boolean;
   batteryAlertMonths: number;
   notifyChannels: NotifyChannel[];
+  // "" means Pushover's own default tone. See PUSHOVER_SOUNDS.
+  pushoverSound: string;
+  pushoverRetrySec: number;
+  pushoverExpireSec: number;
 }
+
+/** Pushover's built-in sounds, split by whether they LOOP.
+ *
+ *  The distinction is the whole point of exposing this: priority 2 re-sends
+ *  the notification every `retry` seconds rather than sustaining a tone, so a
+ *  short sound makes an emergency alert feel like a series of blips instead
+ *  of an alarm. Only these five are long.
+ *
+ *  Hard-coded rather than fetched from /1/sounds.json, which needs the app
+ *  token — and that is server-only by design (see notifySecrets.ts). */
+export const PUSHOVER_SOUNDS_LONG = [
+  "alien",
+  "climb",
+  "persistent",
+  "echo",
+  "updown",
+] as const;
+
+export const PUSHOVER_SOUNDS_SHORT = [
+  "pushover",
+  "siren",
+  "spacealarm",
+  "bugle",
+  "bike",
+  "cashregister",
+  "classical",
+  "cosmic",
+  "falling",
+  "gamelan",
+  "incoming",
+  "intermission",
+  "magic",
+  "mechanical",
+  "pianobar",
+  "tugboat",
+  "vibrate",
+  "none",
+] as const;
+
+/** Clamped to Pushover's own limits, so the UI cannot save a value the API
+ *  would reject. pushover.ts clamps again server-side — this is for feedback,
+ *  not trust. */
+export const RETRY_MIN_SEC = 30;
+export const EXPIRE_MAX_SEC = 10800;
 
 /** The subset of Project this form edits. */
 export interface SettingsSource {
@@ -55,6 +103,9 @@ export interface SettingsSource {
   notifyEverySensorTrigger?: boolean;
   batteryAlertMonths?: number;
   notifyChannels?: NotifyChannel[];
+  pushoverSound?: string;
+  pushoverRetrySec?: number;
+  pushoverExpireSec?: number;
 }
 
 export function formFromProject(project: SettingsSource): SettingsForm {
@@ -81,6 +132,14 @@ export function formFromProject(project: SettingsSource): SettingsForm {
     // Absent means ["telegram"] server-side, so the checkboxes must show
     // that rather than appearing to have nothing selected.
     notifyChannels: normalizeNotifyChannels(project.notifyChannels),
+    // "" is a real choice (Pushover's default tone), so absent maps to it
+    // rather than to a sound we picked on the owner's behalf.
+    pushoverSound: project.pushoverSound ?? "",
+    // `??` and NOT `||`, for the same reason as batteryAlertMonths above: the
+    // server clamps these, so a stored 0 must reach the input as 0 and be
+    // visibly wrong rather than silently replaced by the default.
+    pushoverRetrySec: project.pushoverRetrySec ?? 60,
+    pushoverExpireSec: project.pushoverExpireSec ?? 3600,
   };
 }
 
@@ -107,6 +166,9 @@ export function isDirty(saved: SettingsForm, current: SettingsForm): boolean {
     // true on every render and leave Save permanently enabled. Both sides
     // come from normalizeNotifyChannels, so the order is already stable and
     // a join is a sound comparison.
-    saved.notifyChannels.join(",") !== current.notifyChannels.join(",")
+    saved.notifyChannels.join(",") !== current.notifyChannels.join(",") ||
+    saved.pushoverSound !== current.pushoverSound ||
+    saved.pushoverRetrySec !== current.pushoverRetrySec ||
+    saved.pushoverExpireSec !== current.pushoverExpireSec
   );
 }
