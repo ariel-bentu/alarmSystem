@@ -98,7 +98,6 @@
 //    unchanged in the meantime.
 
 import { onObjectFinalized } from "firebase-functions/v2/storage";
-import { defineSecret } from "firebase-functions/params";
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 import type { Database } from "firebase-admin/database";
 import { parseSnapshotPath } from "./snapshotPath";
@@ -107,21 +106,25 @@ import { familyIdOf } from "./keruiEvent";
 import { sensorFamilyId } from "./sensorFamily";
 import { parseCause, isCauseFresh } from "./alarmCause";
 import { judgeFor, JudgeContext, Verdict } from "./snapshotJudge";
+import { loadJudgeKeys, type JudgeKeys } from "./judgeConfig";
 import { sendTelegramPhoto } from "./telegram";
-
-export const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
 
 /**
  * Everything the core handler needs, injected so it is unit-testable
  * without a live Firebase project. The real onObjectFinalized wrapper below
- * builds this from ./admin + Storage + the secret.
+ * builds this from ./admin + Storage + config/judge.
  */
 export interface SnapshotUploadDeps {
   db: Pick<Firestore, "doc" | "collection">;
   rtdb: Pick<Database, "ref">;
   downloadJpeg(projectId: string, objectName: string): Promise<Buffer>;
   downloadUrl(projectId: string, objectName: string): Promise<string>;
-  anthropicApiKey: string | undefined;
+  /**
+   * Resolved lazily: only called once a snapshot has actually passed the
+   * capture+judge and armed gates, so a project that never judges never reads
+   * the secrets doc.
+   */
+  judgeKeys(): Promise<JudgeKeys>;
   now(): number;
 }
 
@@ -231,14 +234,26 @@ export async function handleSnapshotUpload(
     return;
   }
 
-  if (!deps.anthropicApiKey) {
-    console.log(`onSnapshotUploaded: no Anthropic key bound — skipping judge`);
+  // Keys live in the server-only `config/judge` doc (see judgeConfig.ts).
+  // Read only here, past every gate above.
+  const keys = await deps.judgeKeys();
+  const providerKey =
+    project.judgeProvider === "claude"
+      ? keys.anthropic
+      : project.judgeProvider === "gemini"
+        ? keys.gemini
+        : undefined;
+  if (!providerKey) {
+    console.log(
+      `onSnapshotUploaded: no API key configured for judgeProvider=` +
+        `${project.judgeProvider ?? "unset"} — skipping judge`
+    );
     return;
   }
 
   // --- 3. Run the judge ---
   const jpeg = await deps.downloadJpeg(projectId, objectName);
-  const judge = judgeFor(project.judgeProvider, deps.anthropicApiKey, project.judgeModel);
+  const judge = judgeFor(project.judgeProvider, keys, project.judgeModel);
   const hour = new Date(ts).getHours();
   const timeOfDay = hour >= 6 && hour < 18 ? "day" : "night";
   // The channel's human name, when the project has given it one. Absent for
@@ -334,7 +349,7 @@ const SNAPSHOT_BUCKET = "alarm-system-100.firebasestorage.app";
 const SNAPSHOT_BUCKET_REGION = "us-east1";
 
 export const onSnapshotUploaded = onObjectFinalized(
-  { region: SNAPSHOT_BUCKET_REGION, secrets: [ANTHROPIC_API_KEY], bucket: SNAPSHOT_BUCKET },
+  { region: SNAPSHOT_BUCKET_REGION, bucket: SNAPSHOT_BUCKET },
   async (event) => {
     const objectName = event.data.name;
     const bucketName = event.data.bucket;
@@ -354,7 +369,7 @@ export const onSnapshotUploaded = onObjectFinalized(
         const file = getStorage().bucket(bucketName).file(name);
         return getDownloadURL(file);
       },
-      anthropicApiKey: ANTHROPIC_API_KEY.value(),
+      judgeKeys: () => loadJudgeKeys(db),
       now: () => Date.now(),
     };
 

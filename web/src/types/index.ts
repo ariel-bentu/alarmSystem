@@ -80,8 +80,11 @@ export interface Project {
   // Days to retain snapshots before deletion. Optional: absent uses default.
   snapshotRetentionDays?: number;
   // Judge provider for alarm-cause analysis. Optional: absent means no judgment.
-  judgeProvider?: "claude" | "null";
-  // LLM model for judging. Optional: required only when judgeProvider is set.
+  // The API key is NOT here, and must never be added: this doc is readable by
+  // every project member. Keys live in the server-only `config/judge` doc,
+  // which no client can read (firestore.rules).
+  judgeProvider?: "claude" | "gemini" | "null";
+  // LLM model for judging. Optional: absent uses the provider's default.
   judgeModel?: string;
   // Custom prompt for judge context. Optional: uses default when absent.
   judgePrompt?: string;

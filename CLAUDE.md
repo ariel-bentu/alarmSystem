@@ -284,10 +284,11 @@ DVRIP/Sofia OPSNAP (port 34567), uploads to Firebase Storage under
 `{projectId}/snapshots/{rfId}/{ts}/ch{N}.jpg`, and the `onSnapshotUploaded`
 Cloud Function augments the timeline. The Events page joins timeline docs onto
 event rows and shows a Browse button that opens a channel-gallery modal.
-In `capture+judge` mode `onSnapshotUploaded` calls the Anthropic Vision API and
-either sends a Telegram breach photo or writes a false-positive advisory to
+In `capture+judge` mode `onSnapshotUploaded` calls a vision model and either
+sends a Telegram breach photo or writes a false-positive advisory to
 `/{projectId}/commands/fp`; judge code is deployed but has not been exercised
-on real hardware yet. A **Manual Capture** button in Operations writes
+on real hardware yet. See the judge-providers section below for Claude/Gemini
+selection and where the API keys live. A **Manual Capture** button in Operations writes
 `/{projectId}/commands/capture` (same nonce-change pattern as pair/fp); the
 device polls it and grabs all channels immediately, recorded as a standalone
 "Manual capture" timeline row (rfId=`"MANUAL"`, no matching events row — the
@@ -325,6 +326,33 @@ is lost. New `onSensorConfigChange` trigger rebuilds RTDB config on a
 device-visible sensor write — without it the camera selection would never reach
 the device (the derived-state trap below), guarded so renames and alert markers
 don't churn the config.
+
+**Judge providers + server-only keys (2026-10-04) — built, not hardware-tested.**
+`judgeProvider` is now `claude | gemini | null`, picked per project in the
+Camera tab along with `judgeModel` and `judgePrompt`. Gemini uses plain `fetch`
+against the REST API (no SDK dependency) and defaults to
+**`gemini-3.5-flash-lite`** — pinned deliberately, NOT the
+`gemini-flash-lite-latest` alias, which currently resolves to a 2.5-era model
+and can be repointed by Google under us.
+
+⚠️ **API keys moved out of Cloud Functions secrets into Firestore
+`config/judge`** (`{anthropicApiKey, geminiApiKey}`), a root-level collection
+locked to `allow read, write: if false` — only the admin SDK reaches it.
+`defineSecret("ANTHROPIC_API_KEY")` is **gone**; set keys with
+`cd functions && npm run set:judgeKey -- gemini <key>` (`--show` masks and
+lists). **Run that BEFORE deploying** or Claude judging falls back to
+`NullJudge` until the key is written (fail-safe: a noisy breach alert, never a
+suppressed alarm).
+
+Keys are deliberately NOT fields on `projects/{projectId}`: that doc is
+`allow read: if isMember(projectId)` — *any* member, so a key there ships to
+every member's browser. Verified under the emulator: admin read 200, client
+read/write 403.
+
+Measured on six real frames from this project's own Storage: ~1218 input tokens
+**flat regardless of JPEG size** (Gemini tiles images), ~1.4s per call, 6/6
+correct including the one frame containing a person. The prompt is shared
+across providers via `buildPrompt()` so verdicts cannot drift between models.
 
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing

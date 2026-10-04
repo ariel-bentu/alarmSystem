@@ -12,7 +12,10 @@ import {
 } from "@/features/explore/cameraNames";
 
 export type NvrMode = "off" | "capture" | "capture+judge";
-export type JudgeProvider = "claude" | "null";
+// The API key is deliberately absent from this form: it is server-only
+// (Firestore `config/judge`, unreadable by any client) because this project
+// doc is member-readable. The UI picks the provider; the key is set by script.
+export type JudgeProvider = "claude" | "gemini" | "null";
 
 export interface NvrSettingsInput {
   cameraNames?: unknown;
@@ -50,7 +53,7 @@ export type NvrSettingsResult =
   | { ok: false; error: string };
 
 const NVR_MODES: NvrMode[] = ["off", "capture", "capture+judge"];
-const JUDGE_PROVIDERS: JudgeProvider[] = ["claude", "null"];
+const JUDGE_PROVIDERS: JudgeProvider[] = ["claude", "gemini", "null"];
 
 export function validateNvrSettings(
   input: NvrSettingsInput

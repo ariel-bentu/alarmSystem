@@ -289,10 +289,14 @@ export const en = {
   "cfg.camera.judgeProvider": "AI judge provider",
   "cfg.camera.judgeProviderOff": "Off",
   "cfg.camera.judgeProviderClaude": "Claude",
+  "cfg.camera.judgeProviderGemini": "Gemini",
   "cfg.camera.judgeRequiredWarn":
     "Capture + AI judge requires a judge provider — otherwise every armed trigger fails safe to a breach alert.",
+  "cfg.camera.judgeKeyHint":
+    "The API key is stored on the server and is not editable here — it is deliberately kept out of the browser.",
   "cfg.camera.judgeModel": "Judge model",
   "cfg.camera.judgeModelPlaceholder": "claude-sonnet-5",
+  "cfg.camera.judgeModelPlaceholderGemini": "gemini-3.5-flash-lite",
   "cfg.camera.judgePrompt": "Judge prompt",
   "cfg.camera.judgePromptPlaceholder":
     "Describe what should count as a breach in this snapshot…",
