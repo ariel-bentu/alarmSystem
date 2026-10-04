@@ -4,7 +4,9 @@ import {
   isRuleDefinite,
   alarmSeverity,
   breachVerdictSeverity,
+  resolveCauseCertainty,
 } from "./breachCertainty";
+import type { Rule } from "./types";
 
 const definite = { definiteBreach: true };
 const nonDefinite = { definiteBreach: false };
@@ -97,5 +99,122 @@ describe("breachVerdictSeverity", () => {
   // emergency would mean two repeating alerts for one event.
   it("does not re-escalate a definite sensor", () => {
     expect(breachVerdictSeverity(true)).toBe("loud");
+  });
+});
+
+describe("resolveCauseCertainty", () => {
+  // Mirrors onAlarm's two lookup maps.
+  const sensorsById = {
+    doorId: { definiteBreach: true },
+    motionId: { definiteBreach: false },
+    unsetId: {},
+  };
+  const sensorIdsByRfId = {
+    "0x2E5B7": "doorId",
+    "0x0061D": "motionId",
+    "0xAAAAA": "unsetId",
+  };
+  const rule = (id: string, sensors: string[]): Rule =>
+    ({ id, name: id, sensors, condition: { type: "immediate" } }) as Rule;
+
+  it("is definite for a definite single sensor", () => {
+    expect(
+      resolveCauseCertainty(
+        { rfId: "0x2E5B7", at: 1 },
+        [rule("r1", ["doorId"])],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(true);
+  });
+
+  it("is non-definite for a non-definite single sensor", () => {
+    expect(
+      resolveCauseCertainty(
+        { rfId: "0x0061D", at: 1 },
+        [rule("r1", ["motionId"])],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(false);
+  });
+
+  // The corrected multi-sensor decision, end to end through the lookup.
+  it("is non-definite when the covering rule has one non-definite member", () => {
+    expect(
+      resolveCauseCertainty(
+        { rfId: "0x2E5B7", at: 1 },
+        [rule("r1", ["doorId", "motionId"])],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(false);
+  });
+
+  it("is definite when every member of the covering rule is definite", () => {
+    expect(
+      resolveCauseCertainty(
+        { rfId: "0x2E5B7", at: 1 },
+        [rule("r1", ["doorId", "unsetId"])],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(true);
+  });
+
+  // No rule covers it, so fall back to the sensor's own certainty rather
+  // than failing loud: the sensor IS resolvable, so this is not an unknown.
+  it("falls back to the sensor's own flag when no rule covers it", () => {
+    expect(
+      resolveCauseCertainty(
+        { rfId: "0x0061D", at: 1 },
+        [],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(false);
+  });
+
+  // --- unknowns, all fail loud ---
+
+  it("is definite for a null cause", () => {
+    expect(resolveCauseCertainty(null, [], sensorsById, sensorIdsByRfId)).toBe(true);
+  });
+
+  // A tamper cause, and every pre-fix server write: label only, no rfId.
+  it("is definite for a cause carrying only a label", () => {
+    expect(
+      resolveCauseCertainty(
+        { label: "Front door tampered", at: 1 },
+        [],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(true);
+  });
+
+  it("is definite for an rfId matching no sensor", () => {
+    expect(
+      resolveCauseCertainty(
+        { rfId: "0xDEAD0", at: 1 },
+        [],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(true);
+  });
+
+  // A label AND an rfId is what the server writes after this change. The
+  // rfId must win for certainty, even though resolveCauseLabel prefers the
+  // label for DISPLAY.
+  it("uses the rfId for certainty even when a label is also present", () => {
+    expect(
+      resolveCauseCertainty(
+        { label: "Night motion", rfId: "0x0061D", at: 1 },
+        [rule("r1", ["motionId"])],
+        sensorsById,
+        sensorIdsByRfId
+      )
+    ).toBe(false);
   });
 });

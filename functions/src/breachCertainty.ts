@@ -10,7 +10,8 @@
 //   "loud"   -> priority  1  Critical Alert, single shot
 //   "notice" -> priority -1  silent
 
-import { Sensor } from "./types";
+import { Rule, Sensor } from "./types";
+import { AlarmCause } from "./alarmCause";
 
 /** Just the field these helpers read, so callers may pass a partial sensor. */
 type Certainty = Pick<Sensor, "definiteBreach">;
@@ -67,4 +68,41 @@ export function alarmSeverity(definite: boolean): "alarm" | "loud" {
  */
 export function breachVerdictSeverity(definite: boolean): "alarm" | "loud" {
   return definite ? "loud" : "alarm";
+}
+
+/**
+ * Which tier an alarm_cause deserves.
+ *
+ * Deliberately keyed on the cause's rfId, NOT its label — even though
+ * resolveCauseLabel prefers the label for display. A label is free text
+ * naming a rule; only the rfId identifies a sensor whose certainty can be
+ * read. (This is why onSensorEvent now writes both.)
+ *
+ * When the sensor resolves AND a rule covers it, the RULE's members decide:
+ * a multi_sensor rule is an AND, so one non-definite member makes the whole
+ * combination non-definite. With no covering rule, the sensor's own flag is
+ * used — it resolved, so this is not an unknown.
+ *
+ * Every genuine unknown returns true (definite, fail loud): no cause, a
+ * label-only cause (tamper, or any pre-fix server write), or an rfId that
+ * matches no sensor.
+ */
+export function resolveCauseCertainty(
+  cause: AlarmCause | null,
+  rules: Rule[],
+  sensorsById: Record<string, Certainty>,
+  sensorIdsByRfId: Record<string, string>
+): boolean {
+  const rfId = cause?.rfId?.trim();
+  if (!rfId) return true;
+
+  const sensorId = sensorIdsByRfId[rfId];
+  if (!sensorId) return true;
+
+  const rule = rules.find((r) => r.sensors.includes(sensorId));
+  if (rule) {
+    return isRuleDefinite(rule.sensors.map((id) => sensorsById[id] ?? null));
+  }
+
+  return isDefiniteBreach(sensorsById[sensorId] ?? null);
 }
