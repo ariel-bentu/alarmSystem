@@ -279,7 +279,7 @@ seen at 28h/31.76h — that needs ~36h.
 schedules, timeline, simulator), all Cloud Functions, invite-only access,
 per-project Telegram config.
 
-**Camera snapshots on trigger (2026-10-03) — deployed, judge untested on hardware.**
+**Camera snapshots on trigger (2026-10-03) — deployed; judge VERIFIED on hardware 2026-10-04.**
 On every armed trigger the device grabs a JPEG from each live NVR channel via
 DVRIP/Sofia OPSNAP (port 34567), uploads to Firebase Storage under
 `{projectId}/snapshots/{rfId}/{ts}/ch{N}.jpg`, and the `onSnapshotUploaded`
@@ -470,13 +470,25 @@ default) yields a series of brief blips, not an alarm. This is the whole
 explanation for "the emergency alert doesn't keep sounding"; `retry` was
 never the problem.
 
+**VERIFIED ON HARDWARE 2026-10-04 — the full breach-escalation path.** An
+armed trigger on a non-definite sensor (תנועה דלת מחסן, cameras 1+2) sent a
+P0 alert, captured both channels, Gemini judged a person present, and the
+alarm escalated to a repeating P2 emergency. First time the AI judge has run
+on real hardware, and the first end-to-end confirmation of per-sensor
+certainty, judge escalation and the Pushover tiers together.
+
+It took three fixes to get there, all on 2026-10-04:
+- `nvrMode` was `capture`, not `capture+judge` (config).
+- The armed gate shifted the cause family **twice** for device-written
+  causes, so the judge was skipped on every device-evaluated alarm — the
+  `causeFamilyOf` fix. This is why it had never worked in the field.
+- `loud` was Pushover priority 1, which also breaks through mute, so the
+  non-definite tier was indistinguishable from an emergency. Now priority 0.
+
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing
 guide below. `RelaySiren` is built but unused (the RF path supersedes it).
-The AI judge in `onSnapshotUploaded` is deployed but not yet exercised on
-real hardware (no armed trigger with a live Anthropic key in the field yet).
-The Pushover channel is built and unit-tested but has **never been verified
-on a muted phone**, which is the only test that proves what it exists for.
+The RSSI fix (status-register read) is committed but **not yet flashed**.
 
 ## Next
 
@@ -484,12 +496,16 @@ on a muted phone**, which is the only test that proves what it exists for.
 2. Track [FirebaseClient#333](https://github.com/mobizt/FirebaseClient/issues/333)
    (filed 2026-09-10); if fixed upstream, retire `patch_firebase.py`
 3. Test and deploy the watchdog / offline-alert work (`docs/testing-device-liveness.md`)
-4. Exercise the AI judge on a real armed trigger to verify the breach/safe path
-5. Verify Pushover on a **muted** phone: priority 2 sounds and repeats, and
-   the notification link opens the installed PWA rather than Safari. Requires
-   opting into Critical Alerts inside the Pushover app first
-6. Run in parallel with W184
-7. Register the Telegram webhook so bot commands work
-8. Decommission W184
+4. Verify the judge's **safe** path: trigger a non-definite sensor with
+   nobody in frame and confirm the silent all-clear plus the `commands/fp`
+   advisory. Only the breach path is confirmed so far
+5. Flash the RSSI fix, then re-check the intermittent sensor `0xD1037` with
+   real dBm (note the 3s per-code dedup window in `poll()` when testing)
+6. Set `definiteBreach` on the **7 sensors still unset** (of 17; 2 are
+   explicitly definite, 8 explicitly not). Unset defaults to definite, so 9
+   sensors currently break through a muted ringer
+7. Run in parallel with W184
+8. Register the Telegram webhook so bot commands work
+9. Decommission W184
 
 See `todo.txt` for smaller known gaps.
