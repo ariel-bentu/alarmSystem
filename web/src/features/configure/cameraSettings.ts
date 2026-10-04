@@ -6,10 +6,16 @@
 // which spams "judge disabled" breach Telegrams. The form must refuse to
 // save that combination rather than let the cloud discover it later.
 
+import {
+  normalizeCameraNames,
+  type CameraNames,
+} from "@/features/explore/cameraNames";
+
 export type NvrMode = "off" | "capture" | "capture+judge";
 export type JudgeProvider = "claude" | "null";
 
 export interface NvrSettingsInput {
+  cameraNames?: unknown;
   nvrMode?: unknown;
   nvrHost?: unknown;
   nvrPort?: unknown;
@@ -23,6 +29,10 @@ export interface NvrSettingsInput {
 }
 
 export interface NvrSettingsValue {
+  // Always present, even when empty: a missing key would make clearing the
+  // last remaining name impossible, since updateDoc reads absent as
+  // "leave unchanged".
+  cameraNames: CameraNames;
   nvrMode: NvrMode;
   nvrHost?: string;
   nvrPort?: number;
@@ -122,6 +132,9 @@ export function validateNvrSettings(
     nvrPort,
     captureCooldownSec,
     snapshotRetentionDays,
+    // Unlike the optional strings below, this is always written: see the
+    // field's note on why an empty map must not become a missing key.
+    cameraNames: normalizeCameraNames(input.cameraNames),
   };
   if (nvrHost !== undefined) value.nvrHost = nvrHost;
   if (nvrUser !== undefined) value.nvrUser = nvrUser;

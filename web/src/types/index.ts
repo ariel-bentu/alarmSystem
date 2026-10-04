@@ -85,6 +85,10 @@ export interface Project {
   judgeModel?: string;
   // Custom prompt for judge context. Optional: uses default when absent.
   judgePrompt?: string;
+  // Human names for NVR channels, keyed by channel number ({"1":"Front door"}).
+  // Display-only: the device captures by number and never sees these. Channels
+  // with no entry render as "Camera N" — see features/explore/cameraNames.ts.
+  cameraNames?: Record<string, string>;
   device: DeviceInfo;
 }
 
@@ -175,10 +179,11 @@ export interface Sensor {
   // Set when a water alert (nibble 0x5) fires, cleared when the sensor next
   // reports a normal trigger. Once per CONDITION, not once ever.
   waterAlertSentAt?: Timestamp | null;
-  // Sensor is outside camera view. Optional: absent means false.
-  outOfSight?: boolean;
-  // NVR camera channel index for this sensor. Optional: required only when sensor has a camera.
-  cameraChannel?: number;
+  // NVR channels (1-8) to snapshot when this sensor triggers. AUTHORITATIVE:
+  // absent or empty means capture NOTHING for this sensor — it does not fall
+  // back to "all channels". Replaces the earlier outOfSight + cameraChannel
+  // pair, which could express only none-or-one.
+  cameras?: number[];
 }
 
 export interface Condition {
@@ -348,8 +353,8 @@ export interface RtdbConfig {
   nm?: 0 | 1 | 2;
   // Capture cooldown in seconds. Omitted when using default.
   cc?: number;
-  // Per-sensor out-of-sight flags, index-aligned with r. Omitted when all false.
-  os?: boolean[];
-  // Per-sensor camera channel, index-aligned with r. Omitted when all absent.
-  cch?: number[];
+  // Per-sensor camera bitmask, index-aligned with r: channel N is bit N-1, so
+  // channel 1 is 0x01 and channel 8 is 0x80. 0 means this sensor captures
+  // nothing. Omitted entirely when every mask is 0.
+  cmask?: number[];
 }

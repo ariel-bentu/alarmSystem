@@ -248,12 +248,17 @@ Firestore `sirenBaseAddress` or RTDB `config.s` is absent, do NOT flash. The
 default) has not been run; every reader derives the family from `rfId` when
 it is absent, so nothing is blocked on it.
 
-⚠️ **RTDB `/{projectId}/config` is derived state that no sensor write
-rebuilds.** `buildRtdbConfig` runs only from the profile / rule / remote /
-project-config triggers, so the `familyId` backfill alone leaves the device
-config holding stale full-width rfIds. After migrating, run
-`npm run touch:project` to force a rebuild; `npm run dump:configInputs`
-shows exactly what the builder reads.
+⚠️ **RTDB `/{projectId}/config` is derived state.** `buildRtdbConfig` runs only
+from triggers: profile / rule / remote / project-config, plus
+`onSensorConfigChange` (added 2026-10-04 for per-sensor camera selection, and
+guarded by `sensorConfigChanged` so only device-visible sensor fields —
+`rfId`, `familyId`, `cameras` — rebuild).
+
+Sensor writes now DO rebuild, so the `familyId`-backfill trap is closed going
+forward. It is still worth knowing: that backfill predates the trigger, so if
+it was ever run against live data the config may hold stale full-width rfIds.
+`npm run touch:project` forces a rebuild; `npm run dump:configInputs` shows
+exactly what the builder reads.
 
 **Stability: 18h16m clean run (2026-09-10)** — single boot, zero `twdt` reboots,
 zero stall dumps, flat heap, and crucially **four `-76` socket deaths all
@@ -293,6 +298,33 @@ mode, cooldown, retention, judge provider/model/prompt) lives in Firestore
 `onProjectConfigChange` → RTDB rebuild path (NVR fields added to guard).
 Sensors in `r[]` are now kept even when disarmed (all profile rules loaded,
 not just the active one) so the device always knows its full sensor list.
+
+**Camera names + per-sensor multi-camera (2026-10-04) — built, NOT hardware-tested.**
+Each NVR channel can be named (`projects/{projectId}.cameraNames`, a
+`{"1":"Front door"}` map); names show in the Events gallery, the Sensors tab,
+the Camera tab, the AI judge prompt and the breach Telegram caption, falling
+back to `Camera N`. Renaming happens either in the Camera tab (all 8 channels)
+or behind the ✏️ in the gallery modal (just the channels in that snapshot set).
+Names are display-only — the device captures by NUMBER and never receives
+them, which is why `cameraNames` is deliberately excluded from
+`onProjectConfigChange`'s rebuild guard.
+
+A sensor now selects **any subset** of channels: `Sensor.cameras: number[]`
+replaces `cameraChannel` + `outOfSight`. **The list is authoritative — empty or
+absent means capture NOTHING**, not "all channels" as the old unset value did.
+There was **no migration**, so every already-paired sensor captures nothing
+until its boxes are ticked in the Sensors tab.
+
+Device config carries one `cmask[]` bitmask (channel N = bit N-1), index-aligned
+with `r`, replacing `os[]`/`cch[]`; omitted wholesale when every mask is 0.
+⚠️ **EEPROM magic bump `0xA1A2B3BA` → `BB`** — `sizeof(Config)` 2664 → 2632
+(measured, not predicted). Per
+[siren-address-never-restorable-from-cloud](docs/history/siren-hub-free.md),
+run `npm run check:sirenAddress` before flashing or the physical siren pairing
+is lost. New `onSensorConfigChange` trigger rebuilds RTDB config on a
+device-visible sensor write — without it the camera selection would never reach
+the device (the derived-state trap below), guarded so renames and alert markers
+don't churn the config.
 
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing

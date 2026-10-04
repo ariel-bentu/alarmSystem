@@ -177,12 +177,10 @@ export const en = {
   "cfg.sensors.batteryChangedLabel": "Battery last changed",
   "cfg.sensors.batteryStale": "battery overdue",
   "cfg.sensors.water": "water",
-  "cfg.sensors.outOfSight": "Out of sight",
-  "cfg.sensors.outOfSightHelp":
-    "Flag in-sight only when the camera reliably shows an intruder on trigger.",
-  "cfg.sensors.cameraChannel": "Camera",
-  "cfg.sensors.cameraChannelLabel": "Camera channel",
-  "cfg.sensors.allChannels": "All channels",
+  "cfg.sensors.cameras": "Cameras",
+  "cfg.sensors.camerasHelp":
+    "Pick the cameras to photograph when this sensor trips. None selected means no photos for this sensor.",
+  "cfg.sensors.noCameras": "No cameras",
 
   // Profiles tab
   "cfg.profiles.loading": "Loading profiles…",
@@ -283,6 +281,11 @@ export const en = {
     "Minimum time between snapshots, to avoid flooding the NVR on repeated triggers.",
   "cfg.camera.retention": "Snapshot retention (days)",
   "cfg.camera.retentionHelp": "Snapshots older than this are deleted automatically.",
+  "cfg.camera.names": "Camera names",
+  "cfg.camera.namesHelp":
+    "Names appear wherever a camera is shown — photo galleries, sensor settings and Telegram alerts. Leave blank to show “Camera N”.",
+  "cfg.camera.channelN": "Channel {channel}",
+  "cfg.camera.namePlaceholder": "Camera {channel}",
   "cfg.camera.judgeProvider": "AI judge provider",
   "cfg.camera.judgeProviderOff": "Off",
   "cfg.camera.judgeProviderClaude": "Claude",
@@ -346,6 +349,10 @@ export const en = {
   "explore.verdict.breach": "Confirmed breach (AI)",
   "explore.verdict.safe": "False positive (AI)",
   "explore.expandedSnapshotAlt": "Expanded camera snapshot",
+  "explore.renameCameras": "Rename cameras",
+  "explore.cameraNamePlaceholder": "Camera {channel}",
+  "explore.saveNames": "Save names",
+  "explore.namesSaved": "Camera names saved.",
 
   // ---- Members ----
   "members.title": "Members",

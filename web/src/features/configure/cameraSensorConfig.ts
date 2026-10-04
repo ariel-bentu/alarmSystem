@@ -1,30 +1,46 @@
-/** Per-sensor camera config: out-of-sight flag + camera channel.
+/** Per-sensor camera selection: WHICH NVR channels a sensor's trigger grabs.
  *
- *  Pure, like batteryAge.ts and lastSeenFormat.ts beside it, so the label
- *  and input-normalization logic is testable without mounting SensorsTab.
+ *  Pure, like batteryAge.ts and lastSeenFormat.ts beside it, so the
+ *  normalization logic is testable without mounting SensorsTab.
  *
- *  Channel 0 and "no channel set" are deliberately the same thing: both mean
- *  "any camera may cover this sensor" rather than naming one. The valid
- *  range is 1-8 (NVR channel count); anything else — blank, "all", garbage,
- *  out of range — normalizes to undefined so a bad input clears the field
- *  rather than storing nonsense. */
+ *  A sensor stores an explicit LIST of channels (`Sensor.cameras`), and that
+ *  list is AUTHORITATIVE: empty (or absent) means capture NOTHING for this
+ *  sensor, not "capture everything". That is the whole point of the list
+ *  replacing the old single `cameraChannel` + `outOfSight` pair — one field
+ *  now expresses none / one / several, so there is no separate opt-out flag
+ *  to keep in sync. Valid channels are 1-8 (NVR channel count); anything
+ *  else is dropped rather than coerced, so a bad value clears a selection
+ *  instead of silently storing a different camera.
+ *
+ *  Display names for these channels live in features/explore/cameraNames.ts
+ *  (project-level, shared with the gallery) — not here, because the device
+ *  config cares only about numbers. */
 
-const MIN_CHANNEL = 1;
-const MAX_CHANNEL = 8;
+import { MAX_CHANNEL, MIN_CHANNEL } from "@/features/explore/cameraNames";
 
-/** "All channels" for 0/undefined, else "Camera N". */
-export function cameraChannelLabel(channel: number | undefined): string {
-  if (!channel) return "All channels";
-  return `Camera ${channel}`;
+/** Parses arbitrary stored/form input into a sorted, de-duplicated channel
+ *  list. Non-arrays, non-integers and out-of-range values are dropped. */
+export function normalizeCameras(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  for (const entry of raw) {
+    if (typeof entry !== "number" || !Number.isInteger(entry)) continue;
+    if (entry < MIN_CHANNEL || entry > MAX_CHANNEL) continue;
+    seen.add(entry);
+  }
+  return [...seen].sort((a, b) => a - b);
 }
 
-/** Parses a <select>/<input> value into a channel number, or undefined for
- *  "all channels" (including unparseable or out-of-range input — a typo
- *  should fall back to "all", not silently store a different channel). */
-export function normalizeChannel(raw: string): number | undefined {
-  const trimmed = raw.trim().toLowerCase();
-  if (trimmed === "" || trimmed === "all") return undefined;
-  const n = Number(trimmed);
-  if (!Number.isInteger(n) || n < MIN_CHANNEL || n > MAX_CHANNEL) return undefined;
-  return n;
+/** Packs a channel list into the one-byte bitmask the device config carries
+ *  (`cmask`, index-aligned with `r`): channel N is bit N-1, so channel 1 is
+ *  0x01 and channel 8 is 0x80. A zero mask means "capture nothing", which is
+ *  also what lets buildConfig omit the array entirely for projects with no
+ *  cameras configured. Mirrored by CameraGate::channelsFor() in the
+ *  firmware. */
+export function toCameraMask(channels: number[]): number {
+  let mask = 0;
+  for (const channel of normalizeCameras(channels)) {
+    mask |= 1 << (channel - 1);
+  }
+  return mask;
 }

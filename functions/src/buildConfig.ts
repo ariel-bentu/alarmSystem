@@ -87,6 +87,33 @@ const NVR_MODE_CODE: Record<"off" | "capture" | "capture+judge", 0 | 1 | 2> = {
   "capture+judge": 2,
 };
 
+// NVR channel range. Mirrors web/src/features/explore/cameraNames.ts; these
+// cannot import each other (separate packages), so the bound is duplicated
+// the same way the Kerui event nibbles are, and pinned by tests on both
+// sides.
+const MIN_CHANNEL = 1;
+const MAX_CHANNEL = 8;
+
+/**
+ * Packs a sensor's camera channel list into the one-byte mask the device
+ * config carries: channel N is bit N-1, so channel 1 is 0x01 and channel 8
+ * is 0x80. Out-of-range and non-integer entries are DROPPED rather than
+ * coerced — a junk value must not silently select a different camera, and
+ * must never shift a bit outside the byte the firmware reads into a uint8_t.
+ * Mirrored by toCameraMask() in web and CameraGate::channelsFor() in the
+ * firmware.
+ */
+function cameraMaskOf(cameras: number[] | undefined): number {
+  if (!Array.isArray(cameras)) return 0;
+  let mask = 0;
+  for (const channel of cameras) {
+    if (typeof channel !== "number" || !Number.isInteger(channel)) continue;
+    if (channel < MIN_CHANNEL || channel > MAX_CHANNEL) continue;
+    mask |= 1 << (channel - 1);
+  }
+  return mask;
+}
+
 /**
  * Build the RTDB config object from the active-on-device profile's data.
  * @param rules - All rules belonging to the active profile
@@ -164,13 +191,18 @@ export function buildRtdbConfig(
     }
   }
 
-  // Per-sensor camera flags, index-aligned with r. Built by walking r back to
-  // the Sensor that produced each family — rIndex alone only maps rfId to
-  // index, not back to the originating sensor doc, so this re-derives the
-  // family for every sensor and matches it against r's entries. Omitted
-  // entirely (both arrays) when every entry is default, mirroring how m/s
-  // are omitted: this config is polled every 5s and most projects have no
-  // NVR configured at all.
+  // Per-sensor camera selection as a BITMASK, index-aligned with r. Built by
+  // walking r back to the Sensor that produced each family — rIndex alone
+  // only maps rfId to index, not back to the originating sensor doc, so this
+  // re-derives the family for every sensor and matches it against r's
+  // entries. Omitted entirely when every mask is 0, mirroring how m/s are
+  // omitted: this config is polled every 5s and most projects have no NVR
+  // configured at all.
+  //
+  // One mask replaces the earlier `os` (out-of-sight) + `cch` (single
+  // channel) pair. `Sensor.cameras` is an explicit list, so "no cameras" is
+  // just mask 0 and needs no separate opt-out flag — and a sensor can now
+  // name SEVERAL channels, which a single `cch` int could not express.
   const familyToSensor = new Map<string, Sensor>();
   for (const sensor of sensors) {
     const family = sensorFamilyId(sensor);
@@ -178,9 +210,10 @@ export function buildRtdbConfig(
       familyToSensor.set(family, sensor);
     }
   }
-  const os = r.map((rfId) => familyToSensor.get(rfId)?.outOfSight === true);
-  const cch = r.map((rfId) => familyToSensor.get(rfId)?.cameraChannel ?? 0);
-  const hasCameraFlags = os.some((v) => v) || cch.some((v) => v !== 0);
+  const cmask = r.map((rfId) =>
+    cameraMaskOf(familyToSensor.get(rfId)?.cameras)
+  );
+  const hasCameraFlags = cmask.some((v) => v !== 0);
 
   const indexOfRfId = (rfId: string) => rIndex.get(rfId) ?? -1;
   const conditionsByRfId = new Map<string, RtdbCondition[]>();
@@ -225,7 +258,7 @@ export function buildRtdbConfig(
     ...(m.length > 0 ? { m } : {}),
     ...sirenKey(sirenBaseAddress),
     ...nvrKeys(nvr),
-    ...(hasCameraFlags ? { os, cch } : {}),
+    ...(hasCameraFlags ? { cmask } : {}),
   };
 }
 

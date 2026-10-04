@@ -148,4 +148,30 @@ describe("validateNvrSettings", () => {
       expect(r.value.nvrPassword).toBe("testpass");
     }
   });
+
+  it("normalizes camera names, dropping blanks and out-of-range channels", () => {
+    const r = validateNvrSettings({
+      nvrMode: "capture",
+      nvrPort: 34567,
+      captureCooldownSec: 45,
+      snapshotRetentionDays: 14,
+      cameraNames: { "1": "  Front door ", "2": "  ", "9": "nope" },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.cameraNames).toEqual({ "1": "Front door" });
+  });
+
+  it("emits an empty camera-names map rather than omitting the field", () => {
+    // Omitting would make clearing the LAST name impossible: updateDoc reads a
+    // missing key as "leave unchanged".
+    const r = validateNvrSettings({
+      nvrMode: "capture",
+      nvrPort: 34567,
+      captureCooldownSec: 45,
+      snapshotRetentionDays: 14,
+      cameraNames: {},
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.cameraNames).toEqual({});
+  });
 });

@@ -50,9 +50,9 @@
 // advisory write below additionally requires the SAME match. This is the
 // "prefer NOT writing the advisory" safe direction the brief calls for.
 //
-// ALL-CHANNELS COORDINATION (sensor has no cameraChannel -> every live
-// channel is captured and uploaded as a SEPARATE Storage object, each
-// firing its own invocation of this function):
+// MULTI-CHANNEL COORDINATION (a sensor names SEVERAL channels in
+// `Sensor.cameras`; each is captured and uploaded as a SEPARATE Storage
+// object, so each fires its own invocation of this function):
 //
 // Implemented the brief's "defensible simpler v1": each channel is judged
 // INDEPENDENTLY as its object finalizes. A small coordination doc
@@ -80,12 +80,22 @@
 //    ALERTING always fires, it is only the ADVISORY ordering that can race.
 //    So a real intruder caught on a second camera still gets a Telegram
 //    even if a first, blind angle already (wrongly) advised false-positive.
-//  - This is the documented, accepted trade-off: a full "wait for all
-//    channels" design needs to know the total expected channel count up
-//    front (how many channels are LIVE on the NVR, not how many the sensor
-//    is configured for), which this task does not have cheap access to
-//    without re-deriving NVR state cloud-side. Flagged as a concern in the
-//    report rather than solved speculatively.
+//  - This is the documented, accepted trade-off. It was originally justified
+//    by the expected channel count being unknowable cloud-side: capture was
+//    "all LIVE channels on the NVR" whenever a sensor named none, and that
+//    liveness is NVR state this function cannot cheaply see.
+//
+//    THAT JUSTIFICATION NO LONGER HOLDS. Per-sensor multi-camera selection
+//    made `Sensor.cameras` an explicit list, so the expected count for a
+//    {rfId, ts} is just that array's length — already loaded here to resolve
+//    the sensor name. A "wait for all channels, then advise" version is now
+//    straightforwardly implementable: hold the advisory until the
+//    coordination doc has a verdict for every configured channel. Left
+//    UNIMPLEMENTED deliberately — it is a behaviour change to the judge path,
+//    which has never been exercised on real hardware (see CLAUDE.md), so it
+//    wants its own task and its own field test rather than riding along with
+//    a config-shape change. The race window and its mitigations above are
+//    unchanged in the meantime.
 
 import { onObjectFinalized } from "firebase-functions/v2/storage";
 import { defineSecret } from "firebase-functions/params";
@@ -231,9 +241,14 @@ export async function handleSnapshotUpload(
   const judge = judgeFor(project.judgeProvider, deps.anthropicApiKey, project.judgeModel);
   const hour = new Date(ts).getHours();
   const timeOfDay = hour >= 6 && hour < 18 ? "day" : "night";
+  // The channel's human name, when the project has given it one. Absent for
+  // an unnamed channel, and the judge/caption both fall back to "camera N" —
+  // so a project that never names its cameras reads exactly as it did before.
+  const cameraName = project.cameraNames?.[String(channel)]?.trim() || undefined;
   const ctx: JudgeContext = {
     sensorName,
     channel,
+    ...(cameraName ? { cameraName } : {}),
     armed: true,
     timeOfDay,
     prompt: project.judgePrompt ?? "",
@@ -267,7 +282,9 @@ export async function handleSnapshotUpload(
       );
       return;
     }
-    const caption = `⚠ Confirmed breach — ${sensorName}, camera ${channel} — ${reason}`;
+    const caption =
+      `⚠ Confirmed breach — ${sensorName}, ` +
+      `${cameraName ?? `camera ${channel}`} — ${reason}`;
     await sendTelegramPhoto(project.telegramBotToken, project.telegramChatId, jpeg, caption);
     return;
   }
@@ -283,7 +300,13 @@ export async function handleSnapshotUpload(
         `channel already judged breach — NOT writing the false-positive advisory`
     );
     await timelineRef.update({
-      aiNote: `safe (AI, channel ${channel}): ${reason} — advisory withheld, another channel saw a breach`,
+      // Prefix "safe (AI" is load-bearing: web/src/features/explore/
+      // snapshotThumb.ts parses the verdict back out of this free text by
+      // prefix, so the camera NAME may be appended but the opening must not
+      // change.
+      aiNote:
+        `safe (AI, ${cameraName ?? `channel ${channel}`}): ${reason}` +
+        ` — advisory withheld, another channel saw a breach`,
     });
     return;
   }

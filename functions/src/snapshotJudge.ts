@@ -7,6 +7,11 @@ export type Verdict = "safe" | "breach";
 export interface JudgeContext {
   sensorName: string;
   channel: number;
+  // The channel's human name from project.cameraNames, when it has one.
+  // Better scene context for a vision model than a bare number — "Front door"
+  // says what the frame should contain. Absent for an unnamed channel, which
+  // falls back to "camera N".
+  cameraName?: string;
   armed: boolean;
   timeOfDay: string;
   prompt: string;
@@ -61,7 +66,11 @@ export class ClaudeJudge implements SnapshotJudge {
                 type: "text",
                 text:
                   "You are a home security camera monitor. Look at this single still frame from " +
-                  `sensor "${ctx.sensorName}" (channel ${ctx.channel}), captured during ${ctx.timeOfDay}, ` +
+                  `sensor "${ctx.sensorName}" (${
+                    ctx.cameraName
+                      ? `camera "${ctx.cameraName}"`
+                      : `camera ${ctx.channel}`
+                  }), captured during ${ctx.timeOfDay}, ` +
                   `while the system is ${ctx.armed ? "armed" : "disarmed"}.\n\n` +
                   `Scene notes from the homeowner (ignore these known quirks): ${ctx.prompt || "(none)"}\n\n` +
                   "Decide whether a person or intruder is visible in the frame. Respond with verdict " +

@@ -332,9 +332,9 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   // docs/history/ — kept best-effort and bounded for exactly that reason.
   //
   // Find the paired SensorConfig for this family. An unpaired/unknown sensor
-  // (no match) must NOT capture — shouldCapture() needs real per-sensor
-  // fields (outOfSight, cameraChannel) that only exist once paired, and an
-  // unpaired trigger is already just logged elsewhere.
+  // (no match) must NOT capture — shouldCapture() needs the per-sensor
+  // cameraMask that only exists once paired, and an unpaired trigger is
+  // already just logged elsewhere.
   int sensorIndex = -1;
   for (uint8_t i = 0; i < config.sensorCount && i < 16; i++) {
     if (strcmp(config.sensors[i].familyId, familyId) == 0) {
@@ -354,17 +354,18 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
       // advisory it writes, all by this one key with no extra signalling.
       const uint64_t snapshotTs = triggerTs;
 
-      uint8_t channels[3];
+      uint8_t channels[CameraGate::kMaxChannels];
       uint8_t channelCount = 0;
       CameraGate::channelsFor(sensor, channels, channelCount);
 
       // WATCHDOG: this loop is the one place in the whole capture path that
-      // can run long enough to matter. cameraChannel == 0 (capture ALL
-      // channels — channelsFor()'s default) means up to 3 iterations, each
-      // with an ~8s CameraClient::grab() (its own IoDeadline) followed by an
+      // can run long enough to matter. A sensor with every channel selected
+      // (cameraMask 0xFF) means up to 8 iterations — up from 3 when the mask
+      // replaced a single channel, so the worst case here GREW — each with an
+      // ~8s CameraClient::grab() (its own IoDeadline) followed by an
       // up-to-~20s CloudClient::uploadSnapshot() (bounded by the shared data
       // client's kHandshakeTimeoutSec/kSocketTimeoutSec/kSyncTimeoutSec) —
-      // worst case ~84s in this one handleSensorEvent() call. The task
+      // worst case ~224s in this one handleSensorEvent() call. The task
       // watchdog budget is kWatchdogTimeoutSec = 60s and is fed only once
       // per loop() iteration (top of loop()), so without explicit feeds here
       // a slow-but-progressing NVR plus a cold/reconnecting data client

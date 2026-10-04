@@ -173,12 +173,10 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.batteryChangedLabel": "החלפת סוללה אחרונה",
   "cfg.sensors.batteryStale": "הסוללה דורשת החלפה",
   "cfg.sensors.water": "מים",
-  "cfg.sensors.outOfSight": "מחוץ לטווח המצלמה",
-  "cfg.sensors.outOfSightHelp":
-    "סמנו ״בטווח המצלמה״ רק כשהמצלמה מציגה בוודאות פולש בעת הפעלה.",
-  "cfg.sensors.cameraChannel": "מצלמה",
-  "cfg.sensors.cameraChannelLabel": "ערוץ מצלמה",
-  "cfg.sensors.allChannels": "כל הערוצים",
+  "cfg.sensors.cameras": "מצלמות",
+  "cfg.sensors.camerasHelp":
+    "בחרו אילו מצלמות יצלמו כשהחיישן מופעל. ללא בחירה — לא יצולמו תמונות לחיישן הזה.",
+  "cfg.sensors.noCameras": "ללא מצלמות",
 
   // Profiles tab
   "cfg.profiles.loading": "טוען פרופילים…",
@@ -277,6 +275,11 @@ export const he: Record<TranslationKey, string> = {
     "זמן מינימלי בין צילומים, כדי לא להציף את ה-NVR בהפעלות חזרתיות.",
   "cfg.camera.retention": "שמירת תמונות (ימים)",
   "cfg.camera.retentionHelp": "תמונות ישנות יותר ממספר הימים הזה יימחקו אוטומטית.",
+  "cfg.camera.names": "שמות מצלמות",
+  "cfg.camera.namesHelp":
+    "השמות מופיעים בכל מקום שבו מוצגת מצלמה — גלריית התמונות, הגדרות החיישנים והתראות טלגרם. השאירו ריק כדי להציג ״מצלמה N״.",
+  "cfg.camera.channelN": "ערוץ {channel}",
+  "cfg.camera.namePlaceholder": "מצלמה {channel}",
   "cfg.camera.judgeProvider": "ספק שיפוט AI",
   "cfg.camera.judgeProviderOff": "כבוי",
   "cfg.camera.judgeProviderClaude": "Claude",
@@ -332,6 +335,10 @@ export const he: Record<TranslationKey, string> = {
   "explore.verdict.breach": "אושרה חדירה (AI)",
   "explore.verdict.safe": "אזעקת כזב (AI)",
   "explore.expandedSnapshotAlt": "תמונת מצלמה מוגדלת",
+  "explore.renameCameras": "שינוי שמות מצלמות",
+  "explore.cameraNamePlaceholder": "מצלמה {channel}",
+  "explore.saveNames": "שמירת שמות",
+  "explore.namesSaved": "שמות המצלמות נשמרו.",
 
   // ---- Members ----
   "members.title": "משתמשים",

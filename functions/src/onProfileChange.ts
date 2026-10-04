@@ -6,6 +6,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { db, rtdb } from "./admin";
 import { Rule, Sensor, Remote } from "./types";
 import { buildRtdbConfig, sirenKey } from "./buildConfig";
+import { sensorConfigChanged } from "./sensorConfigChanged";
 
 // Trigger on profile document changes
 export const onProfileChange = onDocumentWritten(
@@ -34,6 +35,29 @@ export const onRemoteChange = onDocumentWritten(
   }
 );
 
+// Sensor-level changes that affect the device config.
+//
+// RTDB config is DERIVED state, and for a long time NO sensor write rebuilt it
+// (see CLAUDE.md's warning, and the familyId backfill that needed a manual
+// `npm run touch:project` afterwards for exactly this reason). That was
+// tolerable while every device-visible sensor field was set at pairing time.
+// Per-sensor camera selection broke it: `cameras` is edited in the Sensors tab
+// long after pairing, and without this trigger the device would keep the old
+// selection until some unrelated profile/rule edit happened to rebuild.
+//
+// Guarded by sensorConfigChanged so the alert markers (water/battery/dead
+// *AlertSentAt) and renames — all frequent, none device-visible — do not each
+// cost a config rebuild.
+export const onSensorConfigChange = onDocumentWritten(
+  { document: "projects/{projectId}/sensors/{sensorId}", region: "europe-west1" },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!sensorConfigChanged(before, after)) return;
+    await rebuildConfig(event.params.projectId);
+  }
+);
+
 // Trigger on project-level changes that affect the device config
 // (sirenEnabled, sirenBaseAddress)
 export const onProjectConfigChange = onDocumentWritten(
@@ -50,6 +74,11 @@ export const onProjectConfigChange = onDocumentWritten(
     // RTDB config and therefore down to the device. Omit it and the address
     // is stored durably but never delivered — the pairing-recovery path
     // would look correct and do nothing.
+    //
+    // cameraNames is deliberately NOT here. Channel names are display-only
+    // (web UI, judge prompt, Telegram caption); the device captures by channel
+    // NUMBER and never receives them, so renaming a camera must not churn the
+    // config the device polls every 5s.
     if (
       before.sirenEnabled === after.sirenEnabled &&
       before.sirenBaseAddress === after.sirenBaseAddress &&

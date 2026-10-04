@@ -13,16 +13,21 @@
 // it only ever compiles for the esp32s3 env.
 namespace CameraGate {
 
+// NVR channel count, and therefore the width of SensorConfig::cameraMask and
+// the maximum `count` channelsFor() can return. Mirrors MAX_CHANNEL in
+// web/src/features/explore/cameraNames.ts and buildConfig.ts.
+constexpr uint8_t kMaxChannels = 8;
+
 // true iff the device should take a snapshot right now for this sensor:
-// online, NVR capture enabled, sensor not marked out-of-sight, and either
-// no prior capture or the cooldown has elapsed.
+// online, NVR capture enabled, at least one camera selected for the sensor,
+// and either no prior capture or the cooldown has elapsed.
 bool shouldCapture(const Config& cfg, const SensorConfig& sensor, bool online,
                     uint32_t nowMs, uint32_t lastCaptureMs);
 
-// Picks which NVR channel(s) to snapshot for a sensor. If the sensor has a
-// named channel, that's the only one; otherwise all three known live
-// channels (probing can refine this later). `out` must have room for at
-// least 3 entries.
+// Expands the sensor's cameraMask into explicit channel numbers, ascending.
+// Channel N is bit N-1, so mask 0b10000101 yields {1, 3, 8}. A zero mask
+// yields count 0 — the sensor captures nothing. `out` must have room for at
+// least kMaxChannels entries.
 void channelsFor(const SensorConfig& sensor, uint8_t* out, uint8_t& count);
 
 } // namespace CameraGate

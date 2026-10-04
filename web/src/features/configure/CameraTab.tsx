@@ -4,6 +4,7 @@ import { useProject } from "@/app/ProjectProvider";
 import { projectDoc } from "@/lib/firestore";
 import { useT } from "@/i18n/I18nProvider";
 import { validateNvrSettings, type NvrMode, type JudgeProvider } from "./cameraSettings";
+import { ALL_CHANNELS } from "@/features/explore/cameraNames";
 
 export default function CameraTab() {
   const t = useT();
@@ -32,10 +33,20 @@ export default function CameraTab() {
   );
   const [judgeModel, setJudgeModel] = useState(project?.judgeModel ?? "");
   const [judgePrompt, setJudgePrompt] = useState(project?.judgePrompt ?? "");
+  // All 8 channels are editable here, named or not, so cameras can be named
+  // before any snapshot exists. (The Events gallery also edits names, but only
+  // the channels in the snapshot you are looking at.)
+  const [cameraNames, setCameraNames] = useState<Record<string, string>>(
+    () => ({ ...(project?.cameraNames ?? {}) })
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Stable key for the saved names, so the sync effect below re-runs only when
+  // their CONTENT changes — see the note on its deps array.
+  const savedCameraNamesKey = JSON.stringify(project?.cameraNames ?? {});
 
   useEffect(() => {
     setNvrMode(project?.nvrMode ?? "off");
@@ -54,6 +65,10 @@ export default function CameraTab() {
     setJudgeProvider(project?.judgeProvider ?? "null");
     setJudgeModel(project?.judgeModel ?? "");
     setJudgePrompt(project?.judgePrompt ?? "");
+    setCameraNames({ ...(project?.cameraNames ?? {}) });
+    // cameraNames is keyed on its SERIALIZED form below, not the object: the
+    // project doc arrives from a live onSnapshot, so a fresh object identity on
+    // every snapshot would re-clobber what the user is typing.
   }, [
     project?.nvrMode,
     project?.nvrHost,
@@ -64,6 +79,7 @@ export default function CameraTab() {
     project?.judgeProvider,
     project?.judgeModel,
     project?.judgePrompt,
+    savedCameraNamesKey,
   ]);
 
   const handleSave = async () => {
@@ -87,6 +103,7 @@ export default function CameraTab() {
       judgeProvider,
       judgeModel,
       judgePrompt,
+      cameraNames,
     });
 
     if (!result.ok) {
@@ -222,6 +239,32 @@ export default function CameraTab() {
               onChange={(e) => setSnapshotRetentionDays(e.target.value)}
             />
             <p className="muted">{t("cfg.camera.retentionHelp")}</p>
+          </div>
+
+          <div className="field">
+            <span className="field__label">{t("cfg.camera.names")}</span>
+            <div className="stack" style={{ gap: "var(--sp-2)" }}>
+              {ALL_CHANNELS.map((n) => (
+                <label key={n} className="row" style={{ gap: "var(--sp-2)" }}>
+                  <span className="muted" style={{ minWidth: "5.5rem" }}>
+                    {t("cfg.camera.channelN", { channel: n })}
+                  </span>
+                  <input
+                    className="input"
+                    value={cameraNames[String(n)] ?? ""}
+                    placeholder={t("cfg.camera.namePlaceholder", { channel: n })}
+                    maxLength={40}
+                    onChange={(e) =>
+                      setCameraNames((prev) => ({
+                        ...prev,
+                        [String(n)]: e.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            <p className="muted">{t("cfg.camera.namesHelp")}</p>
           </div>
 
           <div className="field">

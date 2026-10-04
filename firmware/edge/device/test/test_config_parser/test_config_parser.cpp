@@ -371,14 +371,14 @@ void test_family_ids_fit_exactly_and_longer_values_truncate_safely() {
 
 // NVR connection fields (nh/np/nu/nw/nm/cc) are parsed before the r/c early
 // return, same as s/m — a config with no sensors must still deliver NVR
-// settings. Per-sensor os[]/cch[] ride index-aligned with r/c.
+// settings. The per-sensor cmask[] rides index-aligned with r/c.
 void test_parses_nvr_fields() {
   const char* json =
     "{ \"a\":true, \"d\":30, "
     "\"nh\":\"cam.local\", \"np\":34567, \"nu\":\"u\", \"nw\":\"p\", "
     "\"nm\":2, \"cc\":60, "
     "\"r\":[\"0x0061D\"], \"c\":[[{\"t\":0}]], "
-    "\"os\":[true], \"cch\":[3] }";
+    "\"cmask\":[5] }";
   Config cfg;
   TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
   TEST_ASSERT_EQUAL_STRING("cam.local", cfg.nvrHost);
@@ -387,8 +387,8 @@ void test_parses_nvr_fields() {
   TEST_ASSERT_EQUAL_STRING("p", cfg.nvrPassword);
   TEST_ASSERT_EQUAL_UINT8(2, cfg.nvrMode);
   TEST_ASSERT_EQUAL_UINT16(60, cfg.captureCooldownSec);
-  TEST_ASSERT_TRUE(cfg.sensors[0].outOfSight);
-  TEST_ASSERT_EQUAL_UINT8(3, cfg.sensors[0].cameraChannel);
+  // 5 == 0b101 == channels 1 and 3.
+  TEST_ASSERT_EQUAL_UINT8(5, cfg.sensors[0].cameraMask);
 }
 
 void test_nvr_fields_default_when_absent() {
@@ -397,8 +397,25 @@ void test_nvr_fields_default_when_absent() {
   TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
   TEST_ASSERT_EQUAL_UINT8(0, cfg.nvrMode);      // off
   TEST_ASSERT_EQUAL_UINT16(45, cfg.captureCooldownSec); // default
-  TEST_ASSERT_FALSE(cfg.sensors[0].outOfSight);
-  TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[0].cameraChannel); // all
+  // No cmask at all: capture nothing, NOT all channels.
+  TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[0].cameraMask);
+}
+
+// cmask is index-aligned with r, and buildConfig omits it wholesale when every
+// sensor's mask is 0. A SHORT array (shouldn't happen, but RTDB drops trailing
+// nulls) must leave the unlisted sensors at 0 rather than read out of bounds.
+void test_camera_mask_per_sensor_and_short_array() {
+  const char* json =
+    "{ \"a\":true, \"d\":0, \"nm\":1, "
+    "\"r\":[\"0x0061D\",\"0x0072E\",\"0x0083F\"], "
+    "\"c\":[[{\"t\":0}],[{\"t\":0}],[{\"t\":0}]], "
+    "\"cmask\":[128,0] }";
+  Config cfg;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
+  TEST_ASSERT_EQUAL_UINT8(3, cfg.sensorCount);
+  TEST_ASSERT_EQUAL_UINT8(128, cfg.sensors[0].cameraMask); // channel 8
+  TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[1].cameraMask);
+  TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[2].cameraMask);   // beyond the array
 }
 
 // The false-positive advisory: /commands.fp = { rfId, ts }, written when the
@@ -470,6 +487,7 @@ void setup() {
   RUN_TEST(test_siren_address_parsed_when_r_and_c_absent);
   RUN_TEST(test_parses_nvr_fields);
   RUN_TEST(test_nvr_fields_default_when_absent);
+  RUN_TEST(test_camera_mask_per_sensor_and_short_array);
   RUN_TEST(test_parse_false_positive);
   RUN_TEST(test_parse_false_positive_absent);
   RUN_TEST(test_parse_false_positive_malformed_json_is_rejected);

@@ -49,7 +49,9 @@ import {
   DEFAULT_BATTERY_ALERT_MONTHS,
 } from "./batteryAge";
 import { groupItemsByDay } from "./groupSensorsByDay";
-import { cameraChannelLabel, normalizeChannel } from "./cameraSensorConfig";
+import { normalizeCameras } from "./cameraSensorConfig";
+import { ALL_CHANNELS, cameraLabel } from "@/features/explore/cameraNames";
+import { MultiSelect } from "@/components/MultiSelect";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { useT } from "@/i18n/I18nProvider";
 
@@ -340,27 +342,17 @@ export default function SensorsTab() {
     );
   };
 
-  const handleOutOfSightChange = async (sensor: Sensor, outOfSight: boolean) => {
+  /** Persist a sensor's whole camera selection. Written as a full list (not a
+   *  per-channel patch) so an empty selection is stored as [] — the
+   *  authoritative "capture nothing" — rather than omitted, which updateDoc
+   *  would read as "leave unchanged". Re-normalized here rather than trusting
+   *  the control: this is the last stop before Firestore. */
+  const handleCamerasChange = async (sensor: Sensor, next: number[]) => {
     if (!projectId) return;
-    await updateDoc(sensorDoc(projectId, sensor.id), { outOfSight });
+    const cameras = normalizeCameras(next);
+    await updateDoc(sensorDoc(projectId, sensor.id), { cameras });
     setSensors((prev) =>
-      prev.map((s) => (s.id === sensor.id ? { ...s, outOfSight } : s))
-    );
-  };
-
-  // `channel` is already normalized (undefined = "all channels"); written as
-  // null rather than omitted because Firestore's updateDoc otherwise leaves a
-  // previously-set cameraChannel untouched instead of clearing it.
-  const handleCameraChannelChange = async (
-    sensor: Sensor,
-    channel: number | undefined
-  ) => {
-    if (!projectId) return;
-    await updateDoc(sensorDoc(projectId, sensor.id), {
-      cameraChannel: channel ?? null,
-    });
-    setSensors((prev) =>
-      prev.map((s) => (s.id === sensor.id ? { ...s, cameraChannel: channel } : s))
+      prev.map((s) => (s.id === sensor.id ? { ...s, cameras } : s))
     );
   };
 
@@ -498,8 +490,8 @@ export default function SensorsTab() {
                   <th title={t("cfg.sensors.alertAfterDaysHelp")}>
                     {t("cfg.sensors.alertAfterDays")}
                   </th>
-                  <th title={t("cfg.sensors.outOfSightHelp")}>
-                    {t("cfg.sensors.cameraChannel")}
+                  <th title={t("cfg.sensors.camerasHelp")}>
+                    {t("cfg.sensors.cameras")}
                   </th>
                   <th />
                 </tr>
@@ -639,35 +631,23 @@ export default function SensorsTab() {
                         />
                       </td>
                       <td>
-                        <label className="check">
-                          <input
-                            type="checkbox"
-                            checked={s.outOfSight ?? false}
-                            onChange={(e) =>
-                              void handleOutOfSightChange(s, e.target.checked)
-                            }
-                          />
-                          <span>{t("cfg.sensors.outOfSight")}</span>
-                        </label>
-                        <select
-                          className="input input--narrow"
-                          value={s.cameraChannel ?? ""}
-                          onChange={(e) =>
-                            void handleCameraChannelChange(
-                              s,
-                              normalizeChannel(e.target.value)
-                            )
-                          }
-                          aria-label={t("cfg.sensors.cameraChannelLabel")}
-                        >
-                          <option value="">{t("cfg.sensors.allChannels")}</option>
-                          {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                            <option key={n} value={n}>
-                              {cameraChannelLabel(n)}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="muted">{t("cfg.sensors.outOfSightHelp")}</p>
+                        {/* A dropdown rather than 8 inline checkboxes: one row
+                            per sensor times 8 boxes dominated the table. The
+                            trigger shows the current selection, so the common
+                            case (reading it) costs no clicks. An empty
+                            selection is a real state ("No cameras"), not a
+                            missing one. */}
+                        <MultiSelect
+                          label={t("cfg.sensors.cameras")}
+                          emptyLabel={t("cfg.sensors.noCameras")}
+                          options={ALL_CHANNELS.map((n) => ({
+                            value: n,
+                            label: cameraLabel(project?.cameraNames, n),
+                          }))}
+                          selected={normalizeCameras(s.cameras)}
+                          onChange={(next) => void handleCamerasChange(s, next)}
+                        />
+                        <p className="muted">{t("cfg.sensors.camerasHelp")}</p>
                       </td>
                       <td>
                         <button
