@@ -105,6 +105,21 @@ export interface Sensor {
   // means never recorded, and readers fall back to pairedAt so that every
   // sensor has an age from the day it was paired.
   batteryChangedAt?: Timestamp | null;
+  // Is a trigger from this sensor a confirmed break-in on its own?
+  //
+  // ABSENT MEANS TRUE. A door opening is definite; motion is not. The tier of
+  // the alarm notification follows from it: definite -> Pushover priority 2
+  // (repeats until acknowledged), non-definite -> priority 1 (audible through
+  // a muted ringer, single shot) which the AI judge can escalate to priority
+  // 2 on a breach verdict.
+  //
+  // Absent defaults to definite so a newly paired sensor wakes the owner,
+  // matching the fail-loud stance elsewhere (a missing judge key yields a
+  // NullJudge that fails to "breach").
+  //
+  // NOT a device-visible field: the device never learns about certainty, and
+  // it is deliberately excluded from sensorConfigChanged's guard.
+  definiteBreach?: boolean;
   // Set when the stale-battery alert fires, cleared when batteryChangedAt is
   // written. Mirrors deadAlertSentAt: without it the daily check would send
   // the same Telegram every noon until the battery was replaced.
