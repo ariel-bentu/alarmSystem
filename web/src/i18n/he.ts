@@ -283,10 +283,14 @@ export const he: Record<TranslationKey, string> = {
   "cfg.camera.judgeProvider": "ספק שיפוט AI",
   "cfg.camera.judgeProviderOff": "כבוי",
   "cfg.camera.judgeProviderClaude": "Claude",
+  "cfg.camera.judgeProviderGemini": "Gemini",
   "cfg.camera.judgeRequiredWarn":
     "צילום + שיפוט AI מחייב ספק שיפוט — אחרת כל הפעלה בזמן דריכה תיכשל בבטחה להתראת חדירה.",
+  "cfg.camera.judgeKeyHint":
+    "מפתח ה־API נשמר בשרת ואינו ניתן לעריכה כאן — הוא מוחזק בכוונה מחוץ לדפדפן.",
   "cfg.camera.judgeModel": "מודל השיפוט",
   "cfg.camera.judgeModelPlaceholder": "claude-sonnet-5",
+  "cfg.camera.judgeModelPlaceholderGemini": "gemini-3.5-flash-lite",
   "cfg.camera.judgePrompt": "הנחיית השיפוט",
   "cfg.camera.judgePromptPlaceholder": "תארו מה נחשב חדירה בתמונה הזו…",
   "cfg.camera.saved": "נשמר.",

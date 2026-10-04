@@ -279,11 +279,15 @@ export default function CameraTab() {
             >
               <option value="null">{t("cfg.camera.judgeProviderOff")}</option>
               <option value="claude">{t("cfg.camera.judgeProviderClaude")}</option>
+              <option value="gemini">{t("cfg.camera.judgeProviderGemini")}</option>
             </select>
             {nvrMode === "capture+judge" && judgeProvider === "null" && (
               <p className="banner banner--warn">
                 {t("cfg.camera.judgeRequiredWarn")}
               </p>
+            )}
+            {judgeProvider !== "null" && (
+              <p className="muted">{t("cfg.camera.judgeKeyHint")}</p>
             )}
           </div>
 
@@ -297,7 +301,13 @@ export default function CameraTab() {
               type="text"
               value={judgeModel}
               onChange={(e) => setJudgeModel(e.target.value)}
-              placeholder={t("cfg.camera.judgeModelPlaceholder")}
+              // Placeholder tracks the selected provider: a Claude model name
+              // suggested while Gemini is picked would be actively misleading.
+              placeholder={
+                judgeProvider === "gemini"
+                  ? t("cfg.camera.judgeModelPlaceholderGemini")
+                  : t("cfg.camera.judgeModelPlaceholder")
+              }
             />
           </div>
 

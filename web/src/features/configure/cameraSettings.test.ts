@@ -93,6 +93,31 @@ describe("validateNvrSettings", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("accepts gemini as a judge provider", () => {
+    const r = validateNvrSettings({
+      nvrMode: "capture+judge",
+      nvrPort: 34567,
+      captureCooldownSec: 45,
+      snapshotRetentionDays: 14,
+      judgeProvider: "gemini",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.judgeProvider).toBe("gemini");
+    }
+  });
+
+  it("rejects an unknown judge provider", () => {
+    const r = validateNvrSettings({
+      nvrMode: "capture+judge",
+      nvrPort: 34567,
+      captureCooldownSec: 45,
+      snapshotRetentionDays: 14,
+      judgeProvider: "llama",
+    });
+    expect(r.ok).toBe(false);
+  });
+
   it("rejects capture+judge with judgeProvider missing", () => {
     const r = validateNvrSettings({
       nvrMode: "capture+judge",

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handleSnapshotUpload, SnapshotUploadDeps } from "./onSnapshotUploaded";
 import { judgeFor } from "./snapshotJudge";
+import type { JudgeKeys } from "./judgeConfig";
 
 vi.mock("./telegram", () => ({
   sendTelegramPhoto: vi.fn(async () => {}),
@@ -131,10 +132,12 @@ function makeDeps(opts: {
   project: FakeDocData;
   sensors?: Record<string, FakeDocData>;
   rtdbSeed?: Record<string, unknown>;
-  anthropicApiKey?: string;
+  judgeKeys?: JudgeKeys;
 }): { deps: SnapshotUploadDeps; fs: ReturnType<typeof makeFakeFirestore>; rtdb: ReturnType<typeof makeFakeRtdb> } {
   const seed: Record<string, FakeDocData> = {
-    [`projects/${PROJECT_ID}`]: opts.project,
+    // Every judge path is gated on the project naming a provider, so default
+    // one in. Individual tests override `project` wholesale to vary it.
+    [`projects/${PROJECT_ID}`]: { judgeProvider: "claude", ...opts.project },
   };
   for (const [id, data] of Object.entries(opts.sensors ?? {})) {
     seed[`projects/${PROJECT_ID}/sensors/${id}`] = data;
@@ -149,7 +152,8 @@ function makeDeps(opts: {
     rtdb: rtdb as any,
     downloadJpeg: vi.fn(async () => JPEG),
     downloadUrl: vi.fn(async (_p: string, name: string) => `https://example.test/${name}`),
-    anthropicApiKey: "anthropicApiKey" in opts ? opts.anthropicApiKey : "sk-test",
+    judgeKeys: async () =>
+      "judgeKeys" in opts ? (opts.judgeKeys as JudgeKeys) : { anthropic: "sk-test" },
     now: () => 1700000000000,
   };
   return { deps, fs, rtdb };
@@ -371,10 +375,10 @@ describe("handleSnapshotUpload", () => {
     expect(stubJudge.judge.mock.calls[0][1].cameraName).toBeUndefined();
   });
 
-  it("skips the judge entirely when no Anthropic key is bound", async () => {
+  it("skips the judge entirely when no key is configured for the provider", async () => {
     const { deps } = makeDeps({
-      project: { nvrMode: "capture+judge" },
-      anthropicApiKey: undefined,
+      project: { nvrMode: "capture+judge", judgeProvider: "claude" },
+      judgeKeys: {},
       rtdbSeed: {
         [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
       },
@@ -383,6 +387,42 @@ describe("handleSnapshotUpload", () => {
     await handleSnapshotUpload(deps, objectName(0));
 
     expect(judgeFor).not.toHaveBeenCalled();
+  });
+
+  // Keys are per-provider: a project set to Gemini must not quietly run on the
+  // Anthropic key that happens to be configured for a different provider.
+  it("skips the judge when only the OTHER provider's key is configured", async () => {
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge", judgeProvider: "gemini" },
+      judgeKeys: { anthropic: "sk-test" },
+      rtdbSeed: {
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
+      },
+    });
+
+    await handleSnapshotUpload(deps, objectName(0));
+
+    expect(judgeFor).not.toHaveBeenCalled();
+  });
+
+  it("runs the judge for a gemini project when the gemini key is configured", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge", judgeProvider: "gemini", judgeModel: "m" },
+      judgeKeys: { gemini: "AQ-test" },
+      rtdbSeed: {
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
+      },
+    });
+
+    await handleSnapshotUpload(deps, objectName(0));
+
+    expect(judgeFor).toHaveBeenCalledWith("gemini", { gemini: "AQ-test" }, "m");
+    expect(stubJudge.judge).toHaveBeenCalledTimes(1);
   });
 
   describe("all-channels coordination (first breach wins; safe withheld if a sibling already breached)", () => {

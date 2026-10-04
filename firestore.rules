@@ -40,6 +40,18 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Server-only secrets: the AI-judge API keys (config/judge). No client may
+    // read or write these, ever — Cloud Functions reach them through the admin
+    // SDK, which bypasses these rules entirely.
+    //
+    // Deliberately NOT fields on projects/{projectId}: that doc is readable by
+    // any MEMBER (see its rule below), so a key stored there would be shipped
+    // in plaintext to every member's browser. An LLM API key is a billable
+    // internet credential, unlike the LAN-scoped nvrPassword next to it.
+    match /config/{configId} {
+      allow read, write: if false;
+    }
+
     match /projects/{projectId} {
       // Only a system admin may create a project.
       allow create: if isSystemAdmin()

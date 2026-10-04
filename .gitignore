@@ -18,6 +18,9 @@ firmware/edge/**/.pio
 .claude
 *.log
 
+# Throwaway spikes: hold live API keys and real camera frames from the house.
+spike_scratch/
+
 # Firebase service-account keys. Live admin credentials — they bypass every
 # security rule, and this repo is public.
 *-firebase-adminsdk-*.json
