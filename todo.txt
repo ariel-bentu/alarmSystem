@@ -13,6 +13,19 @@ list of things to build.
   alarm on its own siren. Found during the sensor-families audit; that work
   neither fixes nor depends on it.
 - register the Telegram webhook so bot commands work
+- move telegramBotToken/telegramChatId into projects/{id}/secrets/notify, the
+  way the Pushover credentials already are. They are on the member-readable
+  project doc today (see SECURITY.md). Needs a backfill that writes the
+  secret, flips every read to the new path, then clears the old fields.
+- Pushover image attachments, so a breach photo reaches a Pushover-only
+  project. onSnapshotUploaded currently sends the photo via Telegram and only
+  the caption text through notify().
+- deep-link an alert to the SPECIFIC event. The Pushover notification already
+  links to /explore, but ExplorePage reads no query parameter, so the link
+  lands on the unfiltered list. Teaching it to honour ?rfId=&ts= and
+  pre-select that row would put the triggering sensor's snapshots on screen
+  directly from the notification. notify() would take the rfId and build the
+  query; APP_EVENTS_URL is the seam.
 - test + deploy the watchdog / offline-alert work (docs/testing-device-liveness.md)
 
 - multi-siren support. The siren base address is a SINGLE value end to end:

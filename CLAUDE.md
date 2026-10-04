@@ -107,7 +107,8 @@ battery change sounds the siren; silence it with Disarm.
 ```
 
 Firestore: `/users/{email}`, `/deviceKeys/{apiKeyHash}`, `/projects/{projectId}`
-with `members`, `sensors`, `profiles/{id}/rules`, `schedules`, `events`.
+with `members`, `sensors`, `profiles/{id}/rules`, `schedules`, `events`, and
+`secrets/notify` (server-only: Pushover credentials, `read, write: if false`).
 
 **Device auth:** `mintDeviceToken` (API-key → Firebase custom token, scoped
 per project by `database.rules.json`). This is the real firmware's path.
@@ -354,11 +355,57 @@ Measured on six real frames from this project's own Storage: ~1218 input tokens
 correct including the one frame containing a person. The prompt is shared
 across providers via `buildPrompt()` so verdicts cannot drift between models.
 
+**Pushover notification channel (2026-10-04) — built, NOT verified on a muted phone.**
+A muted iPhone (ringer switch, not DND) silences every Telegram
+notification; only an app holding Apple's Critical Alerts entitlement can
+play through it. Pushover has that entitlement and applies it to priority 1
+**and** 2, so it is now a per-project channel alongside Telegram.
+
+`notifyChannels?: ("telegram"|"pushover")[]` on `projects/{projectId}` —
+**absent means `["telegram"]`** (no migration needed); an **empty array means
+send nothing** and is deliberately not coerced. Credentials live in
+`projects/{projectId}/secrets/notify`, a subcollection locked to
+`allow read, write: if false` — per-project because they identify who gets
+woken, but off the member-readable project doc. Set them with
+`cd functions && npm run set:notifyKey -- <projectId> <appToken> <userKey>`.
+
+All nine former `sendTelegram` call sites now route through `notify()`
+(`functions/src/notify.ts`), which fans out concurrently with per-channel
+failure isolation and **never throws** — `deviceLiveness` and
+`deadSensorCheck` latch their alert markers only after a successful send.
+Severity maps `alarm`→priority 2 (repeats until acknowledged), `loud`→1,
+`notice`→-1; the Telegram half reuses the pre-existing `silent` boolean.
+`device back online` was reclassified loud→notice, since loud would fire a
+Critical Alert through a muted phone to say everything is fine.
+`telegramWebhook.ts` is deliberately NOT routed through `notify()`: those are
+replies to a typed Telegram command, addressed to the `chatId` from the
+incoming webhook, not to the project's configured channels.
+
+Alarm, breach and sensor-alert messages carry `link: true`, which adds
+Pushover's `url`/`url_title` pointing at `/explore`. Because the PWA manifest
+declares `scope: "/"` and `display: "standalone"`, tapping it opens the
+**installed app**, not Safari — no custom URL scheme and no App Store
+presence needed. The link is Pushover-only; Telegram already renders URLs in
+the message body.
+
+⚠️ **Critical Alerts must be opted into inside the Pushover iOS app** —
+Apple requires that consent separately from normal push. Without it,
+priority 1 and 2 are ordinary notifications and stay silent on mute, which
+is indistinguishable from a broken integration.
+
+Deliberately out of scope: Pushover image attachments (the breach photo
+stays Telegram-only; a text alert goes to both), the `device` parameter
+(omitted so all the owner's devices alert), acknowledgement callbacks, and
+deep-linking to a SPECIFIC event — `/explore` reads no query parameter, so
+the link lands on the unfiltered events list.
+
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing
 guide below. `RelaySiren` is built but unused (the RF path supersedes it).
 The AI judge in `onSnapshotUploaded` is deployed but not yet exercised on
 real hardware (no armed trigger with a live Anthropic key in the field yet).
+The Pushover channel is built and unit-tested but has **never been verified
+on a muted phone**, which is the only test that proves what it exists for.
 
 ## Next
 
@@ -367,8 +414,11 @@ real hardware (no armed trigger with a live Anthropic key in the field yet).
    (filed 2026-09-10); if fixed upstream, retire `patch_firebase.py`
 3. Test and deploy the watchdog / offline-alert work (`docs/testing-device-liveness.md`)
 4. Exercise the AI judge on a real armed trigger to verify the breach/safe path
-5. Run in parallel with W184
-6. Register the Telegram webhook so bot commands work
-7. Decommission W184
+5. Verify Pushover on a **muted** phone: priority 2 sounds and repeats, and
+   the notification link opens the installed PWA rather than Safari. Requires
+   opting into Critical Alerts inside the Pushover app first
+6. Run in parallel with W184
+7. Register the Telegram webhook so bot commands work
+8. Decommission W184
 
 See `todo.txt` for smaller known gaps.

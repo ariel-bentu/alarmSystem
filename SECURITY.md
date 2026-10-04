@@ -103,6 +103,16 @@ failure class most suspected historically.
 
 ### Medium
 
+- **Telegram bot token is readable by any project member.**
+  `telegramBotToken` and `telegramChatId` are fields on
+  `projects/{projectId}`, which is `allow read: if isMember(projectId)`, so
+  every member's browser downloads them. A member can post arbitrary messages
+  as the alarm system — including a false "all clear". The Pushover
+  credentials added 2026-10-04 avoid this by living in
+  `projects/{projectId}/secrets/notify` (`allow read, write: if false`); the
+  Telegram pair should move to the same subcollection. Not done in that
+  change because migrating live credentials risks every project's alerting
+  and cannot be rehearsed against production.
 - **Event key collisions before NTP sync.** Event keys are `time(nullptr)*1000`,
   which has 1-second resolution and returns near-zero before sync. Multiple
   events in the same pre-sync second overwrite each other — a narrow but real
