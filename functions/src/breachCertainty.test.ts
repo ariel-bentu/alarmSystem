@@ -1,12 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   isDefiniteBreach,
-  isRuleDefinite,
   alarmSeverity,
   breachVerdictSeverity,
   resolveCauseCertainty,
 } from "./breachCertainty";
-import type { Rule } from "./types";
 
 const definite = { definiteBreach: true };
 const nonDefinite = { definiteBreach: false };
@@ -35,46 +33,6 @@ describe("isDefiniteBreach", () => {
 
   it("treats undefined as definite", () => {
     expect(isDefiniteBreach(undefined)).toBe(true);
-  });
-});
-
-describe("isRuleDefinite", () => {
-  it("is definite when every member is definite", () => {
-    expect(isRuleDefinite([definite, definite])).toBe(true);
-  });
-
-  // THE assertion that pins the corrected decision. An earlier design
-  // defaulted multi-sensor rules to definite on "several conditions at once
-  // is stronger evidence" grounds. That is backwards: such a rule exists
-  // precisely BECAUSE its members are individually inconclusive, and the
-  // condition is an AND, so the weakest member governs.
-  it("is NOT definite when any single member is non-definite", () => {
-    expect(isRuleDefinite([definite, definite, nonDefinite])).toBe(false);
-  });
-
-  it("is not definite when every member is non-definite", () => {
-    expect(isRuleDefinite([nonDefinite, nonDefinite])).toBe(false);
-  });
-
-  it("takes a single member's certainty verbatim", () => {
-    expect(isRuleDefinite([definite])).toBe(true);
-    expect(isRuleDefinite([nonDefinite])).toBe(false);
-  });
-
-  // An unset member still counts as definite, so a rule mixing one unset
-  // sensor with definite ones stays definite.
-  it("treats an unset member as definite", () => {
-    expect(isRuleDefinite([definite, unset])).toBe(true);
-  });
-
-  // No resolvable members is an unknown, not a quiet case.
-  it("is definite for an empty member list", () => {
-    expect(isRuleDefinite([])).toBe(true);
-  });
-
-  it("treats a null member as definite", () => {
-    expect(isRuleDefinite([nonDefinite, null])).toBe(false);
-    expect(isRuleDefinite([null])).toBe(true);
   });
 });
 
@@ -114,71 +72,44 @@ describe("resolveCauseCertainty", () => {
     "0x0061D": "motionId",
     "0xAAAAA": "unsetId",
   };
-  const rule = (id: string, sensors: string[]): Rule =>
-    ({ id, name: id, sensors, condition: { type: "immediate" } }) as Rule;
 
-  it("is definite for a definite single sensor", () => {
+  it("is definite for a definite sensor", () => {
     expect(
-      resolveCauseCertainty(
-        { rfId: "0x2E5B7", at: 1 },
-        [rule("r1", ["doorId"])],
-        sensorsById,
-        sensorIdsByRfId
-      )
+      resolveCauseCertainty({ rfId: "0x2E5B7", at: 1 }, sensorsById, sensorIdsByRfId)
     ).toBe(true);
   });
 
-  it("is non-definite for a non-definite single sensor", () => {
+  it("is non-definite for a non-definite sensor", () => {
     expect(
-      resolveCauseCertainty(
-        { rfId: "0x0061D", at: 1 },
-        [rule("r1", ["motionId"])],
-        sensorsById,
-        sensorIdsByRfId
-      )
+      resolveCauseCertainty({ rfId: "0x0061D", at: 1 }, sensorsById, sensorIdsByRfId)
     ).toBe(false);
   });
 
-  // The corrected multi-sensor decision, end to end through the lookup.
-  it("is non-definite when the covering rule has one non-definite member", () => {
+  it("is definite for a sensor with no flag set", () => {
     expect(
-      resolveCauseCertainty(
-        { rfId: "0x2E5B7", at: 1 },
-        [rule("r1", ["doorId", "motionId"])],
-        sensorsById,
-        sensorIdsByRfId
-      )
-    ).toBe(false);
-  });
-
-  it("is definite when every member of the covering rule is definite", () => {
-    expect(
-      resolveCauseCertainty(
-        { rfId: "0x2E5B7", at: 1 },
-        [rule("r1", ["doorId", "unsetId"])],
-        sensorsById,
-        sensorIdsByRfId
-      )
+      resolveCauseCertainty({ rfId: "0xAAAAA", at: 1 }, sensorsById, sensorIdsByRfId)
     ).toBe(true);
   });
 
-  // No rule covers it, so fall back to the sensor's own certainty rather
-  // than failing loud: the sensor IS resolvable, so this is not an unknown.
-  it("falls back to the sensor's own flag when no rule covers it", () => {
-    expect(
-      resolveCauseCertainty(
-        { rfId: "0x0061D", at: 1 },
-        [],
-        sensorsById,
-        sensorIdsByRfId
-      )
-    ).toBe(false);
+  // THE REGRESSION THIS FIXES. An earlier version resolved the tier from the
+  // first rule containing the sensor, but rule membership is not exclusive —
+  // a sensor commonly sits in a 1-member count_in_window AND a multi_sensor
+  // rule at once — so Firestore's arbitrary document order decided the
+  // priority, and the same sensor could alert differently on each trigger.
+  //
+  // The result now depends only on the sensor, so no rule arrangement can
+  // change it. Called repeatedly to make the determinism explicit.
+  it("is deterministic regardless of how many rules cover the sensor", () => {
+    const runs = Array.from({ length: 5 }, () =>
+      resolveCauseCertainty({ rfId: "0x0061D", at: 1 }, sensorsById, sensorIdsByRfId)
+    );
+    expect(runs).toEqual([false, false, false, false, false]);
   });
 
   // --- unknowns, all fail loud ---
 
   it("is definite for a null cause", () => {
-    expect(resolveCauseCertainty(null, [], sensorsById, sensorIdsByRfId)).toBe(true);
+    expect(resolveCauseCertainty(null, sensorsById, sensorIdsByRfId)).toBe(true);
   });
 
   // A tamper cause, and every pre-fix server write: label only, no rfId.
@@ -186,7 +117,6 @@ describe("resolveCauseCertainty", () => {
     expect(
       resolveCauseCertainty(
         { label: "Front door tampered", at: 1 },
-        [],
         sensorsById,
         sensorIdsByRfId
       )
@@ -195,23 +125,16 @@ describe("resolveCauseCertainty", () => {
 
   it("is definite for an rfId matching no sensor", () => {
     expect(
-      resolveCauseCertainty(
-        { rfId: "0xDEAD0", at: 1 },
-        [],
-        sensorsById,
-        sensorIdsByRfId
-      )
+      resolveCauseCertainty({ rfId: "0xDEAD0", at: 1 }, sensorsById, sensorIdsByRfId)
     ).toBe(true);
   });
 
-  // A label AND an rfId is what the server writes after this change. The
-  // rfId must win for certainty, even though resolveCauseLabel prefers the
-  // label for DISPLAY.
+  // A label AND an rfId is what the server writes. The rfId must win for
+  // certainty, even though resolveCauseLabel prefers the label for DISPLAY.
   it("uses the rfId for certainty even when a label is also present", () => {
     expect(
       resolveCauseCertainty(
         { label: "Night motion", rfId: "0x0061D", at: 1 },
-        [rule("r1", ["motionId"])],
         sensorsById,
         sensorIdsByRfId
       )

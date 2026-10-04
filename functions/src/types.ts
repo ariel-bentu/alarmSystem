@@ -271,6 +271,14 @@ export interface Project {
   // are clamped to the API's own bounds (retry >= 30, expire <= 10800).
   pushoverRetrySec?: number;
   pushoverExpireSec?: number;
+  // A built-in Pushover sound name ("siren", "persistent", …). Absent or
+  // empty means the user's own default tone.
+  //
+  // Only alien / climb / persistent / echo / updown are long-looping; the
+  // rest are short one-shots, and priority 2's repeat re-sends the
+  // notification rather than sustaining a tone — so a short sound is why an
+  // emergency alert can fail to FEEL like a repeating alarm.
+  pushoverSound?: string;
   // Months after which a sensor battery is considered overdue for
   // replacement. Optional: project docs predate it, and absent means the
   // DEFAULT_BATTERY_ALERT_MONTHS default. Zero or negative disables the

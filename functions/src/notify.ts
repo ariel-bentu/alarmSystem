@@ -128,6 +128,7 @@ export async function notify(
           title: msg.title,
           url: msg.link ? APP_EVENTS_URL : undefined,
           urlTitle: msg.link ? "Open alarm system" : undefined,
+          sound: project.pushoverSound,
           retrySec: project.pushoverRetrySec,
           expireSec: project.pushoverExpireSec,
         })

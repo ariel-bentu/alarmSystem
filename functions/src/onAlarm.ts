@@ -149,6 +149,9 @@ async function resolveCause(
 
   return {
     label: resolveCauseLabel(cause, rules, sensorNamesByRfId, sensorIdsByRfId),
-    definite: resolveCauseCertainty(cause, rules, sensorsById, sensorIdsByRfId),
+    // The SENSOR's own flag, not the covering rule's — see
+    // resolveCauseCertainty for why a rule lookup was removed. `rules` above
+    // is still needed, but only by resolveCauseLabel.
+    definite: resolveCauseCertainty(cause, sensorsById, sensorIdsByRfId),
   };
 }

@@ -10,7 +10,7 @@
 //   "loud"   -> priority  1  Critical Alert, single shot
 //   "notice" -> priority -1  silent
 
-import { Rule, Sensor } from "./types";
+import { Sensor } from "./types";
 import { AlarmCause } from "./alarmCause";
 
 /** Just the field these helpers read, so callers may pass a partial sensor. */
@@ -28,27 +28,6 @@ export function isDefiniteBreach(
   sensor: Certainty | null | undefined
 ): boolean {
   return sensor?.definiteBreach !== false;
-}
-
-/**
- * Certainty for a whole rule, from its member sensors.
- *
- * EVERY member must be definite. All, not any: a multi_sensor condition is an
- * AND — it fires only when every member tripped — so the WEAKEST member
- * governs what the combination proves. A door sensor plus a motion sensor
- * firing together is still gated on the motion sensor being right.
- *
- * This is derived rather than defaulted on purpose. A multi-sensor rule
- * exists precisely BECAUSE its members are individually inconclusive: a
- * sensor that were a definite breach on its own would already fire via its
- * own `immediate` rule. Defaulting such a rule to definite (an earlier draft
- * of the design did) gets it exactly backwards.
- *
- * An EMPTY list means no member resolved, which is an unknown — so definite.
- */
-export function isRuleDefinite(members: (Certainty | null)[]): boolean {
-  if (members.length === 0) return true;
-  return members.every((s) => isDefiniteBreach(s));
 }
 
 /** Tier for the notification sent when the siren fires. */
@@ -71,17 +50,30 @@ export function breachVerdictSeverity(definite: boolean): "alarm" | "loud" {
 }
 
 /**
- * Which tier an alarm_cause deserves.
+ * Which tier an alarm_cause deserves: the certainty of the SENSOR that fired.
  *
  * Deliberately keyed on the cause's rfId, NOT its label — even though
  * resolveCauseLabel prefers the label for display. A label is free text
  * naming a rule; only the rfId identifies a sensor whose certainty can be
- * read. (This is why onSensorEvent now writes both.)
+ * read. (This is why onSensorEvent writes both.)
  *
- * When the sensor resolves AND a rule covers it, the RULE's members decide:
- * a multi_sensor rule is an AND, so one non-definite member makes the whole
- * combination non-definite. With no covering rule, the sensor's own flag is
- * used — it resolved, so this is not an unknown.
+ * NO RULE LOOKUP, deliberately — do not reintroduce one. An earlier version
+ * derived the tier from the covering rule's members (all must be definite,
+ * since a multi_sensor condition is an AND). Two things made that unworkable
+ * against real data:
+ *
+ *  1. Rule membership is NOT exclusive. A sensor commonly belongs to several
+ *     rules at once — e.g. a 1-member count_in_window AND a 2-member
+ *     multi_sensor. The old code took `rules.find(...)`, the FIRST match, so
+ *     Firestore's arbitrary document order decided the notification tier.
+ *     Non-deterministic: the same sensor could alert at a different priority
+ *     on each trigger.
+ *  2. The cause does not record WHICH rule fired. `ct` is a condition TYPE
+ *     index, not a rule id, so the firing rule cannot be identified at all
+ *     without a firmware change.
+ *
+ * Using the sensor's own flag is deterministic and is what the UI checkbox
+ * actually sets, so what the owner ticks is what they get.
  *
  * Every genuine unknown returns true (definite, fail loud): no cause, a
  * label-only cause (tamper, or any pre-fix server write), or an rfId that
@@ -89,7 +81,6 @@ export function breachVerdictSeverity(definite: boolean): "alarm" | "loud" {
  */
 export function resolveCauseCertainty(
   cause: AlarmCause | null,
-  rules: Rule[],
   sensorsById: Record<string, Certainty>,
   sensorIdsByRfId: Record<string, string>
 ): boolean {
@@ -98,11 +89,6 @@ export function resolveCauseCertainty(
 
   const sensorId = sensorIdsByRfId[rfId];
   if (!sensorId) return true;
-
-  const rule = rules.find((r) => r.sensors.includes(sensorId));
-  if (rule) {
-    return isRuleDefinite(rule.sensors.map((id) => sensorsById[id] ?? null));
-  }
 
   return isDefiniteBreach(sensorsById[sensorId] ?? null);
 }

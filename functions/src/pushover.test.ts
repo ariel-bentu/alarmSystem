@@ -92,6 +92,21 @@ describe("pushoverBody", () => {
     expect(b.get("url")).toBeNull();
     expect(b.get("url_title")).toBeNull();
   });
+
+  // A short default tone re-sent every `retry` seconds is why an emergency
+  // alert can fail to feel like a repeating alarm; the long sounds fix that.
+  it("includes the sound when set", () => {
+    expect(pushoverBody({ ...base, sound: "persistent" }).get("sound")).toBe(
+      "persistent"
+    );
+  });
+
+  // Omitted, not blank: Pushover falls back to the user's own default tone,
+  // and sending "" would be a request to play nothing.
+  it("omits the sound when unset or empty", () => {
+    expect(pushoverBody(base).get("sound")).toBeNull();
+    expect(pushoverBody({ ...base, sound: "" }).get("sound")).toBeNull();
+  });
 });
 
 describe("sendPushover", () => {

@@ -113,9 +113,21 @@ describe("notify", () => {
       title: "Alarm",
       url: undefined,
       urlTitle: undefined,
+      sound: undefined,
       retrySec: 90,
       expireSec: 600,
     });
+  });
+
+  it("passes the project's Pushover sound through", async () => {
+    const d = deps(bothSecrets);
+    await notify(
+      "p",
+      project({ notifyChannels: ["pushover"], pushoverSound: "persistent" }),
+      { text: "t", severity: "alarm" },
+      d
+    );
+    expect(d.sendPushoverFn.mock.calls[0][0].sound).toBe("persistent");
   });
 
   // The deep link: tapping the notification opens the installed PWA on the

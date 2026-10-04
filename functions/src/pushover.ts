@@ -37,6 +37,15 @@ export interface PushoverArgs {
   // INSTALLED app rather than a browser tab.
   url?: string;
   urlTitle?: string;
+  // A built-in Pushover sound name. Absent/empty plays the user's own default
+  // tone, so it is omitted rather than guessed.
+  //
+  // Matters more than it looks: most built-in sounds are SHORT one-shots, and
+  // priority 2's repeat re-sends the notification rather than sustaining a
+  // tone — so a short sound every `retry` seconds does not feel like an
+  // alarm. Only five are long/looping: alien, climb, persistent, echo,
+  // updown. `siren` and `spacealarm` are the alarm-flavoured short ones.
+  sound?: string;
   retrySec?: number;
   expireSec?: number;
 }
@@ -72,6 +81,7 @@ export function pushoverBody(args: PushoverArgs): URLSearchParams {
     html: "1",
   });
   if (args.title) body.set("title", args.title);
+  if (args.sound) body.set("sound", args.sound);
   // url_title without url is meaningless to Pushover, so it is gated on url.
   if (args.url) {
     body.set("url", args.url);
