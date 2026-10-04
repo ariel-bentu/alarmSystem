@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { type SettingsForm, formFromProject, isDirty } from "./settingsForm";
+import {
+  type SettingsForm,
+  formFromProject,
+  isDirty,
+  normalizeNotifyChannels,
+} from "./settingsForm";
 import { DEFAULT_BATTERY_ALERT_MONTHS } from "@/features/configure/batteryAge";
 
 const base: SettingsForm = {
@@ -12,6 +17,7 @@ const base: SettingsForm = {
   triggerSiren: false,
   notifyEverySensorTrigger: true,
   batteryAlertMonths: DEFAULT_BATTERY_ALERT_MONTHS,
+  notifyChannels: ["telegram"],
 };
 
 describe("isDirty", () => {
@@ -74,6 +80,7 @@ describe("formFromProject", () => {
       triggerSiren: true,
       notifyEverySensorTrigger: false,
       batteryAlertMonths: DEFAULT_BATTERY_ALERT_MONTHS,
+      notifyChannels: ["telegram"],
     });
   });
 
@@ -151,5 +158,80 @@ describe("batteryAlertMonths", () => {
 describe("isDirty — timezone", () => {
   it("detects a changed timezone", () => {
     expect(isDirty(base, { ...base, timezone: "Europe/London" })).toBe(true);
+  });
+});
+
+describe("normalizeNotifyChannels", () => {
+  // Absent must read as telegram-only: the server treats undefined the same
+  // way, so a legacy project's checkboxes show its real current behaviour.
+  it("defaults to telegram when the field is absent", () => {
+    expect(normalizeNotifyChannels(undefined)).toEqual(["telegram"]);
+  });
+
+  // An explicit empty selection is a real choice ("notify me nowhere") and
+  // must survive a round-trip rather than snapping back to the default.
+  it("keeps an explicit empty selection empty", () => {
+    expect(normalizeNotifyChannels([])).toEqual([]);
+  });
+
+  it("passes through a valid pair in a stable order", () => {
+    expect(normalizeNotifyChannels(["pushover", "telegram"])).toEqual([
+      "telegram",
+      "pushover",
+    ]);
+  });
+
+  it("drops unknown channel names", () => {
+    expect(normalizeNotifyChannels(["telegram", "sms"])).toEqual(["telegram"]);
+  });
+
+  it("de-duplicates repeated channels", () => {
+    expect(normalizeNotifyChannels(["telegram", "telegram"])).toEqual(["telegram"]);
+  });
+
+  it("returns the default for a non-array value", () => {
+    expect(normalizeNotifyChannels("telegram")).toEqual(["telegram"]);
+  });
+});
+
+describe("notifyChannels in the form", () => {
+  const source = {
+    name: "Home",
+    telegramBotToken: "tok",
+    telegramChatId: "-100",
+    sirenDurationSec: 120,
+    timezone: "Asia/Jerusalem",
+    serverActions: { sendTelegram: true, triggerSiren: false },
+  };
+
+  it("defaults to telegram for a project predating the field", () => {
+    expect(formFromProject(source).notifyChannels).toEqual(["telegram"]);
+  });
+
+  it("reads an explicit channel list", () => {
+    expect(
+      formFromProject({ ...source, notifyChannels: ["telegram", "pushover"] })
+        .notifyChannels
+    ).toEqual(["telegram", "pushover"]);
+  });
+
+  it("preserves an explicitly empty list", () => {
+    expect(
+      formFromProject({ ...source, notifyChannels: [] }).notifyChannels
+    ).toEqual([]);
+  });
+
+  it("is dirty when a channel is added or removed", () => {
+    expect(
+      isDirty(base, { ...base, notifyChannels: ["telegram", "pushover"] })
+    ).toBe(true);
+    expect(isDirty(base, { ...base, notifyChannels: [] })).toBe(true);
+  });
+
+  // Order is normalised on read, so a reordering cannot be a real edit — and
+  // comparing arrays by reference would otherwise mark the form dirty on
+  // every render.
+  it("is not dirty when the same channels are listed", () => {
+    expect(isDirty(base, { ...base, notifyChannels: ["telegram"] })).toBe(false);
   });
 });

@@ -374,6 +374,15 @@ export const he: Record<TranslationKey, string> = {
   "settings.telegramChatId": "מזהה צ׳אט בטלגרם",
   "settings.notifyEveryTrigger":
     "שליחת הודעת טלגרם בכל הפעלת גלאי (על סוללה חלשה וחבלה תמיד נשלחת התראה)",
+  "settings.notifyChannels": "ערוצי התראה",
+  "settings.channelTelegram": "טלגרם",
+  "settings.channelPushover": "Pushover",
+  "settings.notifyChannelsNone": "לא נבחר אף ערוץ — לא יישלחו התראות.",
+  "settings.pushoverNotConfigured":
+    "לא הוגדרו פרטי Pushover. הרץ: npm run set:notifyKey -- <projectId> <appToken> <userKey>",
+  "settings.pushoverConfigured": "פרטי Pushover מוגדרים",
+  "settings.pushoverCriticalAlertsHint":
+    "Pushover ישמיע צליל גם כשהטלפון במצב שקט רק לאחר הפעלת Critical Alerts באפליקציית Pushover.",
   "settings.sirenAndAlarm": "צופר ואזעקת שרת",
   "settings.sirenDuration": "משך הצופר (שניות)",
   "settings.batteryAlertMonths": "התראת גיל סוללה (חודשים)",

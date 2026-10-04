@@ -60,6 +60,13 @@ export interface Project {
   // to "UTC".
   timezone?: string;
   notifyEverySensorTrigger: boolean; // Telegram on every sensor trigger (battery/tamper always notify)
+  // Which notification channels are enabled. ABSENT means ["telegram"] —
+  // projects predating the field keep behaving as before. An EMPTY ARRAY
+  // means send nothing and is not coerced to the default.
+  notifyChannels?: ("telegram" | "pushover")[];
+  // Read-only mirror maintained by the set:notifyKey script. The credentials
+  // themselves live in a server-only subcollection no client may read.
+  pushoverConfigured?: boolean;
   // Months after which a sensor battery is considered overdue for
   // replacement. Optional: project docs predate it, and absent means the
   // DEFAULT_BATTERY_ALERT_MONTHS default. Zero or negative disables the

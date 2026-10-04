@@ -1,6 +1,11 @@
 // Project settings (admin-only): edit name, Telegram bot token + chat id,
-// siren duration, and server alarm actions. Writes to the project doc
-// (rules allow admin updates).
+// notification channels, siren duration, and server alarm actions. Writes to
+// the project doc (rules allow admin updates).
+//
+// Note the asymmetry: Telegram's credentials are fields here, but Pushover's
+// are NOT — they live in projects/{id}/secrets/notify, denied to every
+// client, and are written by `npm run set:notifyKey`. This page can only
+// report whether they exist, via the non-secret pushoverConfigured mirror.
 import { useEffect, useState } from "react";
 import { updateDoc } from "firebase/firestore";
 import { useProject } from "@/app/ProjectProvider";
@@ -9,8 +14,10 @@ import { useT } from "@/i18n/I18nProvider";
 import { useUnsavedChangesWarning } from "@/lib/useUnsavedChangesWarning";
 import {
   type SettingsForm,
+  type NotifyChannel,
   formFromProject,
   isDirty,
+  normalizeNotifyChannels,
 } from "./settingsForm";
 
 // Inline help marker: a "?" button that toggles a visible instruction panel on
@@ -89,6 +96,16 @@ export default function SettingsPage() {
     setNotice(null);
   };
 
+  // Tick/untick one channel. Routed through normalizeNotifyChannels so the
+  // stored order stays canonical — isDirty compares the two lists by value,
+  // and an unstable order would read as an edit.
+  const toggleChannel = (channel: NotifyChannel, on: boolean) => {
+    const next = on
+      ? [...form.notifyChannels, channel]
+      : form.notifyChannels.filter((c) => c !== channel);
+    setField("notifyChannels", normalizeNotifyChannels(next));
+  };
+
   const timezones = timezoneOptions(form.timezone);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -106,6 +123,7 @@ export default function SettingsPage() {
         batteryAlertMonths: form.batteryAlertMonths,
         timezone: form.timezone,
         notifyEverySensorTrigger: form.notifyEverySensorTrigger,
+        notifyChannels: form.notifyChannels,
         serverActions: {
           sendTelegram: form.sendTelegram,
           triggerSiren: form.triggerSiren,
@@ -220,6 +238,51 @@ export default function SettingsPage() {
             />
             <span>{t("settings.notifyEveryTrigger")}</span>
           </label>
+
+          {/* Channel selection. The Pushover CREDENTIALS deliberately have no
+              input here — they live in a server-only Firestore subcollection
+              that no client may read, written by `npm run set:notifyKey`. All
+              this page can do is report whether they are present. */}
+          <div className="field">
+            <span className="field__label">{t("settings.notifyChannels")}</span>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.notifyChannels.includes("telegram")}
+                onChange={(e) => toggleChannel("telegram", e.target.checked)}
+              />
+              <span>{t("settings.channelTelegram")}</span>
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.notifyChannels.includes("pushover")}
+                onChange={(e) => toggleChannel("pushover", e.target.checked)}
+              />
+              <span>{t("settings.channelPushover")}</span>
+              <Help
+                text={t("settings.pushoverCriticalAlertsHint")}
+                label={t("settings.help")}
+              />
+            </label>
+            {/* An empty selection is a legitimate choice, not an error — but
+                it silently disables every alert, so it is worth saying out loud. */}
+            {form.notifyChannels.length === 0 && (
+              <p className="badge badge--danger" role="status">
+                {t("settings.notifyChannelsNone")}
+              </p>
+            )}
+            {form.notifyChannels.includes("pushover") &&
+              (project.pushoverConfigured ? (
+                <p className="badge badge--ok" role="status">
+                  {t("settings.pushoverConfigured")}
+                </p>
+              ) : (
+                <p className="badge badge--danger" role="status">
+                  {t("settings.pushoverNotConfigured")}
+                </p>
+              ))}
+          </div>
         </section>
 
         <section className="card">

@@ -10,6 +10,27 @@
 // is not applied when Vitest loads this module as a dependency of its test.
 import { DEFAULT_BATTERY_ALERT_MONTHS } from "../configure/batteryAge";
 
+export type NotifyChannel = "telegram" | "pushover";
+
+const ALL_CHANNELS: NotifyChannel[] = ["telegram", "pushover"];
+
+/**
+ * Normalises the channel list read from a project doc or a form.
+ *
+ * `undefined` (and any non-array) yields ["telegram"], matching the server's
+ * absent-means-telegram rule, so a legacy project's checkboxes show its real
+ * current behaviour. An explicit empty array is preserved: "notify me
+ * nowhere" is a real choice.
+ *
+ * Output is always in ALL_CHANNELS order, which is what lets isDirty compare
+ * the two lists by value without a reordering reading as an edit.
+ */
+export function normalizeNotifyChannels(input: unknown): NotifyChannel[] {
+  if (!Array.isArray(input)) return ["telegram"];
+  const seen = new Set(input);
+  return ALL_CHANNELS.filter((c) => seen.has(c));
+}
+
 export interface SettingsForm {
   name: string;
   botToken: string;
@@ -20,6 +41,7 @@ export interface SettingsForm {
   triggerSiren: boolean;
   notifyEverySensorTrigger: boolean;
   batteryAlertMonths: number;
+  notifyChannels: NotifyChannel[];
 }
 
 /** The subset of Project this form edits. */
@@ -32,6 +54,7 @@ export interface SettingsSource {
   serverActions: { sendTelegram: boolean; triggerSiren: boolean };
   notifyEverySensorTrigger?: boolean;
   batteryAlertMonths?: number;
+  notifyChannels?: NotifyChannel[];
 }
 
 export function formFromProject(project: SettingsSource): SettingsForm {
@@ -55,6 +78,9 @@ export function formFromProject(project: SettingsSource): SettingsForm {
     // switch, and `||` would silently replace it with the 12-month default.
     batteryAlertMonths:
       project.batteryAlertMonths ?? DEFAULT_BATTERY_ALERT_MONTHS,
+    // Absent means ["telegram"] server-side, so the checkboxes must show
+    // that rather than appearing to have nothing selected.
+    notifyChannels: normalizeNotifyChannels(project.notifyChannels),
   };
 }
 
@@ -76,6 +102,11 @@ export function isDirty(saved: SettingsForm, current: SettingsForm): boolean {
     saved.sendTelegram !== current.sendTelegram ||
     saved.triggerSiren !== current.triggerSiren ||
     saved.notifyEverySensorTrigger !== current.notifyEverySensorTrigger ||
-    saved.batteryAlertMonths !== current.batteryAlertMonths
+    saved.batteryAlertMonths !== current.batteryAlertMonths ||
+    // Compared by VALUE, not reference: these are arrays, so `!==` would be
+    // true on every render and leave Save permanently enabled. Both sides
+    // come from normalizeNotifyChannels, so the order is already stable and
+    // a join is a sound comparison.
+    saved.notifyChannels.join(",") !== current.notifyChannels.join(",")
   );
 }

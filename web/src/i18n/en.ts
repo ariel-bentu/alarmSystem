@@ -388,6 +388,16 @@ export const en = {
   "settings.telegramChatId": "Telegram Chat ID",
   "settings.notifyEveryTrigger":
     "Send Telegram on every sensor trigger (battery-low and tamper always notify)",
+  "settings.notifyChannels": "Notification channels",
+  "settings.channelTelegram": "Telegram",
+  "settings.channelPushover": "Pushover",
+  "settings.notifyChannelsNone":
+    "No channels selected — no notifications will be sent.",
+  "settings.pushoverNotConfigured":
+    "No Pushover credentials set. Run: npm run set:notifyKey -- <projectId> <appToken> <userKey>",
+  "settings.pushoverConfigured": "Pushover credentials are set",
+  "settings.pushoverCriticalAlertsHint":
+    "Pushover plays through a muted ringer only after you enable Critical Alerts inside the Pushover app.",
   "settings.sirenAndAlarm": "Siren & Server Alarm",
   "settings.sirenDuration": "Siren Duration (seconds)",
   "settings.batteryAlertMonths": "Battery age alert (months)",
