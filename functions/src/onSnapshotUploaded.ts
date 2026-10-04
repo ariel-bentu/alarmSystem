@@ -108,6 +108,7 @@ import { parseCause, isCauseFresh } from "./alarmCause";
 import { judgeFor, JudgeContext, Verdict } from "./snapshotJudge";
 import { loadJudgeKeys, type JudgeKeys } from "./judgeConfig";
 import { sendTelegramPhoto } from "./telegram";
+import { notify } from "./notify";
 
 /**
  * Everything the core handler needs, injected so it is unit-testable
@@ -126,6 +127,11 @@ export interface SnapshotUploadDeps {
    */
   judgeKeys(): Promise<JudgeKeys>;
   now(): number;
+  /**
+   * Injected like the rest: this module's tests drive handleSnapshotUpload
+   * directly, and notify() reaches Firestore for the Pushover credentials.
+   */
+  notify: typeof notify;
 }
 
 interface ChannelVerdict {
@@ -291,15 +297,28 @@ export async function handleSnapshotUpload(
     await timelineRef.update({
       aiNote: `confirmed breach (AI): ${reason}`,
     });
+    const caption =
+      `⚠ Confirmed breach — ${sensorName}, ` +
+      `${cameraName ?? `camera ${channel}`} — ${reason}`;
+
+    // Routed through notify so a Pushover-only project is woken by a
+    // confirmed breach. The PHOTO below stays Telegram-only: Pushover
+    // attachments are out of scope for this change, so a Telegram-enabled
+    // project receives both this text and the captioned photo. Accepted — a
+    // 3am breach is exactly when redundancy is wanted.
+    await deps.notify(projectId, project, {
+      text: caption,
+      severity: "alarm",
+      title: "Breach",
+      link: true, // the snapshots this breach was judged on are on that page
+    });
+
     if (!project.telegramBotToken || !project.telegramChatId) {
       console.log(
         `onSnapshotUploaded: breach verdict for ${rfId}/${ts} but no Telegram configured`
       );
       return;
     }
-    const caption =
-      `⚠ Confirmed breach — ${sensorName}, ` +
-      `${cameraName ?? `camera ${channel}`} — ${reason}`;
     await sendTelegramPhoto(project.telegramBotToken, project.telegramChatId, jpeg, caption);
     return;
   }
@@ -371,6 +390,7 @@ export const onSnapshotUploaded = onObjectFinalized(
       },
       judgeKeys: () => loadJudgeKeys(db),
       now: () => Date.now(),
+      notify,
     };
 
     await handleSnapshotUpload(deps, objectName);

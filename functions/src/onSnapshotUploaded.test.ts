@@ -155,6 +155,10 @@ function makeDeps(opts: {
     judgeKeys: async () =>
       "judgeKeys" in opts ? (opts.judgeKeys as JudgeKeys) : { anthropic: "sk-test" },
     now: () => 1700000000000,
+    // Injected like every other dep rather than vi.mock'd: notify() reads
+    // Firestore for the Pushover credentials, and this file's fakes do not
+    // model the secrets subcollection.
+    notify: vi.fn(async () => {}),
   };
   return { deps, fs, rtdb };
 }
@@ -307,6 +311,38 @@ describe("handleSnapshotUpload", () => {
 
     const doc = fs._store.get(`projects/${PROJECT_ID}/timeline/${RF_ID}_${TS}`);
     expect(doc?.aiNote).toContain("confirmed breach (AI)");
+
+    // The same caption also goes through notify(), so a Pushover-only
+    // project is woken by the breach.
+    expect(deps.notify).toHaveBeenCalledTimes(1);
+    const [, , notifyMsg] = vi.mocked(deps.notify).mock.calls[0];
+    expect(notifyMsg.severity).toBe("alarm");
+    expect(notifyMsg.link).toBe(true);
+    expect(notifyMsg.text).toContain("Front door");
+  });
+
+  // The behaviour that made notify() worth routing here: before it, a breach
+  // on a project without Telegram credentials returned early and alerted
+  // nobody at all.
+  it("notifies on a breach even when no Telegram is configured", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge" }, // no telegram credentials
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Front door" } },
+      rtdbSeed: {
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
+      },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(deps.notify).toHaveBeenCalledTimes(1);
+    // The photo still cannot be sent — Pushover attachments are out of scope.
+    expect(sendTelegramPhoto).not.toHaveBeenCalled();
   });
 
   // A caption reading "Front door" beats "camera 2" on a phone at 3am — the

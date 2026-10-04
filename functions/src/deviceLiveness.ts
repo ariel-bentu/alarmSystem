@@ -12,11 +12,8 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
 import { AlarmEvent, EventType, Project } from "./types";
-import {
-  sendTelegram,
-  formatDeviceOffline,
-  formatDeviceBackOnline,
-} from "./telegram";
+import { formatDeviceOffline, formatDeviceBackOnline } from "./telegram";
+import { notify } from "./notify";
 import { decideOfflineAction, formatSilence } from "./deviceOnline";
 
 /**
@@ -31,9 +28,9 @@ export async function checkDeviceLiveness(nowMs: number): Promise<void> {
   for (const projectDoc of projectsSnap.docs) {
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
 
-    // No Telegram configured means nowhere to send. Skipped before any RTDB
-    // read so an unconfigured project costs nothing.
-    if (!project.telegramBotToken || !project.telegramChatId) continue;
+    // No credential gate here: notify() owns channel resolution, and skipping
+    // on Telegram credentials alone would silently exclude every project that
+    // uses Pushover only.
 
     try {
       const lastSeen = project.device?.lastSeen ?? null;
@@ -59,13 +56,13 @@ export async function checkDeviceLiveness(nowMs: number): Promise<void> {
       const silence = formatSilence(nowMs - lastSeen!.toMillis());
 
       if (action === "alert_offline") {
-        await sendTelegram(
-          project.telegramBotToken,
-          project.telegramChatId,
-          formatDeviceOffline(silence, armed)
-        );
-        // Latch AFTER a successful send, so a Telegram outage retries next
-        // minute instead of silently swallowing the only warning.
+        await notify(project.id, project, {
+          text: formatDeviceOffline(silence, armed),
+          severity: "loud",
+          title: "Device offline",
+        });
+        // Latch AFTER a successful send, so a notification outage retries
+        // next minute instead of silently swallowing the only warning.
         await projectDoc.ref.update({
           "device.offlineAlertSentAt": Timestamp.fromMillis(nowMs),
         });
@@ -86,11 +83,13 @@ export async function checkDeviceLiveness(nowMs: number): Promise<void> {
         const outage = flaggedAt
           ? formatSilence(nowMs - flaggedAt.toMillis())
           : silence;
-        await sendTelegram(
-          project.telegramBotToken,
-          project.telegramChatId,
-          formatDeviceBackOnline(outage)
-        );
+        await notify(project.id, project, {
+          // A recovery message is informational. Under the Pushover mapping a
+          // "loud" severity would fire a Critical Alert through a muted phone
+          // to say everything is fine, so this is deliberately a notice.
+          text: formatDeviceBackOnline(outage),
+          severity: "notice",
+        });
         await projectDoc.ref.update({
           "device.offlineAlertSentAt": FieldValue.delete(),
         });

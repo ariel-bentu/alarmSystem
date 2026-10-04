@@ -25,7 +25,8 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "./admin";
 import { Project, Sensor } from "./types";
-import { sendTelegram, formatDeadSensor, formatStaleBattery } from "./telegram";
+import { formatDeadSensor, formatStaleBattery } from "./telegram";
+import { notify } from "./notify";
 import { cleanupProjectEvents, cutoffFrom } from "./eventCleanup";
 import {
   shouldAlertStaleBattery,
@@ -60,7 +61,9 @@ export async function deadSensorCheck(): Promise<void> {
         console.error(`eventCleanup failed for project=${project.id}`, err);
       }
 
-      if (!project.telegramBotToken || !project.telegramChatId) continue;
+      // No credential gate here: notify() owns channel resolution, and
+      // skipping on Telegram credentials alone would silently exclude every
+      // project that uses Pushover only.
 
       const sensorsSnap = await db
         .collection(`projects/${project.id}/sensors`)
@@ -86,12 +89,12 @@ export async function deadSensorCheck(): Promise<void> {
           })
         ) {
           const months = batteryAgeMonths(startedAtMs as number, now);
-          await sendTelegram(
-            project.telegramBotToken,
-            project.telegramChatId,
-            formatStaleBattery(sensor.name, months)
-          );
-          // Written only after a successful send, so a Telegram failure
+          await notify(project.id, project, {
+            text: formatStaleBattery(sensor.name, months),
+            severity: "loud",
+            title: "Battery",
+          });
+          // Written only after a successful send, so a notification failure
           // retries at the next noon instead of silently losing the alert.
           await sensorDoc.ref.update({
             batteryAlertSentAt: FieldValue.serverTimestamp(),
@@ -111,8 +114,11 @@ export async function deadSensorCheck(): Promise<void> {
         if (sensor.deadAlertSentAt !== null) continue; // Already alerted this period
 
         const hoursSilent = Math.round(silentMs / (60 * 60 * 1000));
-        const msg = formatDeadSensor(sensor.name, hoursSilent);
-        await sendTelegram(project.telegramBotToken, project.telegramChatId, msg);
+        await notify(project.id, project, {
+          text: formatDeadSensor(sensor.name, hoursSilent),
+          severity: "loud",
+          title: "Dead sensor",
+        });
         await sensorDoc.ref.update({ deadAlertSentAt: FieldValue.serverTimestamp() });
       }
     }
