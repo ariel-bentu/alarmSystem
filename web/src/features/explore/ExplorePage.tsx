@@ -317,9 +317,13 @@ export default function ExplorePage() {
                   <th>{t("explore.timestamp")}</th>
                   <th>{t("explore.sensor")}</th>
                   <th>{t("explore.event")}</th>
+                  {/* Camera sits next to the event, not after the radio
+                      columns: a photo is what you want to see immediately
+                      after reading WHAT happened. Battery/RSSI are diagnostics
+                      and belong further right. */}
+                  <th>{t("explore.camera")}</th>
                   <th>{t("explore.batteryLow")}</th>
                   <th>{t("explore.rssi")}</th>
-                  <th>{t("explore.camera")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -359,8 +363,6 @@ export default function ExplorePage() {
                             </td>
                             <td>{tl.sensorName ?? "—"}</td>
                             <td>{t("explore.eventType.manual_capture" as TranslationKey)}</td>
-                            <td>{"—"}</td>
-                            <td>{"—"}</td>
                             <td>
                               {hasImages ? (
                                 <div className="row" style={{ gap: "var(--sp-2)", alignItems: "center" }}>
@@ -394,6 +396,8 @@ export default function ExplorePage() {
                                 "—"
                               )}
                             </td>
+                            <td>{"—"}</td>
+                            <td>{"—"}</td>
                           </tr>
                         );
                       }
@@ -433,20 +437,6 @@ export default function ExplorePage() {
                             {t(`explore.eventType.${ev.eventType}` as TranslationKey)}
                           </td>
                           <td>
-                            {hasRadioData(ev)
-                              ? ev.batteryLow
-                                ? t("common.yes")
-                                : t("common.no")
-                              : "—"}
-                          </td>
-                          <td>
-                            {hasRadioData(ev) ? (
-                              <span className="ltr">{ev.rssi}</span>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                          <td>
                             {hasImages ? (
                               <div className="row" style={{ gap: "var(--sp-2)", alignItems: "center" }}>
                                 <button
@@ -475,6 +465,20 @@ export default function ExplorePage() {
                                   </span>
                                 )}
                               </div>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td>
+                            {hasRadioData(ev)
+                              ? ev.batteryLow
+                                ? t("common.yes")
+                                : t("common.no")
+                              : "—"}
+                          </td>
+                          <td>
+                            {hasRadioData(ev) ? (
+                              <span className="ltr">{ev.rssi}</span>
                             ) : (
                               "—"
                             )}

@@ -38,18 +38,6 @@ export function cameraLabel(
   return `Camera ${channel}`;
 }
 
-/** Joins several channels into one human-readable list, in channel order. */
-export function cameraListLabel(
-  names: CameraNames | undefined,
-  channels: number[]
-): string {
-  if (channels.length === 0) return "No cameras";
-  return [...channels]
-    .sort((a, b) => a - b)
-    .map((c) => cameraLabel(names, c))
-    .join(", ");
-}
-
 /** Cleans an edit-form map into what gets written to Firestore: trimmed,
  *  length-capped, blanks dropped (a cleared input REMOVES the name rather
  *  than storing ""), and only channels in range. */

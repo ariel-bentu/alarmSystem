@@ -2,12 +2,7 @@
 // Pure, so these run without mounting the gallery or touching Firestore —
 // same reasoning as batteryAge.test.ts beside it.
 import { describe, it, expect } from "vitest";
-import {
-  ALL_CHANNELS,
-  cameraLabel,
-  cameraListLabel,
-  normalizeCameraNames,
-} from "./cameraNames";
+import { ALL_CHANNELS, cameraLabel, normalizeCameraNames } from "./cameraNames";
 
 describe("cameraLabel", () => {
   it("returns the stored name for a named channel", () => {
@@ -25,25 +20,6 @@ describe("cameraLabel", () => {
 
   it("trims surrounding whitespace off a stored name", () => {
     expect(cameraLabel({ "5": "  Garage  " }, 5)).toBe("Garage");
-  });
-});
-
-describe("cameraListLabel", () => {
-  it("joins channels in channel order regardless of input order", () => {
-    const names = { "1": "Front door", "3": "Back yard" };
-    expect(cameraListLabel(names, [3, 1])).toBe("Front door, Back yard");
-  });
-
-  it("mixes named and unnamed channels", () => {
-    expect(cameraListLabel({ "1": "Front door" }, [1, 2])).toBe(
-      "Front door, Camera 2"
-    );
-  });
-
-  it("names the empty selection rather than returning an empty string", () => {
-    // SensorsTab renders this as the summary line for a sensor that captures
-    // nothing, so it has to read as a deliberate state.
-    expect(cameraListLabel({}, [])).toBe("No cameras");
   });
 });
 

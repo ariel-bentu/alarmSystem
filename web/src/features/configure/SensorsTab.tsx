@@ -50,11 +50,8 @@ import {
 } from "./batteryAge";
 import { groupItemsByDay } from "./groupSensorsByDay";
 import { normalizeCameras } from "./cameraSensorConfig";
-import {
-  ALL_CHANNELS,
-  cameraLabel,
-  cameraListLabel,
-} from "@/features/explore/cameraNames";
+import { ALL_CHANNELS, cameraLabel } from "@/features/explore/cameraNames";
+import { MultiSelect } from "@/components/MultiSelect";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { useT } from "@/i18n/I18nProvider";
 
@@ -345,19 +342,14 @@ export default function SensorsTab() {
     );
   };
 
-  /** Toggle one camera on a sensor. Writes the whole normalized list, so an
-   *  empty selection is stored as [] — the authoritative "capture nothing"
-   *  — rather than omitted, which updateDoc would read as "leave unchanged". */
-  const handleCameraToggle = async (
-    sensor: Sensor,
-    channel: number,
-    checked: boolean
-  ) => {
+  /** Persist a sensor's whole camera selection. Written as a full list (not a
+   *  per-channel patch) so an empty selection is stored as [] — the
+   *  authoritative "capture nothing" — rather than omitted, which updateDoc
+   *  would read as "leave unchanged". Re-normalized here rather than trusting
+   *  the control: this is the last stop before Firestore. */
+  const handleCamerasChange = async (sensor: Sensor, next: number[]) => {
     if (!projectId) return;
-    const current = normalizeCameras(sensor.cameras);
-    const cameras = normalizeCameras(
-      checked ? [...current, channel] : current.filter((c) => c !== channel)
-    );
+    const cameras = normalizeCameras(next);
     await updateDoc(sensorDoc(projectId, sensor.id), { cameras });
     setSensors((prev) =>
       prev.map((s) => (s.id === sensor.id ? { ...s, cameras } : s))
@@ -639,35 +631,22 @@ export default function SensorsTab() {
                         />
                       </td>
                       <td>
-                        {/* One checkbox per NVR channel. The summary line above
-                            them is what you read at a glance; the boxes are for
-                            changing it. An empty selection is a real state
-                            ("No cameras"), not a missing one. */}
-                        <p className="muted">
-                          {cameraListLabel(
-                            project?.cameraNames,
-                            normalizeCameras(s.cameras)
-                          )}
-                        </p>
-                        <fieldset
-                          style={{ border: 0, padding: 0, margin: 0 }}
-                        >
-                          <legend className="sr-only">
-                            {t("cfg.sensors.cameras")}
-                          </legend>
-                          {ALL_CHANNELS.map((n) => (
-                            <label key={n} className="check">
-                              <input
-                                type="checkbox"
-                                checked={normalizeCameras(s.cameras).includes(n)}
-                                onChange={(e) =>
-                                  void handleCameraToggle(s, n, e.target.checked)
-                                }
-                              />
-                              <span>{cameraLabel(project?.cameraNames, n)}</span>
-                            </label>
-                          ))}
-                        </fieldset>
+                        {/* A dropdown rather than 8 inline checkboxes: one row
+                            per sensor times 8 boxes dominated the table. The
+                            trigger shows the current selection, so the common
+                            case (reading it) costs no clicks. An empty
+                            selection is a real state ("No cameras"), not a
+                            missing one. */}
+                        <MultiSelect
+                          label={t("cfg.sensors.cameras")}
+                          emptyLabel={t("cfg.sensors.noCameras")}
+                          options={ALL_CHANNELS.map((n) => ({
+                            value: n,
+                            label: cameraLabel(project?.cameraNames, n),
+                          }))}
+                          selected={normalizeCameras(s.cameras)}
+                          onChange={(next) => void handleCamerasChange(s, next)}
+                        />
                         <p className="muted">{t("cfg.sensors.camerasHelp")}</p>
                       </td>
                       <td>
