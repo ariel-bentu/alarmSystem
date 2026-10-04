@@ -85,4 +85,33 @@ describe("ClaudeJudge", () => {
 
     expect(result).toEqual({ verdict: "breach", reason: "judge error (fail-safe)" });
   });
+
+  // The camera's human name is better scene context for a vision model than a
+  // bare channel number: "Front door" says what the frame should contain.
+  it("names the camera in the prompt when the channel has a name", async () => {
+    mockParse.mockResolvedValue({
+      parsed_output: { verdict: "safe", reason: "empty" },
+    });
+
+    const judge = new ClaudeJudge("sk-test-key", "m");
+    await judge.judge(Buffer.from([0xff, 0xd8]), {
+      ...ctx,
+      cameraName: "Front door",
+    });
+
+    const text = mockParse.mock.calls[0][0].messages[0].content[1].text;
+    expect(text).toContain("Front door");
+  });
+
+  it("falls back to the channel number when the camera is unnamed", async () => {
+    mockParse.mockResolvedValue({
+      parsed_output: { verdict: "safe", reason: "empty" },
+    });
+
+    const judge = new ClaudeJudge("sk-test-key", "m");
+    await judge.judge(Buffer.from([0xff, 0xd8]), { ...ctx, channel: 4 });
+
+    const text = mockParse.mock.calls[0][0].messages[0].content[1].text;
+    expect(text).toContain("camera 4");
+  });
 });

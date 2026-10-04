@@ -305,6 +305,72 @@ describe("handleSnapshotUpload", () => {
     expect(doc?.aiNote).toContain("confirmed breach (AI)");
   });
 
+  // A caption reading "Front door" beats "camera 2" on a phone at 3am — the
+  // whole point of naming the channels.
+  it("uses the camera's name in the breach caption when the project names it", async () => {
+    const stubJudge = { judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })) };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: {
+        nvrMode: "capture+judge",
+        telegramBotToken: "tok",
+        telegramChatId: "chat",
+        cameraNames: { "2": "Front gate" },
+      },
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Front door" } },
+      rtdbSeed: {
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
+      },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    const [, , , caption] = vi.mocked(sendTelegramPhoto).mock.calls[0];
+    expect(caption).toContain("Front gate");
+    expect(caption).not.toContain("camera 2");
+  });
+
+  it("passes the camera name to the judge as scene context", async () => {
+    const stubJudge = { judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty" })) };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: {
+        nvrMode: "capture+judge",
+        cameraNames: { "2": "Front gate" },
+      },
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Front door" } },
+      rtdbSeed: {
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
+      },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(stubJudge.judge.mock.calls[0][1]).toMatchObject({
+      channel: 2,
+      cameraName: "Front gate",
+    });
+  });
+
+  it("omits cameraName for an unnamed channel so the judge falls back to the number", async () => {
+    const stubJudge = { judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty" })) };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge", cameraNames: { "5": "Shed" } },
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Front door" } },
+      rtdbSeed: {
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
+      },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(stubJudge.judge.mock.calls[0][1].cameraName).toBeUndefined();
+  });
+
   it("skips the judge entirely when no Anthropic key is bound", async () => {
     const { deps } = makeDeps({
       project: { nvrMode: "capture+judge" },

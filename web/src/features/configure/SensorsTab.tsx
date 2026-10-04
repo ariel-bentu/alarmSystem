@@ -49,7 +49,12 @@ import {
   DEFAULT_BATTERY_ALERT_MONTHS,
 } from "./batteryAge";
 import { groupItemsByDay } from "./groupSensorsByDay";
-import { cameraChannelLabel, normalizeChannel } from "./cameraSensorConfig";
+import { normalizeCameras } from "./cameraSensorConfig";
+import {
+  ALL_CHANNELS,
+  cameraLabel,
+  cameraListLabel,
+} from "@/features/explore/cameraNames";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
 import { useT } from "@/i18n/I18nProvider";
 
@@ -340,27 +345,22 @@ export default function SensorsTab() {
     );
   };
 
-  const handleOutOfSightChange = async (sensor: Sensor, outOfSight: boolean) => {
-    if (!projectId) return;
-    await updateDoc(sensorDoc(projectId, sensor.id), { outOfSight });
-    setSensors((prev) =>
-      prev.map((s) => (s.id === sensor.id ? { ...s, outOfSight } : s))
-    );
-  };
-
-  // `channel` is already normalized (undefined = "all channels"); written as
-  // null rather than omitted because Firestore's updateDoc otherwise leaves a
-  // previously-set cameraChannel untouched instead of clearing it.
-  const handleCameraChannelChange = async (
+  /** Toggle one camera on a sensor. Writes the whole normalized list, so an
+   *  empty selection is stored as [] — the authoritative "capture nothing"
+   *  — rather than omitted, which updateDoc would read as "leave unchanged". */
+  const handleCameraToggle = async (
     sensor: Sensor,
-    channel: number | undefined
+    channel: number,
+    checked: boolean
   ) => {
     if (!projectId) return;
-    await updateDoc(sensorDoc(projectId, sensor.id), {
-      cameraChannel: channel ?? null,
-    });
+    const current = normalizeCameras(sensor.cameras);
+    const cameras = normalizeCameras(
+      checked ? [...current, channel] : current.filter((c) => c !== channel)
+    );
+    await updateDoc(sensorDoc(projectId, sensor.id), { cameras });
     setSensors((prev) =>
-      prev.map((s) => (s.id === sensor.id ? { ...s, cameraChannel: channel } : s))
+      prev.map((s) => (s.id === sensor.id ? { ...s, cameras } : s))
     );
   };
 
@@ -498,8 +498,8 @@ export default function SensorsTab() {
                   <th title={t("cfg.sensors.alertAfterDaysHelp")}>
                     {t("cfg.sensors.alertAfterDays")}
                   </th>
-                  <th title={t("cfg.sensors.outOfSightHelp")}>
-                    {t("cfg.sensors.cameraChannel")}
+                  <th title={t("cfg.sensors.camerasHelp")}>
+                    {t("cfg.sensors.cameras")}
                   </th>
                   <th />
                 </tr>
@@ -639,35 +639,36 @@ export default function SensorsTab() {
                         />
                       </td>
                       <td>
-                        <label className="check">
-                          <input
-                            type="checkbox"
-                            checked={s.outOfSight ?? false}
-                            onChange={(e) =>
-                              void handleOutOfSightChange(s, e.target.checked)
-                            }
-                          />
-                          <span>{t("cfg.sensors.outOfSight")}</span>
-                        </label>
-                        <select
-                          className="input input--narrow"
-                          value={s.cameraChannel ?? ""}
-                          onChange={(e) =>
-                            void handleCameraChannelChange(
-                              s,
-                              normalizeChannel(e.target.value)
-                            )
-                          }
-                          aria-label={t("cfg.sensors.cameraChannelLabel")}
+                        {/* One checkbox per NVR channel. The summary line above
+                            them is what you read at a glance; the boxes are for
+                            changing it. An empty selection is a real state
+                            ("No cameras"), not a missing one. */}
+                        <p className="muted">
+                          {cameraListLabel(
+                            project?.cameraNames,
+                            normalizeCameras(s.cameras)
+                          )}
+                        </p>
+                        <fieldset
+                          style={{ border: 0, padding: 0, margin: 0 }}
                         >
-                          <option value="">{t("cfg.sensors.allChannels")}</option>
-                          {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                            <option key={n} value={n}>
-                              {cameraChannelLabel(n)}
-                            </option>
+                          <legend className="sr-only">
+                            {t("cfg.sensors.cameras")}
+                          </legend>
+                          {ALL_CHANNELS.map((n) => (
+                            <label key={n} className="check">
+                              <input
+                                type="checkbox"
+                                checked={normalizeCameras(s.cameras).includes(n)}
+                                onChange={(e) =>
+                                  void handleCameraToggle(s, n, e.target.checked)
+                                }
+                              />
+                              <span>{cameraLabel(project?.cameraNames, n)}</span>
+                            </label>
                           ))}
-                        </select>
-                        <p className="muted">{t("cfg.sensors.outOfSightHelp")}</p>
+                        </fieldset>
+                        <p className="muted">{t("cfg.sensors.camerasHelp")}</p>
                       </td>
                       <td>
                         <button

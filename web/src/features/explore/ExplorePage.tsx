@@ -5,6 +5,7 @@ import {
   getDocs,
   onSnapshot,
   query,
+  updateDoc,
   where,
   orderBy,
   limit,
@@ -13,7 +14,12 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { useProject } from "@/app/ProjectProvider";
-import { eventsCol, timelineCol } from "@/lib/firestore";
+import { eventsCol, projectDoc, timelineCol } from "@/lib/firestore";
+import {
+  cameraLabel,
+  normalizeCameraNames,
+  type CameraNames,
+} from "./cameraNames";
 import { liveWindowStart, mergeEventPages } from "./eventPaging";
 import { eventSubject } from "./eventSubject";
 import { snapshotSummary } from "./snapshotThumb";
@@ -101,6 +107,14 @@ export default function ExplorePage() {
   } | null>(null);
   const lightboxRef = useRef<HTMLDialogElement>(null);
 
+  // Camera-rename panel inside the gallery. `draft` is non-null only while
+  // editing, and holds ONLY the channels in the open snapshot set — the
+  // gallery is where you are actually looking at a camera, so it is where you
+  // can tell which one needs a name. Seeded from the saved names so an
+  // untouched field saves unchanged.
+  const [nameDraft, setNameDraft] = useState<CameraNames | null>(null);
+  const [savingNames, setSavingNames] = useState(false);
+
   // Paging walks a document cursor, not a computed date: with a fixed page
   // size, nothing about a timestamp says where page 2 begins.
   const cursor = useRef<QueryDocumentSnapshot<AlarmEvent> | null>(null);
@@ -168,6 +182,31 @@ export default function ExplorePage() {
     if (gallery && !el.open) el.showModal();
     if (!gallery && el.open) el.close();
   }, [gallery]);
+
+  // Closing the gallery abandons an open rename panel, so re-opening it never
+  // shows another snapshot's half-typed draft.
+  useEffect(() => {
+    if (!gallery) setNameDraft(null);
+  }, [gallery]);
+
+  // Names come straight off the live project doc (ProjectProvider keeps an
+  // onSnapshot on it), so a save re-renders the labels with no refetch here.
+  const cameraNames = project?.cameraNames;
+
+  /** Merge the draft over the saved names and persist. Channels outside the
+   *  open snapshot set are untouched: the draft only ever holds the ones on
+   *  screen, so editing a two-camera trigger cannot wipe camera 7's name. */
+  const handleSaveNames = async () => {
+    if (!projectId || !nameDraft) return;
+    setSavingNames(true);
+    try {
+      const merged = normalizeCameraNames({ ...cameraNames, ...nameDraft });
+      await updateDoc(projectDoc(projectId), { cameraNames: merged });
+      setNameDraft(null);
+    } finally {
+      setSavingNames(false);
+    }
+  };
 
   /** Fetch the next page of history. Returns false once the end is reached. */
   const loadPage = useCallback(async (): Promise<boolean> => {
@@ -507,9 +546,31 @@ export default function ExplorePage() {
                     className={"btn btn--sm" + (i === gallery.index ? " btn--active" : "")}
                     onClick={() => setGallery((g) => g && { ...g, index: i })}
                   >
-                    {t("explore.snapshotAlt", { channel: snap.channel })}
+                    {cameraLabel(cameraNames, snap.channel)}
                   </button>
                 ))}
+                {/* Rename lives HERE, next to the images, because this is the
+                    only place you can see which camera is which. */}
+                <button
+                  type="button"
+                  className={"btn btn--sm" + (nameDraft ? " btn--active" : "")}
+                  onClick={() =>
+                    setNameDraft((d) =>
+                      d
+                        ? null
+                        : Object.fromEntries(
+                            gallery.snapshots.map((s) => [
+                              String(s.channel),
+                              cameraNames?.[String(s.channel)] ?? "",
+                            ])
+                          )
+                    )
+                  }
+                  aria-label={t("explore.renameCameras")}
+                  title={t("explore.renameCameras")}
+                >
+                  ✏️
+                </button>
               </div>
               <button
                 type="button"
@@ -520,9 +581,54 @@ export default function ExplorePage() {
                 ✕
               </button>
             </div>
+
+            {nameDraft && (
+              <form
+                className="stack"
+                style={{ marginBottom: "var(--sp-3)", gap: "var(--sp-2)" }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleSaveNames();
+                }}
+              >
+                {gallery.snapshots.map((snap) => (
+                  <label key={snap.channel} className="row" style={{ gap: "var(--sp-2)" }}>
+                    <span className="muted" style={{ minWidth: "5rem" }}>
+                      {t("explore.snapshotAlt", { channel: snap.channel })}
+                    </span>
+                    <input
+                      className="input"
+                      value={nameDraft[String(snap.channel)] ?? ""}
+                      placeholder={t("explore.cameraNamePlaceholder", {
+                        channel: snap.channel,
+                      })}
+                      maxLength={40}
+                      onChange={(e) =>
+                        setNameDraft((d) =>
+                          d ? { ...d, [String(snap.channel)]: e.target.value } : d
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+                <div className="row" style={{ gap: "var(--sp-2)" }}>
+                  <button type="submit" className="btn btn--sm" disabled={savingNames}>
+                    {t("explore.saveNames")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() => setNameDraft(null)}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
+              </form>
+            )}
+
             <img
               src={gallery.snapshots[gallery.index].url}
-              alt={t("explore.snapshotAlt", { channel: gallery.snapshots[gallery.index].channel })}
+              alt={cameraLabel(cameraNames, gallery.snapshots[gallery.index].channel)}
               style={{ maxWidth: "100%", maxHeight: "70vh", display: "block", margin: "0 auto" }}
             />
           </div>

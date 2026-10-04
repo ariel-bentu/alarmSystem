@@ -399,11 +399,11 @@ describe("buildRtdbConfig — always-on rules", () => {
   });
 });
 
-describe("buildRtdbConfig — NVR + per-sensor camera fields", () => {
-  it("emits NVR fields and index-aligned per-sensor camera flags", () => {
+describe("buildRtdbConfig — NVR + per-sensor camera mask", () => {
+  it("emits NVR fields and an index-aligned camera bitmask", () => {
     const cfg = buildRtdbConfig(
       [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],
-      [{ ...sensors[0], id: "s1", rfId: "0x0061DA", outOfSight: true, cameraChannel: 2 } as any],
+      [{ ...sensors[0], id: "s1", rfId: "0x0061DA", cameras: [2] } as any],
       true, 30, true, [], [], undefined,
       { nvrMode: "capture+judge", nvrHost: "h", nvrPort: 34567, nvrUser: "u", nvrPassword: "p", captureCooldownSec: 60 }
     );
@@ -413,19 +413,56 @@ describe("buildRtdbConfig — NVR + per-sensor camera fields", () => {
     expect(cfg.nu).toBe("u");
     expect(cfg.nw).toBe("p");
     expect(cfg.cc).toBe(60);
-    expect(cfg.os).toEqual([true]);
-    expect(cfg.cch).toEqual([2]);
+    // Channel 2 -> bit 1.
+    expect(cfg.cmask).toEqual([0b10]);
   });
 
-  it("omits os/cch when every sensor is default", () => {
+  it("ORs several cameras on one sensor into a single mask entry", () => {
+    const cfg = buildRtdbConfig(
+      [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],
+      [{ ...sensors[0], id: "s1", rfId: "0x0061DA", cameras: [1, 3, 8] } as any],
+      true, 30, true, [], [], undefined,
+      { nvrMode: "capture", nvrHost: "h", nvrPort: 34567 }
+    );
+    expect(cfg.cmask).toEqual([0b10000101]);
+  });
+
+  it("emits a zero mask for a sensor with no cameras selected", () => {
+    // Index alignment with r is what makes the array readable at all, so a
+    // no-camera sensor must still occupy its slot when a SIBLING has one.
+    const cfg = buildRtdbConfig(
+      [
+        { id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } },
+        { id: "r2", name: "R2", sensors: ["s2"], condition: { type: "immediate" } },
+      ],
+      [
+        { ...sensors[0], id: "s1", rfId: "0x0061DA", cameras: [] } as any,
+        { ...sensors[0], id: "s2", rfId: "0x0072EA", cameras: [4] } as any,
+      ],
+      true, 30, true, [], [], undefined,
+      { nvrMode: "capture", nvrHost: "h", nvrPort: 34567 }
+    );
+    expect(cfg.cmask).toEqual([0, 0b1000]);
+  });
+
+  it("drops out-of-range channels rather than overflowing the mask byte", () => {
+    const cfg = buildRtdbConfig(
+      [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],
+      [{ ...sensors[0], id: "s1", rfId: "0x0061DA", cameras: [0, 9, 2] } as any],
+      true, 30, true, [], [], undefined,
+      { nvrMode: "capture", nvrHost: "h", nvrPort: 34567 }
+    );
+    expect(cfg.cmask).toEqual([0b10]);
+  });
+
+  it("omits cmask entirely when no sensor has a camera", () => {
     const cfg = buildRtdbConfig(
       [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],
       [sensors[0]],
       true, 30, true, [], [], undefined,
       undefined
     );
-    expect(cfg.os).toBeUndefined();
-    expect(cfg.cch).toBeUndefined();
+    expect(cfg.cmask).toBeUndefined();
     expect(cfg.nm).toBeUndefined();
     expect(cfg.nh).toBeUndefined();
     expect(cfg.cc).toBeUndefined();

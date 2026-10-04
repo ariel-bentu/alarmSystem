@@ -38,8 +38,18 @@ struct SensorConfig {
   char familyId[9] = {};
   Condition conditions[4];
   uint8_t conditionCount = 0;
-  bool outOfSight = false;
-  uint8_t cameraChannel = 0;
+  // Which NVR channels to snapshot when this sensor trips: channel N is
+  // bit N-1, so channel 1 is 0x01 and channel 8 is 0x80.
+  //
+  // 0 means capture NOTHING for this sensor — it is the authoritative "no
+  // cameras" state, not a fall-back to "all channels". That is why this one
+  // byte replaced the earlier `bool outOfSight` + `uint8_t cameraChannel`
+  // pair: the pair could express only none-or-one and needed two fields to
+  // say "none", while a mask says none / one / several in a byte. Net effect
+  // on sizeof(SensorConfig) is -1 byte before padding, so the struct did not
+  // grow and EepromStore's magic does NOT need a bump — asserted in
+  // eeprom_store.h.
+  uint8_t cameraMask = 0;
 };
 
 struct Config {
@@ -94,6 +104,11 @@ struct Config {
 // 2548 -> 2664 when NVR fields (host/port/user/password/mode + cooldown;
 // SensorConfig out-of-sight + channel) were added. Measured via a temporary
 // template-instantiation probe, not predicted. kMagic bumped to 0xA1A2B3BA.
+// 2664 -> 2632 when SensorConfig's `bool outOfSight` + `uint8_t cameraChannel`
+// became a single `uint8_t cameraMask` (per-sensor multi-camera selection).
+// MEASURED, not predicted — the initial guess was "unchanged", and it was
+// wrong: the struct SHRANK 2 bytes x 16 sensors = 32. A shrink is just as
+// unreadable as a growth, so kMagic was bumped to 0xA1A2B3BB.
 //
 // THE SIREN ADDRESS MUST SURVIVE THAT BUMP. A magic bump discards the whole
 // record, and Config::sirenBaseAddress is write-only device->cloud, so losing
@@ -101,7 +116,7 @@ struct Config {
 // (docs/history/siren-hub-free.md). The recovery path is RtdbConfig.s, which
 // applyPendingConfigUpdate() re-adopts when EEPROM has none. VERIFY THAT ON
 // HARDWARE before shipping this: it is the one irreversible failure here.
-static_assert(sizeof(Config) == 2664, "EEPROM layout changed - bump kMagic");
+static_assert(sizeof(Config) == 2632, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the
 // Telegram alert can name it. The device knows radio ids, not sensor or rule

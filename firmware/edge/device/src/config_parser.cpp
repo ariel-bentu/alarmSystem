@@ -7,7 +7,7 @@ namespace ConfigParser {
 
 bool parseConfigJson(const char* json, Config* out) {
   // Bumped 4096 -> 6144 when the NVR connection fields (nh/np/nu/nw/nm/cc)
-  // and per-sensor os[]/cch[] arrays were added — a 16-sensor, 4-condition,
+  // and the per-sensor camera array were added — a 16-sensor, 4-condition,
   // 8-participant worst case plus the new fields runs ~6.5KB of raw JSON.
   // Note: measured empirically that ArduinoJson 7.4.3's StaticJsonDocument<N>
   // is a deprecated shim over JsonDocument (see compatibility.hpp) — N only
@@ -62,6 +62,8 @@ bool parseConfigJson(const char* json, Config* out) {
 
   JsonArray r = doc["r"];
   JsonArray c = doc["c"];
+  // Hoisted out of the per-sensor loop below: one lookup, not one per sensor.
+  JsonArray cmask = doc["cmask"];
   // Paired with onProfileChange.ts: RTDB drops empty arrays on .set(), so
   // "no active profile" writes {a, d} with r/c omitted entirely rather than
   // r:[]/c:[]. Missing r/c means zero sensors (arm nothing), NOT a parse
@@ -82,15 +84,16 @@ bool parseConfigJson(const char* json, Config* out) {
     strncpy(sensor.familyId, r[i].as<const char*>(), sizeof(sensor.familyId) - 1);
     sensor.familyId[sizeof(sensor.familyId) - 1] = '\0';
 
-    // Per-sensor camera flags ride as two index-aligned OPTIONAL arrays next
-    // to r/c, rather than inside each condition object, so the existing r/c
-    // loop and its early-return contract stay untouched. Missing or short
-    // means "no override" (visible, not out of bounds, not RTDB's
-    // empty-array-drop quirk).
-    JsonArray os = doc["os"];
-    JsonArray cch = doc["cch"];
-    sensor.outOfSight = (!os.isNull() && i < os.size()) ? (os[i] | false) : false;
-    sensor.cameraChannel = (!cch.isNull() && i < cch.size()) ? (cch[i] | 0) : 0;
+    // The per-sensor camera selection rides as ONE index-aligned OPTIONAL
+    // bitmask array next to r/c, rather than inside each condition object, so
+    // the existing r/c loop and its early-return contract stay untouched.
+    // Channel N is bit N-1. Missing or short means mask 0 — capture NOTHING
+    // for that sensor, which is also what buildConfig's wholesale omission
+    // means when no sensor has a camera. It is deliberately NOT a fall-back to
+    // "all channels": the selection is authoritative.
+    sensor.cameraMask = (!cmask.isNull() && i < cmask.size())
+                            ? static_cast<uint8_t>(cmask[i] | 0)
+                            : 0;
 
     JsonArray conditions = c[i];
     sensor.conditionCount = 0;
