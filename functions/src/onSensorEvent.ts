@@ -5,7 +5,8 @@ import { onValueCreated } from "firebase-functions/v2/database";
 import { Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
 import { AlarmEvent, EventType, Project, Sensor, Rule } from "./types";
-import { sendTelegram, formatSensorAlert, formatAlarm } from "./telegram";
+import { formatSensorAlert, formatAlarm } from "./telegram";
+import { notify } from "./notify";
 import { evaluateRules } from "./alarmLogic";
 import { applicableRules } from "./alwaysRules";
 import { keruiEventOf, nibbleOf, familyIdOf } from "./keruiEvent";
@@ -151,12 +152,13 @@ export const onSensorEvent = onValueCreated(
     if (
       policy.notify &&
       !alreadyAlerted &&
-      (project.notifyEverySensorTrigger !== false || alwaysNotify) &&
-      project.telegramBotToken &&
-      project.telegramChatId
+      (project.notifyEverySensorTrigger !== false || alwaysNotify)
     ) {
-      const msg = formatSensorAlert(sensor.name, eventType);
-      await sendTelegram(project.telegramBotToken, project.telegramChatId, msg);
+      await notify(projectId, project, {
+        text: formatSensorAlert(sensor.name, eventType),
+        severity: "loud",
+        link: true,
+      });
     }
 
     // (d2) TAMPER SIRENS EVEN WHILE DISARMED, and never goes through rule
@@ -276,16 +278,19 @@ export const onSensorEvent = onValueCreated(
       } else if (
         // Siren suppressed, so onAlarm never runs — send the alarm
         // notification directly instead. These two toggles are
-        // independent, so Telegram-without-siren must still notify.
-        project.serverActions.sendTelegram &&
-        project.telegramBotToken &&
-        project.telegramChatId
+        // independent, so notify-without-siren must still fire.
+        //
+        // serverActions.sendTelegram is a SEPARATE pre-existing project
+        // toggle: despite the name it means "notify when the siren is
+        // suppressed", and is independent of notifyChannels.
+        project.serverActions.sendTelegram
       ) {
-        await sendTelegram(
-          project.telegramBotToken,
-          project.telegramChatId,
-          formatAlarm(label)
-        );
+        await notify(projectId, project, {
+          text: formatAlarm(label),
+          severity: "alarm",
+          title: "Alarm",
+          link: true,
+        });
       }
     }
   }

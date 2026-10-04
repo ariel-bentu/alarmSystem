@@ -11,7 +11,8 @@ import { onValueWritten } from "firebase-functions/v2/database";
 import { Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
 import { AlarmEvent, Project, Rule, Sensor } from "./types";
-import { sendTelegram, formatAlarm } from "./telegram";
+import { formatAlarm } from "./telegram";
+import { notify } from "./notify";
 import { isCauseFresh, parseCause, resolveCauseLabel } from "./alarmCause";
 import { sensorFamilyId } from "./sensorFamily";
 
@@ -55,11 +56,12 @@ export const onAlarm = onValueWritten(
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
 
-    if (!project.telegramBotToken || !project.telegramChatId) return;
-
-    const message = label ? formatAlarm(label) : "🚨 Alarm triggered!";
-
-    await sendTelegram(project.telegramBotToken, project.telegramChatId, message);
+    await notify(projectId, project, {
+      text: label ? formatAlarm(label) : "🚨 Alarm triggered!",
+      severity: "alarm",
+      title: "Alarm",
+      link: true, // tapping opens the PWA on the events page
+    });
   }
 );
 
