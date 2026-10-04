@@ -13,7 +13,14 @@
 // Kept pure and separate from onProfileChange.ts so the decision is testable
 // without the Functions emulator — same split as buildConfig vs its triggers.
 
-/** The only sensor fields that reach the device, via buildRtdbConfig. */
+/** The only sensor fields that reach the device, via buildRtdbConfig.
+ *
+ *  Deliberately absent: `name`, the various *AlertSentAt markers,
+ *  `batteryChangedAt`, and `definiteBreach`. The last is a NOTIFICATION
+ *  concern resolved entirely cloud-side in onAlarm — the device never learns
+ *  about breach certainty — so including it here would rebuild the derived
+ *  RTDB config on every edit for data no device reads. Same reasoning as
+ *  cameraNames. */
 interface SensorConfigFields {
   rfId?: unknown;
   familyId?: unknown;

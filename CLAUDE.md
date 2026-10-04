@@ -375,6 +375,8 @@ failure isolation and **never throws** — `deviceLiveness` and
 `deadSensorCheck` latch their alert markers only after a successful send.
 Severity maps `alarm`→priority 2 (repeats until acknowledged), `loud`→1,
 `notice`→-1; the Telegram half reuses the pre-existing `silent` boolean.
+**Which severity an alarm gets is no longer fixed** — since per-sensor breach
+certainty (below) it depends on the causing sensor.
 `device back online` was reclassified loud→notice, since loud would fire a
 Critical Alert through a muted phone to say everything is fine.
 `telegramWebhook.ts` is deliberately NOT routed through `notify()`: those are
@@ -398,6 +400,47 @@ stays Telegram-only; a text alert goes to both), the `device` parameter
 (omitted so all the owner's devices alert), acknowledgement callbacks, and
 deep-linking to a SPECIFIC event — `/explore` reads no query parameter, so
 the link lands on the unfiltered events list.
+
+**Per-sensor breach certainty (2026-10-04) — built, NOT hardware-tested.**
+`Sensor.definiteBreach?: boolean` picks the alarm notification tier.
+**Absent means DEFINITE** — a newly paired sensor wakes you, matching the
+fail-loud stance elsewhere. The default lives in exactly one place,
+`functions/src/breachCertainty.ts`.
+
+| Sensor | Alarm fires | Judge: breach | Judge: safe | No verdict |
+|---|---|---|---|---|
+| Definite | **P2** repeats | P1 + photo | P-1 all-clear + `fp` | — |
+| Non-definite | **P1** single | **P2** repeats (escalation) | P-1 all-clear + `fp` | stays P1 |
+
+A definite sensor's breach confirmation is deliberately P1, not P2: `onAlarm`
+already sent a repeating emergency, and two for one event is worse than one.
+
+**A rule is definite iff EVERY member sensor is definite.** All, not any: a
+`multi_sensor` condition is an AND, so the weakest member governs what the
+combination proves. Derived, not defaulted — such a rule exists precisely
+BECAUSE its members are individually inconclusive (a definite sensor would
+already fire via its own `immediate` rule). Every genuine unknown
+(unresolvable `rfId`, tamper's bare label, no covering rule) fails loud.
+
+⚠️ **NVR health is now load-bearing for night alerting.** A non-definite
+alarm with no judge verdict — NVR down, `nvrMode` not `capture+judge`, or no
+cameras ticked for that sensor — **stays at P1 forever**. There is no
+timeout escalation, by choice, to avoid crying wolf. The siren is the only
+backstop, and a sensor deliberately marked non-definite is therefore less
+likely to wake you than one nobody configured.
+
+Server-written `alarm_cause` now carries `rfId` alongside `label` (the label
+still wins for display). That was required for the certainty lookup and had
+a **side effect worth knowing: the AI judge never ran on server-evaluated
+alarms before**, because `onSnapshotUploaded`'s armed gate compares the
+cause's family to the snapshot's and a label-only cause has none. It now
+runs there — which is also what makes escalation reachable for a
+non-definite sensor alarming via a server rule. `onAlarm`'s `resolveCause`
+(was `resolveLabel`) therefore no longer short-circuits on a label.
+
+`definiteBreach` is **not** a device-visible field and is deliberately
+excluded from `sensorConfigChanged`'s guard, like `cameraNames`. No firmware
+change, no EEPROM magic bump.
 
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing
