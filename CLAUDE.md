@@ -503,11 +503,13 @@ sensor, and the values reach RTDB. Use this to diagnose the intermittent
 2. Track [FirebaseClient#333](https://github.com/mobizt/FirebaseClient/issues/333)
    (filed 2026-09-10); if fixed upstream, retire `patch_firebase.py`
 3. Test and deploy the watchdog / offline-alert work (`docs/testing-device-liveness.md`)
-4. Verify the judge's **safe** path: trigger a non-definite sensor with
-   nobody in frame and confirm the silent all-clear plus the `commands/fp`
-   advisory. Only the breach path is confirmed so far
-5. Flash the RSSI fix, then re-check the intermittent sensor `0xD1037` with
-   real dBm (note the 3s per-code dedup window in `poll()` when testing)
+4. ~~Verify the judge's **safe** path~~ **VERIFIED 2026-10-04.** תנועה דלת מחסן
+   triggered twice (count_in_window), nobody in frame — judge returned "false
+   positive (AI)", no P2 escalation, silent all-clear notification, `commands/fp`
+   written. Both breach and safe paths now confirmed on hardware.
+5. ~~Flash the RSSI fix~~ **DONE 2026-10-04.** Re-check the intermittent sensor
+   `0xD1037` with real dBm (note the 3s per-code dedup window in `poll()` when
+   testing)
 6. Set `definiteBreach` on the **7 sensors still unset** (of 17; 2 are
    explicitly definite, 8 explicitly not). Unset defaults to definite, so 9
    sensors currently break through a muted ringer
