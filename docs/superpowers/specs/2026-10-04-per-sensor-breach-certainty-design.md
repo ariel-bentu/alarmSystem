@@ -121,17 +121,61 @@ alarming via a *server* rule would send priority 1 and then never escalate,
 because no judge would run. Keeping the two halves together is what makes the
 escalation path real rather than theoretical.
 
-### Multi-sensor rules
+### Multi-sensor rules: derived from the members, not defaulted
 
-A `multi_sensor` rule names several sensors; the recorded cause names the
-rule, not one sensor. Resolution rule, stated explicitly:
+A `multi_sensor` rule names several sensors and the recorded cause names the
+rule. An earlier draft of this spec defaulted that case to **definite** on
+the grounds that "several conditions at once is stronger evidence." That was
+backwards and is rejected:
 
-> When the cause resolves to **no single sensor**, the alarm is treated as
-> **definite**.
+> A multi-sensor rule exists *because* its members are individually
+> inconclusive. If any member were a definite breach on its own, it would
+> already fire via its own `immediate` rule and the multi-sensor rule would be
+> redundant for it. Garden motion AND patio motion is still two motion
+> sensors.
 
-Rationale: a multi-sensor rule firing means several conditions were met at
-once, which is stronger evidence than any single trigger — and the fail-safe
-direction is loud. Same answer for an unresolvable `rfId`.
+The members' certainty is not unknown — `Rule.sensors: string[]` names them,
+and `onAlarm` already loads every sensor and locates the covering rule
+(`resolveCauseLabel` performs exactly that lookup). So it is derived:
+
+> **A rule is definite iff EVERY member sensor is definite.** Any
+> non-definite member makes the rule non-definite.
+
+**All, not any**, because a `multi_sensor` condition is an AND: it fires only
+when every member tripped, so the *weakest* member's certainty governs what
+the combination proves. A door sensor plus a motion sensor firing together is
+still gated on the motion sensor being right.
+
+This collapses correctly in the degenerate cases: a single-sensor rule takes
+that sensor's certainty, and an all-definite multi-sensor rule stays
+definite.
+
+```ts
+// functions/src/breachCertainty.ts
+/**
+ * Certainty for a whole rule. ALL members must be definite, because a
+ * multi_sensor condition is an AND and the weakest member governs.
+ *
+ * An EMPTY member list is definite: it means the rule named no sensor we
+ * could resolve, which is the unknown case, and unknown fails loud.
+ */
+export function isRuleDefinite(members: (Sensor | null)[]): boolean {
+  if (members.length === 0) return true;
+  return members.every((s) => isDefiniteBreach(s));
+}
+```
+
+### Genuinely unresolvable causes stay definite
+
+Distinct from the above, and a much shorter list now — every entry is a real
+failure rather than a design category:
+
+- the cause's `rfId` matches no sensor doc (deleted, or never paired)
+- a tamper cause, which writes a bare label with no rule at all
+- no rule found covering the resolved sensor
+
+These are "we cannot tell", where failing loud is right. A multi-sensor rule
+is *not* in this category: it is a question the data can answer.
 
 ## Design
 
@@ -167,6 +211,18 @@ non-definite                → severity "loud",   title "Alarm (unconfirmed)"
 Both keep `link: true`. The Telegram text is unchanged in both cases —
 Telegram has no tiering, and changing the wording would make the two channels
 disagree about the same event.
+
+**No extra Firestore reads.** `onAlarm` already loads every sensor *and*
+every rule of the device-active profile unconditionally (`onAlarm.ts:95-118`),
+before any label shortcut, so the member lookup is a pure computation over
+data already in hand.
+
+⚠️ **Pre-existing caveat, inherited not introduced:** those rules come from
+the profile active **on the device** (`isActiveOnDevice`). A server-evaluated
+alarm under a *different* server-active profile may therefore find no
+covering rule. That degrades to "no rule found" → definite, which is the safe
+direction, so this feature does not worsen it — but a non-definite sensor
+could be alerted as definite in that mismatch. Out of scope here.
 
 Extracted as a pure function so the matrix is testable without the emulator,
 following the `alarmLogic`/`onAlarm` split the codebase already uses:
@@ -243,12 +299,17 @@ enforces this).
 | `definiteBreach` absent | definite (fail loud) |
 | Cause has no `rfId` (legacy server write) | definite |
 | Cause `rfId` matches no sensor | definite |
-| Multi-sensor rule | definite (no single sensor) |
+| **Multi-sensor rule, all members definite** | **definite** |
+| **Multi-sensor rule, any member non-definite** | **non-definite** (derived) |
+| Rule resolves to an empty member list | definite (unknown) |
+| Tamper cause (label only, no rule) | definite |
 | Sensor deleted between alarm and verdict | `isDefiniteBreach(null)` → definite |
 | `notify` fails | already non-throwing; unchanged |
 
-Every unknown resolves to **definite**. The only way to get the quieter tier
-is an explicit `definiteBreach: false` on a resolvable sensor.
+Every genuine *unknown* resolves to **definite**. A multi-sensor rule is not
+an unknown — its tier is computed from its members. The quieter tier is
+reached either by an explicit `definiteBreach: false` on a resolvable sensor,
+or by a rule having at least one such member.
 
 ## Testing
 
@@ -258,6 +319,11 @@ TDD. All pure logic, no emulator.
 - `isDefiniteBreach`: absent → true, `true` → true, `false` → false,
   `null` → true
 - `alarmSeverity`: true → `"alarm"`, false → `"loud"`
+- `isRuleDefinite`: all-definite members → true; **one non-definite member
+  among several definite ones → false** (the AND/weakest-member rule, the
+  assertion that pins the corrected decision); single definite member → true;
+  single non-definite member → false; empty list → true; a `null` member (a
+  sensor id that resolved to nothing) → treated as definite
 
 `onSnapshotUploaded.test.ts` (extends the existing injectable-deps suite)
 - breach + non-definite → `notify` called with `severity: "alarm"`
@@ -282,7 +348,7 @@ wrappers are covered by emulator smoke tests). Its new logic is entirely in
 
 | File | Change |
 |---|---|
-| `functions/src/breachCertainty.ts` | new — `isDefiniteBreach`, `alarmSeverity` |
+| `functions/src/breachCertainty.ts` | new — `isDefiniteBreach`, `isRuleDefinite`, `alarmSeverity` |
 | `functions/src/breachCertainty.test.ts` | new |
 | `functions/src/types.ts` | `Sensor.definiteBreach?` |
 | `functions/src/alarmCause.ts` | **comment only** — `AlarmCause.rfId` and `parseCause` already support the server carrying `rfId`; note that it now does |
@@ -300,7 +366,11 @@ Explicitly **not** touched: any firmware file, `buildConfig.ts`,
 
 ## Open question
 
-None blocking. One judgement call recorded above and worth re-reading before
-implementation: **decision 1's cost** — non-definite sensors have no
-escalation path when the judge is unavailable, and the siren is the only
-backstop.
+None blocking. Two things worth re-reading before implementation:
+
+1. **Decision 1's cost** — non-definite sensors have no escalation path when
+   the judge is unavailable, and the siren is the only backstop.
+2. **A multi-sensor rule's tier is derived from its members** (all must be
+   definite), not defaulted. An earlier draft defaulted it to definite on
+   "stronger evidence" grounds; that was rejected because such a rule exists
+   precisely when its members are individually inconclusive.
