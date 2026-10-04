@@ -5,6 +5,7 @@ import {
   keruiEventOf,
   keruiEventName,
   familyIdOf,
+  causeFamilyOf,
   formatFamilyId,
   nibbleOf,
 } from "./keruiEvent";
@@ -185,5 +186,33 @@ describe("cross-layer table agreement", () => {
     for (const n of ALL_NIBBLES) {
       expect(web.get(n) ?? "unknown").toBe(keruiEventOf(n));
     }
+  });
+});
+
+describe("causeFamilyOf", () => {
+  // The two shapes /{projectId}/state/alarm_cause actually carries.
+  it("passes an already-shifted family through, canonicalised", () => {
+    expect(causeFamilyOf("0x009BF")).toBe("0x009BF");
+    expect(causeFamilyOf("0x009bf")).toBe("0x009BF");
+  });
+
+  it("shifts a full 24-bit rfId down to its family", () => {
+    expect(causeFamilyOf("0x009BFA")).toBe("0x009BF");
+  });
+
+  // THE BUG THIS FIXES. familyIdOf shifted the device's already-shifted
+  // family a SECOND time, so onSnapshotUploaded's armed gate compared
+  // "0x0009B" against "0x009BF", never matched, and the AI judge never ran
+  // on real hardware.
+  it("agrees for both shapes of the same sensor, unlike familyIdOf", () => {
+    expect(causeFamilyOf("0x009BF")).toBe(causeFamilyOf("0x009BFA"));
+    // The old behaviour, kept visible so the regression cannot creep back.
+    expect(familyIdOf("0x009BF")).toBe("0x0009B");
+    expect(familyIdOf("0x009BF")).not.toBe(familyIdOf("0x009BFA"));
+  });
+
+  it("returns null for junk", () => {
+    expect(causeFamilyOf("MANUAL")).toBeNull();
+    expect(causeFamilyOf("")).toBeNull();
   });
 });

@@ -77,6 +77,31 @@ export function formatFamilyId(family: number): string {
   return "0x" + ((family >>> 0) & 0xfffff).toString(16).toUpperCase().padStart(5, "0");
 }
 
+/**
+ * The family of a value that may ALREADY be a family, or may be a full
+ * 24-bit rfId. Told apart by LENGTH, never by guessing.
+ *
+ * This exists because `/{projectId}/state/alarm_cause` carries either shape:
+ * the DEVICE writes the already-shifted 20-bit family ("0x009BF"), while the
+ * server writes the full 24-bit rfId ("0x009BFA"). Passing the device's value
+ * to familyIdOf() shifts it a SECOND time — "0x009BF" became "0x0009B" — so
+ * any comparison against a real family silently never matched.
+ *
+ * That is exactly the bug that made onSnapshotUploaded's armed gate reject
+ * every device-written cause, which is why the AI judge never ran on real
+ * hardware. Mirrors normaliseFamilyId in web/src/features/configure/
+ * keruiEvent.ts, which has always told the two apart this way.
+ */
+export function causeFamilyOf(value: string): string | null {
+  const cleaned = value.trim();
+  // Exactly five hex digits: already a family, so canonicalise only.
+  if (/^0[xX][0-9a-fA-F]{5}$/.test(cleaned)) {
+    return "0x" + cleaned.slice(2).toUpperCase();
+  }
+  // Anything else (notably a full six-digit rfId) goes through the shift.
+  return familyIdOf(cleaned);
+}
+
 /** The event nibble of a 24-bit rfId, or null when unparseable. */
 export function nibbleOf(rfId: string): number | null {
   const cleaned = rfId.trim();

@@ -102,7 +102,7 @@ import { Timestamp, type Firestore } from "firebase-admin/firestore";
 import type { Database } from "firebase-admin/database";
 import { parseSnapshotPath } from "./snapshotPath";
 import { Project, Sensor } from "./types";
-import { familyIdOf } from "./keruiEvent";
+import { causeFamilyOf, familyIdOf } from "./keruiEvent";
 import { sensorFamilyId } from "./sensorFamily";
 import { parseCause, isCauseFresh } from "./alarmCause";
 import { judgeFor, JudgeContext, Verdict } from "./snapshotJudge";
@@ -224,7 +224,12 @@ export async function handleSnapshotUpload(
 
   const causeSnap = await deps.rtdb.ref(`${projectId}/state/alarm_cause`).get();
   const cause = parseCause(causeSnap.val());
-  const causeFamily = cause?.rfId ? familyIdOf(cause.rfId) : null;
+  // causeFamilyOf, NOT familyIdOf: the cause carries the already-shifted
+  // 20-bit family when the DEVICE wrote it and the full 24-bit rfId when the
+  // server did. familyIdOf shifted the device's value a second time
+  // ("0x009BF" -> "0x0009B"), so this gate never matched a device-written
+  // cause and the judge never ran on real hardware.
+  const causeFamily = cause?.rfId ? causeFamilyOf(cause.rfId) : null;
   const armedAtTrigger =
     cause !== null &&
     causeFamily !== null &&

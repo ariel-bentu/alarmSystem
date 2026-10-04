@@ -537,6 +537,43 @@ describe("handleSnapshotUpload", () => {
     expect(doc?.sensorName).toBe("Front door");
   });
 
+  // THE REGRESSION THAT KEPT THE JUDGE FROM EVER RUNNING ON HARDWARE.
+  //
+  // Every other fixture in this file seeds alarm_cause with the FULL rfId
+  // ("0x0061DA") — the shape the SERVER writes. The DEVICE writes the
+  // already-shifted 20-bit family ("0x0061D"), and the armed gate used to
+  // run that through familyIdOf(), shifting it a second time to "0x00061".
+  // It then compared that against the snapshot's real family and never
+  // matched, so every device-triggered alarm logged "no fresh matching
+  // alarm_cause" and skipped the judge.
+  //
+  // Because no test used the device shape, the suite passed throughout.
+  it("judges a DEVICE-written cause, which carries the family not the rfId", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge", telegramBotToken: "tok", telegramChatId: "c" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: {
+        // The DEVICE shape: 5 hex digits, already a family.
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: "0x0061D", ct: 0, at: TS },
+      },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    // The judge must have been consulted at all — this is what used to fail.
+    expect(stubJudge.judge).toHaveBeenCalledTimes(1);
+    // And a non-definite sensor's breach escalates to emergency.
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    expect(msg.severity).toBe("alarm");
+  });
+
   // --- breach escalation by sensor certainty ---
 
   it("escalates a NON-definite sensor's breach to emergency", async () => {
