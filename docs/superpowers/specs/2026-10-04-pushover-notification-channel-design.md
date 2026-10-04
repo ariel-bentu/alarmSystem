@@ -47,6 +47,9 @@ replace Telegram or run alongside it.
 - **Acknowledgement callbacks.** Priority 2 accepts a `callback` URL that
   Pushover hits on acknowledgement. A plausible future timeline enrichment,
   not needed now.
+- **Deep-linking to a specific event.** The alert links to the events page
+  (see below), but `/explore` reads no query parameter today, so it cannot
+  pre-select the triggering sensor's row. Worth doing; a separate change.
 - **A Twilio voice call.** The other mute-defeating remote channel, and
   harder to sleep through than any notification. Worth revisiting only if
   Pushover priority 2 proves insufficient in the field.
@@ -181,6 +184,28 @@ Pushover specifics, confirmed against the current API docs:
   single alert with no repeat. This is why `loud` is useful and why `alarm`
   is reserved for the three genuine breach sites.
 - Priority **-1** delivers with no sound or vibration.
+
+### 4a. The PWA deep link
+
+Pushover's optional `url` / `url_title` render a tappable action on the
+notification. Alarm, breach and sensor-alert messages set it to
+`https://alarm-system-100.web.app/explore` — the events page, where a
+trigger's camera snapshots are.
+
+**This opens the installed PWA, not Safari**, because `web/vite.config.ts`
+already declares `scope: "/"` and `display: "standalone"` in the manifest. An
+in-scope https link is captured by the installed app. No manifest change, no
+custom URL scheme, no App Store presence, no Apple developer account — which
+is the constraint that ruled out a native app in the first place.
+
+`NotifyMessage.link?: boolean` requests it; `notify` builds the URL so no call
+site hardcodes it. Pushover-only: Telegram already renders URLs in the message
+body, and adding one to every message would clutter the chat. Notices
+(arm/disarm, device back online) carry no link — there is nothing to look at.
+
+The link lands on the **unfiltered** events list, since `/explore` reads no
+query parameter. Pre-selecting the triggering event is a follow-up recorded in
+`todo.txt`.
 
 ### 5. `pushover.ts`
 
@@ -331,6 +356,9 @@ Order matters: the rules change must land before the first secret is written.
 6. Check the Pushover **Quiet Hours** overrides for priority 1 and 2.
 7. Verify with a real armed trigger, phone muted. Nothing short of that
    confirms the mute-defeating behaviour this whole change exists for.
+8. Tap the alert's link and confirm it opens the **installed PWA** standalone,
+   not a Safari tab. If Safari opens, the app is not installed to the home
+   screen.
 
 ## Open questions
 
