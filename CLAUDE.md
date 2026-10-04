@@ -488,7 +488,14 @@ It took three fixes to get there, all on 2026-10-04:
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing
 guide below. `RelaySiren` is built but unused (the RF path supersedes it).
-The RSSI fix (status-register read) is committed but **not yet flashed**.
+
+**RSSI now reports real dBm (flashed 2026-10-04).** `poll()` read the CC1101's
+RSSI register (0x34) with `readReg()` instead of `readStatusReg()` — 0x34 is a
+STATUS register needing burst access, so every packet from every sensor
+reported a constant `31`. Verified after flashing: `-67`/`-70` dBm from one
+sensor, and the values reach RTDB. Use this to diagnose the intermittent
+`0xD1037` — but note `poll()` drops a repeat of the SAME 24-bit code within
+3s (`cc1101_receiver.cpp:141`), so wait 5s+ between test triggers.
 
 ## Next
 

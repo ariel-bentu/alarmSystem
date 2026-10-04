@@ -117,7 +117,9 @@ failure class most suspected historically.
   which has 1-second resolution and returns near-zero before sync. Multiple
   events in the same pre-sync second overwrite each other — a narrow but real
   data-loss window right after a watchdog reboot.
-- **~~RSSI was never measured~~ (fixed 2026-10-04, not yet flashed).** `poll()`
+- **~~RSSI was never measured~~ (fixed and FLASHED 2026-10-04).** Verified on
+  hardware: the same sensor now reports `-67` and `-70` dBm where every packet
+  previously reported a constant `31`, and the real values reach RTDB. `poll()`
   read the CC1101's RSSI register (0x34) with `readReg()` (single access,
   0x80) instead of `readStatusReg()` (burst, 0xC0). 0x34 is a STATUS register,
   so a single read addressed the unrelated configuration register at the same
