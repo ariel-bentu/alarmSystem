@@ -70,6 +70,18 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Server-only per-project secrets: the Pushover app token and user key.
+      // No client may read or write these, ever — Cloud Functions reach them
+      // through the admin SDK, which bypasses these rules entirely.
+      //
+      // Rules do NOT inherit, which is the whole point: the parent project
+      // doc stays `allow read: if isMember(projectId)` while this
+      // subcollection is denied outright. A credential on the parent doc
+      // would be downloaded in plaintext by every member's browser.
+      match /secrets/{secretId} {
+        allow read, write: if false;
+      }
+
       match /sensors/{sensorId} {
         allow read: if isMember(projectId);
         allow write: if isAdmin(projectId);
