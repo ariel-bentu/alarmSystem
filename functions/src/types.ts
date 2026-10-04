@@ -198,6 +198,14 @@ export interface DeviceInfo {
   offlineAlertSentAt?: Timestamp;
 }
 
+/**
+ * A notification channel. Projects may enable either, both, or neither.
+ *
+ * Pushover exists because a muted iPhone silences every Telegram
+ * notification; see pushover.ts.
+ */
+export type NotifyChannel = "telegram" | "pushover";
+
 export interface Project {
   id: string;
   name: string;
@@ -229,6 +237,25 @@ export interface Project {
   // to "UTC".
   timezone?: string;
   notifyEverySensorTrigger?: boolean;
+  // Which notification channels are enabled.
+  //
+  // ABSENT means ["telegram"] — every project predating this field keeps
+  // behaving exactly as before, with no migration. An EMPTY ARRAY means send
+  // nothing, which is a legitimate choice and is NOT coerced to the default.
+  //
+  // Not a secret, so it belongs here where the web UI can read and write it.
+  // The Pushover CREDENTIALS deliberately do not live on this doc — see
+  // notifySecrets.ts.
+  notifyChannels?: NotifyChannel[];
+  // Mirror of "a Pushover credential has been written", maintained by the
+  // set:notifyKey script. Exists only so the settings UI can show whether
+  // Pushover is set up: the client cannot read the secret itself.
+  pushoverConfigured?: boolean;
+  // Priority-2 repeat interval and give-up window, in seconds. Optional:
+  // absent means pushover.ts's DEFAULT_RETRY_SEC / DEFAULT_EXPIRE_SEC. Values
+  // are clamped to the API's own bounds (retry >= 30, expire <= 10800).
+  pushoverRetrySec?: number;
+  pushoverExpireSec?: number;
   // Months after which a sensor battery is considered overdue for
   // replacement. Optional: project docs predate it, and absent means the
   // DEFAULT_BATTERY_ALERT_MONTHS default. Zero or negative disables the
