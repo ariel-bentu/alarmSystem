@@ -180,6 +180,11 @@ export interface Sensor {
   // means never recorded, and readers fall back to pairedAt so that every
   // sensor has an age from the day it was paired.
   batteryChangedAt?: Timestamp | null;
+  // Is a trigger from this sensor a confirmed break-in on its own?
+  // ABSENT MEANS TRUE — see functions/src/breachCertainty.ts, which owns
+  // this default. Definite sends a repeating emergency push; non-definite
+  // sends a loud single-shot push the AI judge can escalate.
+  definiteBreach?: boolean;
   // Set when the stale-battery alert fires, cleared when batteryChangedAt is
   // written. Mirrors deadAlertSentAt: without it the daily check would send
   // the same Telegram every noon until the battery was replaced.

@@ -356,6 +356,17 @@ export default function SensorsTab() {
     );
   };
 
+  /** Persist a sensor's breach certainty. Written explicitly as a boolean —
+   *  never omitted — because ABSENT means definite, so clearing the box has
+   *  to store `false` rather than delete the field. */
+  const handleDefiniteBreachChange = async (sensor: Sensor, definite: boolean) => {
+    if (!projectId) return;
+    await updateDoc(sensorDoc(projectId, sensor.id), { definiteBreach: definite });
+    setSensors((prev) =>
+      prev.map((s) => (s.id === sensor.id ? { ...s, definiteBreach: definite } : s))
+    );
+  };
+
   // Recording a replacement ALSO clears batteryAlertSentAt. That pairing is
   // what re-arms the alert for the next cycle — without it each sensor would
   // Telegram once, ever, and go quiet for every battery after the first.
@@ -648,6 +659,22 @@ export default function SensorsTab() {
                           onChange={(next) => void handleCamerasChange(s, next)}
                         />
                         <p className="muted">{t("cfg.sensors.camerasHelp")}</p>
+                        <label className="check">
+                          <input
+                            type="checkbox"
+                            // Absent means definite, so an unconfigured
+                            // sensor shows as ticked — matching what it
+                            // actually does.
+                            checked={s.definiteBreach !== false}
+                            onChange={(e) =>
+                              void handleDefiniteBreachChange(s, e.target.checked)
+                            }
+                          />
+                          <span>{t("cfg.sensors.definiteBreach")}</span>
+                        </label>
+                        <p className="muted">
+                          {t("cfg.sensors.definiteBreachHelp")}
+                        </p>
                       </td>
                       <td>
                         <button

@@ -177,6 +177,9 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.camerasHelp":
     "בחרו אילו מצלמות יצלמו כשהחיישן מופעל. ללא בחירה — לא יצולמו תמונות לחיישן הזה.",
   "cfg.sensors.noCameras": "ללא מצלמות",
+  "cfg.sensors.definiteBreach": "פריצה ודאית",
+  "cfg.sensors.definiteBreachHelp":
+    "אזעקה מהחיישן הזה היא פריצה מאומתת: נשלחת התראת חירום שחוזרת עד לאישור. אין לסמן עבור חיישנים שדורשים אימות במצלמה, כמו גלאי תנועה — אלה שולחים התראה רועשת אחת, שהשופט האוטומטי משדרג לחירום אם מזוהה אדם.",
 
   // Profiles tab
   "cfg.profiles.loading": "טוען פרופילים…",

@@ -181,6 +181,9 @@ export const en = {
   "cfg.sensors.camerasHelp":
     "Pick the cameras to photograph when this sensor trips. None selected means no photos for this sensor.",
   "cfg.sensors.noCameras": "No cameras",
+  "cfg.sensors.definiteBreach": "Definite breach",
+  "cfg.sensors.definiteBreachHelp":
+    "An alarm from this sensor is a confirmed break-in: sends an emergency notification that repeats until acknowledged. Leave unticked for sensors that need camera confirmation, such as motion — those send a loud single alert, which the AI judge upgrades to an emergency if it sees a person.",
 
   // Profiles tab
   "cfg.profiles.loading": "Loading profiles…",
