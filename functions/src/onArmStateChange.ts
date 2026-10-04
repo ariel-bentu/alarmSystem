@@ -9,7 +9,8 @@ import { onValueWritten } from "firebase-functions/v2/database";
 import { Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
 import { Project, AlarmEvent, Profile, ArmSource } from "./types";
-import { sendTelegram, formatArmState, armSourceLabel } from "./telegram";
+import { formatArmState, armSourceLabel } from "./telegram";
+import { notify } from "./notify";
 
 export const onArmStateChange = onValueWritten(
   { ref: "/{projectId}/commands/armed", region: "europe-west1" },
@@ -78,19 +79,16 @@ export const onArmStateChange = onValueWritten(
     };
     await db.collection(`projects/${projectId}/events`).add(alarmEvent);
 
-    // Send Telegram
+    // Notify
     const projectDoc = await db.doc(`projects/${projectId}`).get();
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
-    if (!project.telegramBotToken || !project.telegramChatId) return;
 
-    await sendTelegram(
-      project.telegramBotToken,
-      project.telegramChatId,
+    await notify(projectId, project, {
       // The source, not a hardcoded "Device": a scheduled arm read "Device
       // armed — Night", which is the same conflation the timeline had.
-      formatArmState(armed, armSourceLabel(armSource), profileName),
-      true // arm/disarm is a notice, not a demand for attention
-    );
+      text: formatArmState(armed, armSourceLabel(armSource), profileName),
+      severity: "notice", // arm/disarm is a notice, not a demand for attention
+    });
   }
 );

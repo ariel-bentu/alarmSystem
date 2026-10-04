@@ -8,7 +8,8 @@ import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { Timestamp } from "firebase-admin/firestore";
 import { db } from "./admin";
 import { Project, AlarmEvent, Profile } from "./types";
-import { sendTelegram, formatArmState } from "./telegram";
+import { formatArmState } from "./telegram";
+import { notify } from "./notify";
 
 export const onServerArmChange = onDocumentUpdated(
   { document: "projects/{projectId}", region: "europe-west1" },
@@ -50,13 +51,9 @@ export const onServerArmChange = onDocumentUpdated(
     };
     await db.collection(`projects/${projectId}/events`).add(alarmEvent);
 
-    if (!after.telegramBotToken || !after.telegramChatId) return;
-
-    await sendTelegram(
-      after.telegramBotToken,
-      after.telegramChatId,
-      formatArmState(armed, "Server", profileName),
-      true // see onArmStateChange
-    );
+    await notify(projectId, after, {
+      text: formatArmState(armed, "Server", profileName),
+      severity: "notice", // see onArmStateChange
+    });
   }
 );

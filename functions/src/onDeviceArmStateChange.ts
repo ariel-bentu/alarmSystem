@@ -14,7 +14,8 @@ import { onValueWritten } from "firebase-functions/v2/database";
 import { Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
 import { Project, AlarmEvent, Remote } from "./types";
-import { sendTelegram, formatArmStateBySource } from "./telegram";
+import { formatArmStateBySource } from "./telegram";
+import { notify } from "./notify";
 import {
   shouldSuppressDeviceArmNotification,
   armEventSourceLabel,
@@ -119,14 +120,11 @@ export const onDeviceArmStateChange = onValueWritten(
     const projectDoc = await db.doc(`projects/${projectId}`).get();
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
-    if (!project.telegramBotToken || !project.telegramChatId) return;
 
-    await sendTelegram(
-      project.telegramBotToken,
-      project.telegramChatId,
-      formatArmStateBySource(armed, source, remoteName),
-      true // arm/disarm is a notice, not a demand for attention
-    );
+    await notify(projectId, project, {
+      text: formatArmStateBySource(armed, source, remoteName),
+      severity: "notice", // arm/disarm is a notice, not a demand for attention
+    });
   }
 );
 
