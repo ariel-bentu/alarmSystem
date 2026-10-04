@@ -415,12 +415,23 @@ fail-loud stance elsewhere. The default lives in exactly one place,
 A definite sensor's breach confirmation is deliberately P1, not P2: `onAlarm`
 already sent a repeating emergency, and two for one event is worse than one.
 
-**A rule is definite iff EVERY member sensor is definite.** All, not any: a
-`multi_sensor` condition is an AND, so the weakest member governs what the
-combination proves. Derived, not defaulted — such a rule exists precisely
-BECAUSE its members are individually inconclusive (a definite sensor would
-already fire via its own `immediate` rule). Every genuine unknown
-(unresolvable `rfId`, tamper's bare label, no covering rule) fails loud.
+**The tier comes from the CAUSING SENSOR's own flag — there is no rule
+lookup, and reintroducing one is a mistake.** An earlier version derived it
+from the covering rule's members (all must be definite, since `multi_sensor`
+is an AND). Two things killed that, both found against live data:
+
+1. **Rule membership is not exclusive.** A sensor commonly belongs to several
+   rules at once — in this project, `תנועה דלת כניסה` sits in a 1-member
+   `count_in_window` *and* a 2-member `multi_sensor`. The code took
+   `rules.find(...)`, the FIRST match, so Firestore's arbitrary document
+   order decided the priority: the same sensor could alert differently on
+   each trigger.
+2. **The cause never records which rule fired.** `alarm_cause.ct` is a
+   condition TYPE index, not a rule id, so the firing rule cannot be
+   identified without a firmware change.
+
+Every genuine unknown (unresolvable `rfId`, tamper's bare label) still fails
+loud.
 
 ⚠️ **NVR health is now load-bearing for night alerting.** A non-definite
 alarm with no judge verdict — NVR down, `nvrMode` not `capture+judge`, or no
@@ -441,6 +452,15 @@ non-definite sensor alarming via a server rule. `onAlarm`'s `resolveCause`
 `definiteBreach` is **not** a device-visible field and is deliberately
 excluded from `sensorConfigChanged`'s guard, like `cameraNames`. No firmware
 change, no EEPROM magic bump.
+
+**Pushover sound / repeat / expiry are per-project**, set in Settings →
+Notifications (`pushoverSound`, `pushoverRetrySec`, `pushoverExpireSec`).
+⚠️ **Only five built-in sounds loop** — `alien`, `climb`, `persistent`,
+`echo`, `updown`. Priority 2 **re-sends the notification** every `retry`
+seconds rather than sustaining a tone, so a short sound (including Pushover's
+default) yields a series of brief blips, not an alarm. This is the whole
+explanation for "the emergency alert doesn't keep sounding"; `retry` was
+never the problem.
 
 **Untested:** the watchdog / boot-reporting / offline-alert work (2026-09-02)
 is committed but **not deployed and not hardware-tested** — see the testing

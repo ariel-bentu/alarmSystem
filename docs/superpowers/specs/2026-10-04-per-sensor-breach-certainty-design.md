@@ -121,7 +121,33 @@ alarming via a *server* rule would send priority 1 and then never escalate,
 because no judge would run. Keeping the two halves together is what makes the
 escalation path real rather than theoretical.
 
-### Multi-sensor rules: derived from the members, not defaulted
+### ⚠️ SUPERSEDED 2026-10-04: rule-derivation was removed entirely
+
+**The section below is kept for the record but no longer describes the code.**
+It was implemented, deployed, and then reverted the same day after testing
+against this project's live configuration exposed two fatal problems:
+
+1. **Rule membership is not exclusive.** The section assumes a sensor has *a*
+   covering rule. In reality sensors belong to several at once — e.g.
+   `תנועה דלת כניסה` is in both a 1-member `count_in_window` and the 2-member
+   `תנועה באיזור הדלת x2`. The implementation used `rules.find(...)`, the
+   FIRST match, so Firestore's arbitrary document ordering chose the
+   notification tier. Non-deterministic: identical triggers could alert at
+   different priorities.
+2. **The cause does not identify the firing rule.** `alarm_cause.ct` is a
+   condition TYPE index, not a rule id. So even "use the rule that actually
+   fired" — the intuition behind this section — cannot be implemented without
+   a firmware change to record the rule.
+
+**Current behaviour: the tier is the causing sensor's own `definiteBreach`.**
+Deterministic, and it matches what the UI checkbox sets, so what the owner
+ticks is what they get. On the live data it produces identical results anyway:
+both multi-sensor rules here are composed entirely of non-definite sensors.
+
+`isRuleDefinite` and its tests were deleted rather than left in place, so no
+code encodes a rule nothing implements.
+
+### Multi-sensor rules: derived from the members, not defaulted (SUPERSEDED)
 
 A `multi_sensor` rule names several sensors and the recorded cause names the
 rule. An earlier draft of this spec defaulted that case to **definite** on
