@@ -15,6 +15,7 @@
     "check:sirenAddress": "tsx scripts/checkSirenAddress.ts",
     "dump:configInputs": "tsx scripts/dumpConfigInputs.ts",
     "set:judgeKey": "tsx scripts/setJudgeKey.ts",
+    "set:notifyKey": "tsx scripts/setNotifyKey.ts",
     "touch:project": "tsx scripts/touchProject.ts"
   },
   "dependencies": {
