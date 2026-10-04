@@ -9,17 +9,31 @@ import {
 } from "./pushover";
 
 describe("pushoverPriority", () => {
-  // Both 1 and 2 trigger Apple Critical Alerts, so both are audible through
-  // mute. Only 2 repeats until acknowledged, which is why it is reserved for
-  // a genuine breach.
+  // Only "alarm" may break through a muted ringer. Pushover applies Apple's
+  // Critical Alerts entitlement to priority 1 as well as 2, so "loud" must
+  // NOT be 1 — at 1 it overrode silence too, leaving the two tiers
+  // indistinguishable by ear.
   it("maps alarm to emergency priority 2", () => {
     expect(pushoverPriority("alarm")).toBe(2);
   });
-  it("maps loud to high priority 1", () => {
-    expect(pushoverPriority("loud")).toBe(1);
+
+  // THE assertion that keeps non-definite alerts from overriding silence.
+  // Raising this to 1 would hand a maybe-a-cat motion trigger the same
+  // mute-breaking power as a confirmed break-in.
+  it("maps loud to NORMAL priority 0, which respects mute and DND", () => {
+    expect(pushoverPriority("loud")).toBe(0);
   });
+
   it("maps notice to low priority -1", () => {
     expect(pushoverPriority("notice")).toBe(-1);
+  });
+
+  // Only priority 2 gets the Critical Alerts treatment now, so it is the
+  // only tier that can wake someone whose phone is silenced.
+  it("gives only alarm a mute-overriding priority", () => {
+    expect(pushoverPriority("alarm")).toBeGreaterThan(1);
+    expect(pushoverPriority("loud")).toBeLessThanOrEqual(0);
+    expect(pushoverPriority("notice")).toBeLessThanOrEqual(0);
   });
 });
 

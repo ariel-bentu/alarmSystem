@@ -179,7 +179,7 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.noCameras": "ללא מצלמות",
   "cfg.sensors.definiteBreach": "פריצה ודאית",
   "cfg.sensors.definiteBreachHelp":
-    "אזעקה מהחיישן הזה היא פריצה מאומתת: נשלחת התראת חירום שחוזרת עד לאישור. אין לסמן עבור חיישנים שדורשים אימות במצלמה, כמו גלאי תנועה — אלה שולחים התראה רועשת אחת, שהשופט האוטומטי משדרג לחירום אם מזוהה אדם.",
+    "אזעקה מהחיישן הזה היא פריצה מאומתת: נשלחת התראת חירום שחוזרת עד לאישור ומשמיעה צליל גם כשהטלפון מושתק. אין לסמן עבור חיישנים שדורשים אימות במצלמה, כמו גלאי תנועה — אלה שולחים התראה רגילה שמכבדת מצב שקט, שהשופט האוטומטי משדרג לחירום אם מזוהה אדם. שימו לב: ללא אימות מצלמה מוגדר, חיישן לא מסומן לא ישודרג לעולם.",
 
   // Profiles tab
   "cfg.profiles.loading": "טוען פרופילים…",
@@ -385,7 +385,7 @@ export const he: Record<TranslationKey, string> = {
     "לא הוגדרו פרטי Pushover. הרץ: npm run set:notifyKey -- <projectId> <appToken> <userKey>",
   "settings.pushoverConfigured": "פרטי Pushover מוגדרים",
   "settings.pushoverCriticalAlertsHint":
-    "Pushover ישמיע צליל גם כשהטלפון במצב שקט רק לאחר הפעלת Critical Alerts באפליקציית Pushover.",
+    "רק אזעקות מחיישני ״פריצה ודאית״ יישמעו כשהטלפון במצב שקט, וגם זה רק לאחר הפעלת Critical Alerts באפליקציית Pushover. התראות מחיישנים שדורשים אימות מגיעות כהתראה רגילה ונשארות שקטות כשהטלפון מושתק, עד שהשופט האוטומטי מאשר פריצה.",
   "settings.notifications": "התראות",
   "settings.pushoverSound": "צליל Pushover",
   "settings.pushoverSoundHelp":

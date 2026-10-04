@@ -53,9 +53,30 @@ export interface PushoverArgs {
 export function pushoverPriority(severity: Severity): number {
   switch (severity) {
     case "alarm":
-      return 2; // Critical Alert, repeats until acknowledged.
+      // Critical Alert: plays at full volume through a muted ringer and
+      // through Do Not Disturb, and repeats until acknowledged.
+      return 2;
     case "loud":
-      return 1; // Critical Alert, single shot.
+      // Priority 0 (normal), NOT 1 — deliberately, and this is the one place
+      // the choice is made.
+      //
+      // Pushover applies Apple's Critical Alerts entitlement to priority 1 as
+      // well as 2, so a "loud" alert at priority 1 ALSO broke through mute.
+      // That left the two tiers near-indistinguishable: both sounded at full
+      // volume, differing only in whether they repeated — and with a looping
+      // sound like `updown` even that difference was inaudible.
+      //
+      // A non-definite sensor is one whose trigger might be a cat. It should
+      // notify, and sound when the phone is not silenced, but it must not
+      // override silence. Breaking through mute is reserved for a confirmed
+      // breach — either a definite sensor, or the AI judge escalating a
+      // non-definite one to "alarm".
+      //
+      // COST, accepted: when no judge verdict ever arrives (NVR down,
+      // nvrMode not capture+judge, or no cameras on the sensor), a
+      // non-definite alarm is now SILENT on a muted phone and nothing will
+      // escalate it. The siren is the only backstop for those sensors.
+      return 0;
     case "notice":
       return -1; // Delivered with no sound or vibration.
   }

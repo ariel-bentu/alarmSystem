@@ -373,8 +373,12 @@ All nine former `sendTelegram` call sites now route through `notify()`
 (`functions/src/notify.ts`), which fans out concurrently with per-channel
 failure isolation and **never throws** — `deviceLiveness` and
 `deadSensorCheck` latch their alert markers only after a successful send.
-Severity maps `alarm`→priority 2 (repeats until acknowledged), `loud`→1,
-`notice`→-1; the Telegram half reuses the pre-existing `silent` boolean.
+Severity maps `alarm`→priority 2 (repeats until acknowledged, **the only tier
+that breaks through a muted ringer**), `loud`→**0** (normal: respects mute and
+DND), `notice`→-1 (silent); the Telegram half reuses the pre-existing `silent`
+boolean. ⚠️ `loud` was priority **1** until 2026-10-04 — but Pushover applies
+Critical Alerts to priority 1 as well as 2, so it overrode silence too and the
+two tiers were indistinguishable by ear. Do not raise it back.
 **Which severity an alarm gets is no longer fixed** — since per-sensor breach
 certainty (below) it depends on the causing sensor.
 `device back online` was reclassified loud→notice, since loud would fire a
@@ -407,12 +411,15 @@ the link lands on the unfiltered events list.
 fail-loud stance elsewhere. The default lives in exactly one place,
 `functions/src/breachCertainty.ts`.
 
+Only **P2 breaks through a muted ringer.** P0 is a normal notification that
+respects mute and Do Not Disturb; P-1 is silent.
+
 | Sensor | Alarm fires | Judge: breach | Judge: safe | No verdict |
 |---|---|---|---|---|
-| Definite | **P2** repeats | P1 + photo | P-1 all-clear + `fp` | — |
-| Non-definite | **P1** single | **P2** repeats (escalation) | P-1 all-clear + `fp` | stays P1 |
+| Definite | **P2** repeats, breaks mute | P0 + photo | P-1 all-clear + `fp` | — |
+| Non-definite | **P0** respects mute | **P2** repeats (escalation) | P-1 all-clear + `fp` | stays P0 |
 
-A definite sensor's breach confirmation is deliberately P1, not P2: `onAlarm`
+A definite sensor's breach confirmation is deliberately P0, not P2: `onAlarm`
 already sent a repeating emergency, and two for one event is worse than one.
 
 **The tier comes from the CAUSING SENSOR's own flag — there is no rule
@@ -433,12 +440,13 @@ is an AND). Two things killed that, both found against live data:
 Every genuine unknown (unresolvable `rfId`, tamper's bare label) still fails
 loud.
 
-⚠️ **NVR health is now load-bearing for night alerting.** A non-definite
-alarm with no judge verdict — NVR down, `nvrMode` not `capture+judge`, or no
-cameras ticked for that sensor — **stays at P1 forever**. There is no
-timeout escalation, by choice, to avoid crying wolf. The siren is the only
-backstop, and a sensor deliberately marked non-definite is therefore less
-likely to wake you than one nobody configured.
+⚠️ **NVR health is load-bearing for night alerting, and now more so.** A
+non-definite alarm with no judge verdict — NVR down, `nvrMode` not
+`capture+judge`, or no cameras ticked for that sensor — **stays at P0
+forever**, which on a muted phone means **silent**. There is no timeout
+escalation, by choice, to avoid crying wolf. The siren is the only backstop,
+and a sensor deliberately marked non-definite is therefore less likely to
+wake you than one nobody configured.
 
 Server-written `alarm_cause` now carries `rfId` alongside `label` (the label
 still wins for display). That was required for the certainty lookup and had

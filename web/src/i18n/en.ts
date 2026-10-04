@@ -183,7 +183,7 @@ export const en = {
   "cfg.sensors.noCameras": "No cameras",
   "cfg.sensors.definiteBreach": "Definite breach",
   "cfg.sensors.definiteBreachHelp":
-    "An alarm from this sensor is a confirmed break-in: sends an emergency notification that repeats until acknowledged. Leave unticked for sensors that need camera confirmation, such as motion — those send a loud single alert, which the AI judge upgrades to an emergency if it sees a person.",
+    "An alarm from this sensor is a confirmed break-in: sends an emergency notification that repeats until acknowledged and sounds even when your phone is muted. Leave unticked for sensors that need camera confirmation, such as motion — those send an ordinary notification that respects mute, which the AI judge upgrades to an emergency if it sees a person. Note that with no camera judging configured, an unticked sensor will never upgrade.",
 
   // Profiles tab
   "cfg.profiles.loading": "Loading profiles…",
@@ -400,7 +400,7 @@ export const en = {
     "No Pushover credentials set. Run: npm run set:notifyKey -- <projectId> <appToken> <userKey>",
   "settings.pushoverConfigured": "Pushover credentials are set",
   "settings.pushoverCriticalAlertsHint":
-    "Pushover plays through a muted ringer only after you enable Critical Alerts inside the Pushover app.",
+    "Only alarms from Definite breach sensors break through a muted ringer, and only after you enable Critical Alerts inside the Pushover app. Alerts from sensors that need confirmation arrive as normal notifications and stay silent while your phone is muted, until the AI judge confirms a breach.",
   "settings.notifications": "Notifications",
   "settings.pushoverSound": "Pushover sound",
   "settings.pushoverSoundHelp":
