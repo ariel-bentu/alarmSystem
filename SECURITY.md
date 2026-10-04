@@ -117,6 +117,15 @@ failure class most suspected historically.
   which has 1-second resolution and returns near-zero before sync. Multiple
   events in the same pre-sync second overwrite each other — a narrow but real
   data-loss window right after a watchdog reboot.
+- **~~RSSI was never measured~~ (fixed 2026-10-04, not yet flashed).** `poll()`
+  read the CC1101's RSSI register (0x34) with `readReg()` (single access,
+  0x80) instead of `readStatusReg()` (burst, 0xC0). 0x34 is a STATUS register,
+  so a single read addressed the unrelated configuration register at the same
+  index and returned a constant — every event from every sensor reported the
+  same `rssi`, making the field useless for diagnosing a weak or intermittent
+  sensor, which is the one thing it exists for. Now converted to dBm in
+  `readRssiDbm()`. Found while diagnosing a sensor that was decoding only
+  intermittently.
 - **A small ISR race** in the receiver's fast-path checks, which read
   `edgeCount_`/`lastEdgeMs_` while the interrupt is still attached. Effect is
   benign (a slightly early or late drain), but `volatile` alone is not a

@@ -59,6 +59,9 @@ class Cc1101Receiver {
   void     writeReg(uint8_t addr, uint8_t value);
   uint8_t  readReg(uint8_t addr);
   uint8_t  readStatusReg(uint8_t addr);
+  // Converted to dBm here so every consumer reads the same unit. Uses the
+  // STATUS register space — see the definition for why readReg() is wrong.
+  int      readRssiDbm();
   void     strobe(uint8_t cmd);
   void     configureFor433MhzOok();
 

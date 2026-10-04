@@ -124,7 +124,7 @@ firmware/edge/
                            ev1527_frame, eeprom_store, local_web_server,
                            provisioning_portal, platform_compat, siren_address,
                            kerui_event
-    test/                ← native Unity tests (143 tests, 12 suites)
+    test/                ← native Unity tests (169 tests, 14 suites)
   spike_*/               ← throwaway diagnostic sketches, kept as known-good controls
 web/                     ← React + TypeScript (Vite), Firebase Hosting
 functions/               ← Cloud Functions (TypeScript, gen-2)
@@ -234,7 +234,7 @@ watchdog / offline-alert work (untested on hardware as of 2026-09-02).
 **Working on real hardware:** ESP32-S3 boots, provisions WiFi, mints its
 Firebase token, decodes real Kerui sensors, evaluates rules, drives the siren
 over RF hub-free, serves the LAN web UI, and writes events to Firebase with
-Telegram alerts confirmed. 143 native unit tests pass.
+Telegram alerts confirmed. 169 native unit tests pass.
 
 **Sensor event families (2026-09-23) — built, not yet on hardware.** Matching
 moved from the 24-bit code to the 20-bit family, and tamper / water / close /

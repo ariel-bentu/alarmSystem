@@ -151,8 +151,33 @@ bool Cc1101Receiver::poll(KeruiPacket* outPacket, int* outRssi) {
   outPacket->familyId = (sensorId >> 4) & 0xFFFFF;
   outPacket->eventNibble = (uint8_t)(sensorId & 0x0F);
   outPacket->batteryLow = false;
-  *outRssi = (int8_t)readReg(REG_RSSI);
+  *outRssi = readRssiDbm();
   return true;
+}
+
+// RSSI in dBm, per the CC1101 datasheet (section 17.3).
+//
+// MUST use readStatusReg(), NOT readReg(). RSSI (0x34) lives in the STATUS
+// register space, which is only reachable with the burst bit set (0xC0); a
+// plain single read (0x80) addresses the CONFIGURATION register at the same
+// index and returns an unrelated, constant value. That bug made every event
+// from every sensor report the same rssi, which silently made the field
+// useless for diagnosing a weak or intermittent sensor — the exact thing it
+// exists for. MARCSTATE a few lines up always used readStatusReg(); this did
+// not.
+//
+// The register is an unsigned byte holding a 2's-complement value that must
+// be halved and offset:
+//   raw >= 128  ->  (raw - 256) / 2 - 74
+//   raw <  128  ->   raw        / 2 - 74
+// Typical results are around -40 dBm (very strong) to -100 dBm (marginal).
+// Returned as dBm rather than the raw byte so every consumer — the serial
+// log, the RTDB event, the web UI — reads the same real-world unit and
+// nobody has to remember the transform.
+int Cc1101Receiver::readRssiDbm() {
+  uint8_t raw = readStatusReg(REG_RSSI);
+  int rssi = (raw >= 128) ? ((int)raw - 256) / 2 - 74 : ((int)raw / 2) - 74;
+  return rssi;
 }
 
 bool Cc1101Receiver::decodeEdges(const uint32_t* ts, const uint8_t* lv, int n,
