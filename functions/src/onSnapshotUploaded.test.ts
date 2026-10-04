@@ -316,7 +316,10 @@ describe("handleSnapshotUpload", () => {
     // project is woken by the breach.
     expect(deps.notify).toHaveBeenCalledTimes(1);
     const [, , notifyMsg] = vi.mocked(deps.notify).mock.calls[0];
-    expect(notifyMsg.severity).toBe("alarm");
+    // "loud", not "alarm": this fixture's sensor has no definiteBreach
+    // field, which means DEFINITE, so onAlarm already sent the repeating
+    // priority-2 emergency. See the dedicated certainty tests below.
+    expect(notifyMsg.severity).toBe("loud");
     expect(notifyMsg.link).toBe(true);
     expect(notifyMsg.text).toContain("Front door");
   });
@@ -532,5 +535,118 @@ describe("handleSnapshotUpload", () => {
 
     const doc = fs._store.get(`projects/${PROJECT_ID}/timeline/0x0061DB_${TS}`);
     expect(doc?.sensorName).toBe("Front door");
+  });
+
+  // --- breach escalation by sensor certainty ---
+
+  it("escalates a NON-definite sensor's breach to emergency", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge", telegramBotToken: "tok", telegramChatId: "c" },
+      sensors: {
+        s1: {
+          rfId: RF_ID,
+          familyId: "0x0061D",
+          name: "Garden PIR",
+          definiteBreach: false,
+        },
+      },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    // The alarm went out as priority 1; THIS is the first emergency push.
+    expect(msg.severity).toBe("alarm");
+  });
+
+  it("does not re-escalate a DEFINITE sensor's breach", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge", telegramBotToken: "tok", telegramChatId: "c" },
+      sensors: {
+        s1: {
+          rfId: RF_ID,
+          familyId: "0x0061D",
+          name: "Front door",
+          definiteBreach: true,
+        },
+      },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    // onAlarm already sent priority 2 and it is still repeating. A second
+    // emergency would be two repeating alerts for one event.
+    expect(msg.severity).toBe("loud");
+    // The photo still goes out either way.
+    expect(sendTelegramPhoto).toHaveBeenCalledTimes(1);
+  });
+
+  // --- safe verdict: quiet all-clear ---
+
+  it("sends a silent all-clear on a safe verdict", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty frame" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, rtdb } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR" } },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    expect(msg.severity).toBe("notice"); // priority -1: explains, never wakes
+    expect(msg.text).toContain("Cleared");
+    // The existing advisory behaviour is unchanged.
+    expect(rtdb._store.get(`${PROJECT_ID}/commands/fp`)).toBeDefined();
+  });
+
+  // An all-clear must never contradict a standing alarm.
+  //
+  // The sibling breach is seeded by RUNNING THE HANDLER TWICE with different
+  // judges — the pattern the existing "all-channels coordination" describe
+  // block uses. Writing the snapshotJudging doc directly would couple this
+  // test to the fake's internals and would not exercise the real
+  // coordination write.
+  it("sends NO all-clear when a sibling channel already saw a breach", async () => {
+    const breachJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "intruder" })),
+    };
+    const safeJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty" })),
+    };
+
+    const { deps } = makeDeps({
+      project: { nvrMode: "capture+judge", telegramBotToken: "tok", telegramChatId: "c" },
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR" } },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+
+    vi.mocked(judgeFor).mockReturnValueOnce(breachJudge);
+    await handleSnapshotUpload(deps, objectName(1));
+    const callsAfterBreach = vi.mocked(deps.notify).mock.calls.length;
+
+    vi.mocked(judgeFor).mockReturnValueOnce(safeJudge);
+    await handleSnapshotUpload(deps, objectName(2));
+
+    // The breach notified; the later safe channel must add nothing, because
+    // an "all clear" would contradict the alarm still standing.
+    expect(vi.mocked(deps.notify).mock.calls.length).toBe(callsAfterBreach);
   });
 });

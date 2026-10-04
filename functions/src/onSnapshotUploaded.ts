@@ -109,6 +109,7 @@ import { judgeFor, JudgeContext, Verdict } from "./snapshotJudge";
 import { loadJudgeKeys, type JudgeKeys } from "./judgeConfig";
 import { sendTelegramPhoto } from "./telegram";
 import { notify } from "./notify";
+import { breachVerdictSeverity, isDefiniteBreach } from "./breachCertainty";
 
 /**
  * Everything the core handler needs, injected so it is unit-testable
@@ -303,13 +304,18 @@ export async function handleSnapshotUpload(
 
     // Routed through notify so a Pushover-only project is woken by a
     // confirmed breach. The PHOTO below stays Telegram-only: Pushover
-    // attachments are out of scope for this change, so a Telegram-enabled
-    // project receives both this text and the captioned photo. Accepted — a
-    // 3am breach is exactly when redundancy is wanted.
+    // attachments are out of scope, so a Telegram-enabled project receives
+    // both this text and the captioned photo. Accepted — a 3am breach is
+    // exactly when redundancy is wanted.
+    //
+    // A DEFINITE sensor's alarm already went out as priority 2 and is still
+    // repeating; a second emergency would be two repeating alerts for one
+    // event. A NON-DEFINITE sensor's alarm went out as priority 1, so this
+    // verdict is the escalation and the first emergency push.
     await deps.notify(projectId, project, {
       text: caption,
-      severity: "alarm",
-      title: "Breach",
+      severity: breachVerdictSeverity(isDefiniteBreach(sensor)),
+      title: "Confirmed breach",
       link: true, // the snapshots this breach was judged on are on that page
     });
 
@@ -348,6 +354,24 @@ export async function handleSnapshotUpload(
   await deps.rtdb.ref(`${projectId}/commands/fp`).set({ rfId, ts, at: deps.now() });
   await timelineRef.update({
     aiNote: `false positive (AI): ${reason}`,
+  });
+
+  // A quiet all-clear, so a glance at the phone explains the earlier alert.
+  // severity "notice" is Pushover priority -1: delivered silently, never
+  // waking anyone. Sent regardless of the sensor's certainty — a cleared
+  // trigger is worth explaining either way.
+  //
+  // Written AFTER the advisory and the timeline note, both of which matter
+  // more: notify never throws, but ordering keeps the advisory first on
+  // principle.
+  //
+  // Deliberately NOT on the alreadyHasBreach path above, which returns
+  // early: that branch withholds the advisory precisely because a sibling
+  // channel saw a breach, and an "all clear" would contradict a standing
+  // alarm.
+  await deps.notify(projectId, project, {
+    text: `✓ Cleared — ${sensorName}, ${cameraName ?? `camera ${channel}`} — ${reason}`,
+    severity: "notice",
   });
 }
 
