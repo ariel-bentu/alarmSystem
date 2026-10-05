@@ -1,3 +1,5 @@
+- add option to grap image only at arm state
+
 Pushover:
 - Select rules who are not triggering level 2?
   PARTLY: certainty is now per SENSOR (definiteBreach on the Sensors tab), so
@@ -93,17 +95,33 @@ list of things to build.
     - if another trigger of same sensor comes faster than cooldown window -> the previous judgment is used. if later than cooldown (with some margin) we defer to new judgement.
     - if a trigger comes with alarm cause, and was vetted "safe" either by own images or prev-trigger's images (see before) -> the cloud send the device command to silence siren, and sends "safe" notification
 
-  WRITTEN UP as docs/superpowers/specs/2026-10-05-judge-as-evidence-design.md
-  (design, awaiting approval). The spec keeps all of the above and adds:
-  breach_satisfies as an opt-in on the CONDITION rather than the sensor (a
-  sensor sits in several rules at once, so per-sensor would apply to all of
-  them); safe suppresses the alarm EPISODE but never retracts a trigger from
-  AlarmState's history; and safe verdicts expire faster than breach ones when
-  reused (an empty yard 25s ago is weak evidence it is empty now; a person
-  seen 25s ago is not).
-  Open in the spec: whether the judge's alarm travels as commands/breach
-  (leaning yes - symmetrical with commands/fp, keeps the siren decision on
-  the device) or as a cloud write to state/siren_active gated on
-  serverActions.triggerSiren; and whether simply lowering captureCooldownSec
-  25 -> 8 fixes the unreachable-judge bug on its own, with no code at all.
+  IMPLEMENTED 2026-10-05 — spec at
+  docs/superpowers/specs/2026-10-05-judge-as-evidence-design.md, and VERIFIED
+  ON HARDWARE: a safe verdict silenced a physically sounding siren ~6s after
+  the alarm, and breach_satisfies raised an alarm from a single trigger.
+
+  Where it ended up differing from the sketch above:
+  - breach_satisfies is an opt-in on the CONDITION, not the sensor: a sensor
+    sits in several rules at once, so per-sensor would apply to all of them.
+    Covers multi_sensor too, where one participant's breach satisfies the
+    whole AND.
+  - "safe" suppresses the alarm EPISODE but never retracts a trigger from
+    AlarmState's history. That history is local state surviving cloud outages
+    and cannot be selectively forgotten.
+  - The verdict-reuse window is DERIVED from captureCooldownSec rather than
+    tuned, per the "we cannot expect new images until the cooldown has past"
+    reasoning. An earlier draft had safe expiring faster than breach; dropped,
+    since that only matters at long cooldowns and cost two knobs plus a rule
+    relating them.
+  - The judge's alarm travels as commands/breach (resolved: symmetrical with
+    commands/fp, keeps the siren decision on the device, and lets
+    serverActions.triggerSiren stay off).
+  - Lowering captureCooldownSec 25 -> 10 was done and helps, but is NOT a
+    substitute: any window_sec shorter than the cooldown still strands the
+    alarming trigger.
+
+  Still unverified: the fail-loud test. Unplug the NVR, fire two triggers
+  inside the window, and confirm the siren still sounds and the fallback
+  notification arrives. That is the test that proves vision is an added path
+  and not a dependency.
     
