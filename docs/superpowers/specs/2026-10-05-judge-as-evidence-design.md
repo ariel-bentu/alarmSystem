@@ -1,7 +1,7 @@
 # The AI judge as evidence, not just a filter
 
 **Date:** 2026-10-05
-**Status:** design, awaiting approval
+**Status:** APPROVED 2026-10-05, implementation in progress
 **Supersedes the judge's role as defined in**
 [camera snapshots](2026-10-03-camera-snapshots-on-trigger-design.md) and
 [breach certainty](2026-10-04-per-sensor-breach-certainty-design.md) — both
@@ -298,18 +298,16 @@ trigger history stays local and unrewritable.
    Unknown: how the NVR behaves under more frequent OPSNAP grabs. Two
    channels every ~10s is well short of streaming, but it is untested.
 
-3. **`judgeWaitSec` interaction.** The notification hold already built
-   (2026-10-05) defers a non-definite sensor's notification pending a
-   verdict. Under this design the verdict may now also *raise* the alarm, so
-   the hold and the breach path need to agree on ordering. Specifically: a
-   breach that RAISES an alarm should notify immediately rather than defer —
-   there is nothing left to wait for, the verdict already arrived.
+3. ~~`judgeWaitSec` / `sirenHoldSec` interaction.~~ **DECIDED: a
+   breach-raised alarm skips BOTH.** Both exist to wait for a verdict; if the
+   verdict is what raised the alarm, there is nothing left to wait for and
+   holding would only delay a confirmed breach.
 
-4. **Does the siren hold still make sense for a `breach_satisfies` rule?**
-   `sirenHoldSec` delays a non-definite sensor's siren pending a verdict. If
-   the verdict is what raised the alarm in the first place, holding it again
-   would delay a confirmed breach. Likely answer: a `commands/breach`-raised
-   alarm skips the hold entirely.
+   Concretely: `commands/breach` sounds the siren immediately (no
+   `sirenHoldSec` deadline is set for it), and the notification goes out
+   immediately at the tier `breachVerdictSeverity` gives (no `pendingAlarms`
+   marker is written). The hold paths remain for alarms raised by the RULES,
+   which is still the case the verdict has not arrived for.
 
 ## Verification
 

@@ -541,6 +541,58 @@ void test_parse_false_positive() {
   TEST_ASSERT_EQUAL_UINT64(1696000000123ULL, ts);
 }
 
+// commands/breach is the ADDITIVE mirror of commands/fp: same {rfId, ts}
+// shape, same parser, opposite meaning. "fp" says stand down for this
+// trigger; "breach" says sound off for it, because the AI judge saw a person
+// and the sensor's condition opted into vision evidence
+// (Condition.breach_satisfies).
+void test_parse_breach() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"breach\": { \"rfId\": \"0x009BFA\", \"ts\": 1791209562000 } }";
+  TEST_ASSERT_TRUE(ConfigParser::parseAdvisory(json, "breach", rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0x009BFA", rf);
+  TEST_ASSERT_EQUAL_UINT64(1791209562000ULL, ts);
+}
+
+void test_parse_breach_absent() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  TEST_ASSERT_FALSE(
+      ConfigParser::parseAdvisory("{ \"armed\": true }", "breach", rf, sizeof(rf), &ts));
+}
+
+// The two keys must not read each other: an fp-only payload must yield no
+// breach, or a stand-down would be read as a sound-off.
+void test_breach_and_fp_do_not_cross_read() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* fpOnly = "{ \"fp\": { \"rfId\": \"0x009BFA\", \"ts\": 1791209562000 } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseAdvisory(fpOnly, "breach", rf, sizeof(rf), &ts));
+
+  const char* breachOnly = "{ \"breach\": { \"rfId\": \"0x009BFA\", \"ts\": 1791209562000 } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseAdvisory(breachOnly, "fp", rf, sizeof(rf), &ts));
+}
+
+// Both present is legitimate: /commands is one polled document, so a project
+// that had an fp earlier and a breach now carries both keys. Each must parse
+// its own.
+void test_breach_and_fp_both_present_parse_independently() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* both =
+      "{ \"fp\": { \"rfId\": \"0xAAAAAA\", \"ts\": 111 },"
+      "  \"breach\": { \"rfId\": \"0xBBBBBB\", \"ts\": 222 } }";
+
+  TEST_ASSERT_TRUE(ConfigParser::parseAdvisory(both, "fp", rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0xAAAAAA", rf);
+  TEST_ASSERT_EQUAL_UINT64(111ULL, ts);
+
+  TEST_ASSERT_TRUE(ConfigParser::parseAdvisory(both, "breach", rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0xBBBBBB", rf);
+  TEST_ASSERT_EQUAL_UINT64(222ULL, ts);
+}
+
 void test_parse_false_positive_absent() {
   char rf[16] = {};
   uint64_t ts = 0;
@@ -602,6 +654,10 @@ void setup() {
   RUN_TEST(test_parses_nvr_fields);
   RUN_TEST(test_nvr_fields_default_when_absent);
   RUN_TEST(test_camera_mask_per_sensor_and_short_array);
+  RUN_TEST(test_parse_breach);
+  RUN_TEST(test_parse_breach_absent);
+  RUN_TEST(test_breach_and_fp_do_not_cross_read);
+  RUN_TEST(test_breach_and_fp_both_present_parse_independently);
   RUN_TEST(test_parse_false_positive);
   RUN_TEST(test_parse_false_positive_absent);
   RUN_TEST(test_parse_false_positive_malformed_json_is_rejected);

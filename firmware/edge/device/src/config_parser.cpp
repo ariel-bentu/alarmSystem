@@ -208,12 +208,12 @@ bool parseConfigJson(const char* json, Config* out) {
   return true;
 }
 
-bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
-                        uint64_t* tsOut) {
+bool parseAdvisory(const char* json, const char* key, char* rfIdOut, size_t cap,
+                   uint64_t* tsOut) {
   JsonDocument doc;
   if (deserializeJson(doc, json)) return false;
 
-  JsonVariant fp = doc["fp"];
+  JsonVariant fp = doc[key];
   if (fp.isNull() || !fp.is<JsonObject>()) return false;
 
   JsonVariant rfId = fp["rfId"];
@@ -236,6 +236,11 @@ bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
   rfIdOut[cap - 1] = '\0';
   *tsOut = ts.as<uint64_t>();
   return true;
+}
+
+bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
+                        uint64_t* tsOut) {
+  return parseAdvisory(json, "fp", rfIdOut, cap, tsOut);
 }
 
 }  // namespace ConfigParser

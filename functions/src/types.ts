@@ -63,6 +63,32 @@ export interface Condition {
   // Mirrored by Condition::g in the firmware's alarm_state.h; the two
   // evaluators must agree or device and server disagree about the alarm.
   min_gap_sec?: number;
+  // A `breach` verdict from the AI judge satisfies this condition ON ITS OWN:
+  // for count_in_window, without the trigger count being met; for
+  // multi_sensor, without the other participants triggering. ABSENT = false,
+  // so no migration and every existing rule is unchanged.
+  //
+  // Why: count_in_window is a PROXY for "is this a person, not a cat", and a
+  // breach verdict answers that question directly. Two unjudged triggers are
+  // WEAKER evidence than one trigger plus a person visibly in frame — a cat
+  // pacing a yard satisfies 2-in-30s. So the count is the fallback for when
+  // vision is unavailable, not the gold standard the judge merely filters.
+  //
+  // On multi_sensor it satisfies the WHOLE rule, regardless of `quorum`: the
+  // AND exists because any one PIR is noisy, and vision removes exactly that
+  // noise. Satisfying only the one participant would leave the rule waiting
+  // for a sensor that may never trigger.
+  //
+  // CLOUD-SIDE ONLY, and deliberately not mirrored into the device config: a
+  // verdict only exists where there are cameras and an LLM. The device keeps
+  // evaluating the plain count/AND, which is exactly the offline fallback —
+  // "alarm logic never depends on the cloud" is preserved. The judge's alarm
+  // reaches the device as /{projectId}/commands/breach.
+  //
+  // Resolution across a sensor's several conditions is OR — see
+  // breachSatisfiesAny() in judgeGate.ts for why the firing rule cannot (and
+  // need not) be identified.
+  breach_satisfies?: boolean;
 }
 
 export interface Rule {
