@@ -142,20 +142,53 @@ subtractive** — it may call `siren.turnOff()` and nothing else.
 
 So: the episode is suppressed, the witnesses remain counted.
 
-### Verdict expiry — deliberately asymmetric
+### Verdict expiry — DERIVED from the cooldown, not a separate knob
 
-A reused verdict goes stale, and **safe goes stale faster than breach**:
+The reuse window is **`captureCooldownSec` itself**, plus the time a verdict
+takes to arrive. It is not an independent setting, because it is not a free
+choice:
 
-- An empty yard 25s ago is weak evidence it is empty *now*.
-- A person seen 25s ago is strong evidence someone is *still there*.
+> A trigger arriving inside the cooldown **cannot** have images of its own, so
+> the previous verdict is the only evidence that exists. Reuse is forced, not
+> chosen.
 
-A single number for both would be tidier and wrong in the direction that
-matters. Proposed: `safe` reusable for ~10s, `breach` for ~60s, both measured
-from the **snapshot's own `ts`** (not wall-clock now), matching how
-`isCauseFresh` is already judged against the trigger's timestamp rather than
-function-invocation time.
+Stated as an invariant: *the reuse window is exactly the period during which
+fresh evidence is unobtainable.* Tie it to anything else and the two numbers
+drift until either verdicts expire while no new ones can be taken (a gap
+where the judge is silent for no reason), or stale verdicts outlive the point
+where fresh ones were available.
 
-Exact values are tuning, not architecture; they belong in project config.
+A trigger arriving *after* the cooldown does get its own images, but the
+verdict takes a few seconds to land. During that gap the previous verdict
+remains usable — so precisely: **reuse the most recent verdict for the family
+until a newer one exists, bounded by cooldown + judge latency.** Still
+derived; still one knob.
+
+Measured on hardware 2026-10-05 (capture → `onSnapshotUploaded` handling
+both channels, including NVR grab, upload and function cold start):
+
+| Trigger | Handled | Latency |
+|---|---|---|
+| 17:10:11 | 17:10:15 / :16 | ~4–5s |
+| 17:10:41 | 17:10:44 / :47 | ~4–6s |
+| 17:12:42 | 17:12:47 / :49 | ~5–7s |
+
+So ~7s covers capture-to-verdict, and the project's `captureCooldownSec: 25`
+is roughly 4x the measured need. The cooldown was originally sized for a
+latency that has since improved.
+
+All timestamps compared against the **snapshot's own `ts`**, never wall-clock
+now — matching `isCauseFresh`, which is judged against the trigger's
+timestamp rather than function-invocation time, for the same race-safety
+reason.
+
+**An earlier draft of this spec proposed asymmetric expiry** (safe stale
+faster than breach, on the grounds that an empty yard 25s ago is weak
+evidence it is empty now while a person seen 25s ago probably has not left).
+That reasoning holds only for *long* cooldowns. Once the cooldown is ~10s the
+distinction is worth almost nothing, and it costs two tunable numbers plus a
+rule about their relationship. Dropped in favour of the derived window. Worth
+revisiting only if a long cooldown is ever needed again.
 
 ## Open questions
 
@@ -176,12 +209,20 @@ Exact values are tuning, not architecture; they belong in project config.
    at P0, not P2) this may be sufficient. Note the accuracy evidence is
    **6/6 on six real frames** — encouraging, not conclusive.
 
-3. **Does lowering `captureCooldownSec` alone fix problem 1?** Dropping 25 → 8
-   would let the alarming trigger capture its own images, making the judge
-   work with **no code changes**. Worth testing first. It does not address
-   problem 2, and it leaves correctness dependent on two numbers being tuned
-   relative to each other — which is the thing this design removes. Unknown:
-   how the NVR behaves under more frequent OPSNAP grabs.
+3. ~~Does lowering `captureCooldownSec` alone fix problem 1?~~ **Partly, and
+   it is worth doing regardless.** Measured latency is ~7s (table above)
+   against a cooldown of 25, so ~10 is defensible and already editable in
+   Configure → Camera with no deploy. At 10s the alarming trigger of an
+   18s-apart pair captures its own images and the judge runs today.
+
+   It does NOT fix problem 1 in general: any `window_sec` shorter than the
+   cooldown still strands the alarming trigger, and nothing stops a rule
+   being written that way. Nor does it address problem 2 at all. So lowering
+   it is a good immediate step and not a substitute for judging every armed
+   trigger.
+
+   Unknown: how the NVR behaves under more frequent OPSNAP grabs. Two
+   channels every ~10s is well short of streaming, but it is untested.
 
 4. **`judgeWaitSec` interaction.** The notification hold already built
    (2026-10-05) defers a non-definite sensor's notification pending a
