@@ -926,7 +926,7 @@ bool CloudClient::consumeCaptureCommand(uint64_t* tsOut) {
 }
 
 bool CloudClient::reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
-                              const char* value) {
+                              const char* value, uint64_t tsMs) {
   if (!isReady()) return false;  // no buffering v1 — drop if not connected/authed
 
   // Hard floor. BearSSL needs a ~3424-byte contiguous block for the
@@ -975,7 +975,11 @@ bool CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
   // started in main.cpp's onNormalOperation(); if NTP hasn't completed yet
   // this is briefly epoch-adjacent rather than blocking on it (see NTP sync
   // note in main.cpp).
-  uint64_t nowMs = (uint64_t)time(nullptr) * 1000ULL;
+  // Caller-supplied when there is a trigger to key against (handleSensorEvent
+  // passes its one triggerTs), otherwise read here. See the header note: two
+  // independent reads straddling a second boundary produced an /events key 1s
+  // off the snapshot's, which broke the cloud's timeline-to-event join.
+  uint64_t nowMs = tsMs != 0 ? tsMs : (uint64_t)time(nullptr) * 1000ULL;
   char tsBuf[21];  // uint64 max is 20 digits + null
   snprintf(tsBuf, sizeof(tsBuf), "%llu", (unsigned long long)nowMs);
   String path = String("/") + projectId_ + "/events/" + rfId + "/" + tsBuf;

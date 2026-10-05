@@ -66,8 +66,21 @@ class CloudClient {
   // to Firestore, and it is also skipped when contiguous heap is low. Marking
   // it "reported" after a skipped write would strand the address on-device
   // forever, which is the very failure this reporting exists to prevent.
+  // `tsMs` is the event key: epoch MILLISECONDS for the trigger this reports.
+  //
+  // PASS IT IN, do not let this re-read the clock. handleSensorEvent computes
+  // one timestamp per trigger and uses it for the snapshot upload path and the
+  // fp/breach advisory match too; a second time(nullptr) read here lands on
+  // the other side of a second boundary often enough to matter, and the cloud
+  // joins timeline docs to event rows by exactly this {rfId, ts}. When they
+  // disagreed by 1000ms the web UI declared the timeline doc an orphan and
+  // rendered a real sensor trigger as "manual capture" (seen 2026-10-05,
+  // 19:24:44 vs 19:24:45).
+  //
+  // 0 means "read the clock here" — kept for the callers that have no trigger
+  // of their own (siren-address report, boot).
   bool reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
-                   const char* value = nullptr);
+                   const char* value = nullptr, uint64_t tsMs = 0);
 
   // Write armed state to /{projectId}/state/armed so the web UI reflects
   // device-side arm/disarm (local web UI, physical button, etc.).

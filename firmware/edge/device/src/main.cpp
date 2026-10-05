@@ -372,7 +372,13 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
     activeAlarmRfId[sizeof(activeAlarmRfId) - 1] = '\0';
     activeAlarmTs = triggerTs;
   }
-  cloudClient.reportEvent(rfId, event, batteryLow, rssi);
+  // triggerTs passed explicitly, NOT re-read inside reportEvent: the /events
+  // key must equal the snapshot path's ts or the cloud cannot join the
+  // timeline doc to the event row. Two independent time(nullptr) reads
+  // straddled a second boundary on 2026-10-05 and produced 19:24:44 vs
+  // 19:24:45, which the web UI rendered as a "manual capture". The comment on
+  // triggerTs above always claimed this; now it is true.
+  cloudClient.reportEvent(rfId, event, batteryLow, rssi, nullptr, triggerTs);
   // Reported whenever the alarm fires, NOT gated on sirenEnabled: turning the
   // siren off is a noise preference, not a "stop telling me about intrusions"
   // one. Gating both on it produced a silent alarm — no siren AND no Telegram
