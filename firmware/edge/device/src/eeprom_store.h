@@ -53,11 +53,17 @@ class EepromStore {
   // sizeof(Config) 2664 -> 2632. A SHRINK, so a stale record is not merely
   // mis-aligned but shorter than the reader expects — discard, never misread.
   //
+  // Bumped BB -> BC when SensorConfig gained `definiteBreach` and Config
+  // gained `sirenHoldSec` — the siren hold that delays a non-definite
+  // sensor's siren while the AI judge looks at the snapshots. sizeof(Config)
+  // 2632 -> 2664 (MEASURED: the bool costs 2 bytes x 16 sensors after
+  // padding; sirenHoldSec fits in existing padding and costs nothing).
+  //
   // The siren address is the casualty of any bump here: it lives in this
   // record, is write-only device->cloud, and a discarded record silently
   // breaks the physical siren pairing. RtdbConfig.s is the recovery path —
   // see alarm_state.h's note and verify it on hardware.
-  static constexpr uint32_t kMagic = 0xA1A2B3BB;
+  static constexpr uint32_t kMagic = 0xA1A2B3BC;
 
   bool begin();
   bool load(bool* armed, bool* localWebEnabled, Config* config);

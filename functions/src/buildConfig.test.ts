@@ -484,6 +484,84 @@ describe("buildRtdbConfig — NVR + per-sensor camera mask", () => {
     expect(cfg.cmask).toEqual([0b10000101]);
   });
 
+  // --- siren hold for non-definite sensors ---
+  //
+  // The DEVICE delays the siren (it fires it locally, with no cloud
+  // involvement), so both the per-sensor certainty and the hold duration have
+  // to travel in the config. `nd` lists the indices into r that are NOT
+  // definite; absent/empty means every sensor is definite, which is the
+  // pre-existing behaviour and keeps the common payload unchanged.
+  describe("siren hold", () => {
+    const immediate = (id: string, sensorId: string) => ({
+      id,
+      name: "R",
+      sensors: [sensorId],
+      condition: { type: "immediate" as const },
+    });
+
+    it("emits sh and the non-definite index list", () => {
+      const cfg = buildRtdbConfig(
+        [immediate("r1", "s1"), immediate("r2", "s2")],
+        [
+          { ...sensors[0], id: "s1", rfId: "0x0061DA", definiteBreach: false } as any,
+          { ...sensors[0], id: "s2", rfId: "0x0072EA", definiteBreach: true } as any,
+        ],
+        true, 30, true, [], [], undefined, undefined, 20
+      );
+      expect(cfg.sh).toBe(20);
+      expect(cfg.nd).toEqual([0]);
+    });
+
+    // Absent certainty means DEFINITE, matching breachCertainty's single
+    // source of that default — a newly paired sensor must sound the siren
+    // immediately, not inherit a hold nobody configured.
+    it("treats an absent definiteBreach as definite", () => {
+      const cfg = buildRtdbConfig(
+        [immediate("r1", "s1")],
+        [{ ...sensors[0], id: "s1", rfId: "0x0061DA" } as any],
+        true, 30, true, [], [], undefined, undefined, 20
+      );
+      expect(cfg.nd).toBeUndefined();
+    });
+
+    // No hold configured => nothing to send, even if sensors are
+    // non-definite. Keeps the payload identical for every project that has
+    // not opted in.
+    it("omits both keys when no hold is configured", () => {
+      const cfg = buildRtdbConfig(
+        [immediate("r1", "s1")],
+        [{ ...sensors[0], id: "s1", rfId: "0x0061DA", definiteBreach: false } as any],
+        true, 30, true, [], [], undefined, undefined, 0
+      );
+      expect(cfg.sh).toBeUndefined();
+      expect(cfg.nd).toBeUndefined();
+    });
+
+    it("omits both keys when the hold is unset", () => {
+      const cfg = buildRtdbConfig(
+        [immediate("r1", "s1")],
+        [{ ...sensors[0], id: "s1", rfId: "0x0061DA", definiteBreach: false } as any],
+        true, 30, true, [], [], undefined, undefined, undefined
+      );
+      expect(cfg.sh).toBeUndefined();
+      expect(cfg.nd).toBeUndefined();
+    });
+
+    it("indexes non-definite sensors against r, not the input order", () => {
+      const cfg = buildRtdbConfig(
+        [immediate("r1", "s1"), immediate("r2", "s2"), immediate("r3", "s3")],
+        [
+          { ...sensors[0], id: "s1", rfId: "0x0061DA", definiteBreach: true } as any,
+          { ...sensors[0], id: "s2", rfId: "0x0072EA", definiteBreach: false } as any,
+          { ...sensors[0], id: "s3", rfId: "0x0083FA", definiteBreach: false } as any,
+        ],
+        true, 30, true, [], [], undefined, undefined, 15
+      );
+      expect(cfg.r).toEqual(["0x0061D", "0x0072E", "0x0083F"]);
+      expect(cfg.nd).toEqual([1, 2]);
+    });
+  });
+
   it("emits a zero mask for a sensor with no cameras selected", () => {
     // Index alignment with r is what makes the array readable at all, so a
     // no-camera sensor must still occupy its slot when a SIBLING has one.

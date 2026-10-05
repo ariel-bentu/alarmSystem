@@ -15,16 +15,20 @@
 
 /** The only sensor fields that reach the device, via buildRtdbConfig.
  *
- *  Deliberately absent: `name`, the various *AlertSentAt markers,
- *  `batteryChangedAt`, and `definiteBreach`. The last is a NOTIFICATION
- *  concern resolved entirely cloud-side in onAlarm — the device never learns
- *  about breach certainty — so including it here would rebuild the derived
- *  RTDB config on every edit for data no device reads. Same reasoning as
- *  cameraNames. */
+ *  Deliberately absent: `name`, the various *AlertSentAt markers and
+ *  `batteryChangedAt` — same reasoning as cameraNames.
+ *
+ *  `definiteBreach` WAS in that list, on the grounds that breach certainty
+ *  was a notification concern resolved entirely cloud-side. It no longer is:
+ *  the device delays the siren for a non-definite sensor (sirenHoldSec), so
+ *  it has to know the flag, and leaving it out would mean the hold never
+ *  reached the device at all — the derived-state trap that cost the per-sensor
+ *  camera selection a release. */
 interface SensorConfigFields {
   rfId?: unknown;
   familyId?: unknown;
   cameras?: unknown;
+  definiteBreach?: unknown;
 }
 
 /** Normalized for comparison: the mask the device actually receives cannot
@@ -50,6 +54,17 @@ export function sensorConfigChanged(
   return (
     before.rfId !== after.rfId ||
     before.familyId !== after.familyId ||
-    cameraKey(before.cameras) !== cameraKey(after.cameras)
+    cameraKey(before.cameras) !== cameraKey(after.cameras) ||
+    // Compared as the BOOLEAN the device receives, not raw: absent means
+    // definite, so absent -> true is invisible to the device and must not
+    // churn a config it polls every 5s.
+    definiteKey(before.definiteBreach) !== definiteKey(after.definiteBreach)
   );
+}
+
+/** Absent/null/anything-but-false reads as definite — the same default
+ *  breachCertainty.isDefiniteBreach owns, duplicated here only as a
+ *  comparison key. */
+function definiteKey(value: unknown): boolean {
+  return value !== false;
 }

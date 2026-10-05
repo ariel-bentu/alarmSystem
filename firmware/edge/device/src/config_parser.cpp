@@ -60,10 +60,15 @@ bool parseConfigJson(const char* json, Config* out) {
   out->nvrMode = doc["nm"] | 0;
   out->captureCooldownSec = doc["cc"] | 45;
 
+  // Siren hold for non-definite sensors. 0/absent = fire immediately, which
+  // is what every config written before this field decodes to.
+  out->sirenHoldSec = doc["sh"] | 0;
+
   JsonArray r = doc["r"];
   JsonArray c = doc["c"];
   // Hoisted out of the per-sensor loop below: one lookup, not one per sensor.
   JsonArray cmask = doc["cmask"];
+  JsonArray nd = doc["nd"];
   // Paired with onProfileChange.ts: RTDB drops empty arrays on .set(), so
   // "no active profile" writes {a, d} with r/c omitted entirely rather than
   // r:[]/c:[]. Missing r/c means zero sensors (arm nothing), NOT a parse
@@ -94,6 +99,29 @@ bool parseConfigJson(const char* json, Config* out) {
     sensor.cameraMask = (!cmask.isNull() && i < cmask.size())
                             ? static_cast<uint8_t>(cmask[i] | 0)
                             : 0;
+
+    // Breach certainty, as an OPTIONAL list of r-indices that are NOT
+    // definite (`nd`), rather than a per-sensor flag array: the overwhelming
+    // common case is "every sensor is definite", which omits the key entirely
+    // and keeps the payload the device polls every 5s unchanged.
+    //
+    // Assigned EXPLICITLY on every pass, never left to the struct's default:
+    // `out` is a reused Config, so a sensor that was non-definite in the
+    // previous config would otherwise stay non-definite here and keep holding
+    // its siren after the box was unticked.
+    sensor.definiteBreach = true;
+    if (!nd.isNull()) {
+      for (JsonVariant v : nd) {
+        // Compared as a SIGNED int: casting a negative index to size_t would
+        // wrap to a huge value that could never match, which is harmless, but
+        // comparing signed makes garbage input obviously a no-op instead.
+        int idx = v.as<int>();
+        if (idx >= 0 && (size_t)idx == i) {
+          sensor.definiteBreach = false;
+          break;
+        }
+      }
+    }
 
     JsonArray conditions = c[i];
     sensor.conditionCount = 0;

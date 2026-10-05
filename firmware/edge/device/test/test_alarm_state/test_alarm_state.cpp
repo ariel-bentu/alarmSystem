@@ -243,6 +243,42 @@ void test_count_in_window_min_gap_absent_is_unchanged() {
   TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 7000)); // 6s apart still fires
 }
 
+// Breach certainty, as the device sees it. Only ever used to decide whether
+// to HOLD the siren for the AI judge; the notification tier stays cloud-side.
+void test_definite_breach_defaults_true_for_unknown_family() {
+  Config config;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "A1B2C3");
+
+  AlarmState state;
+  state.setConfig(config);
+
+  // Fail loud: a family we cannot look up must never have its siren held.
+  TEST_ASSERT_TRUE(state.isDefiniteBreachFamily("FFFFFF"));
+}
+
+void test_definite_breach_reads_the_sensor_flag() {
+  Config config;
+  config.sensorCount = 2;
+  strcpy(config.sensors[0].familyId, "A1B2C3");
+  config.sensors[0].definiteBreach = false;
+  strcpy(config.sensors[1].familyId, "D4E5F6");
+  config.sensors[1].definiteBreach = true;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.isDefiniteBreachFamily("A1B2C3"));
+  TEST_ASSERT_TRUE(state.isDefiniteBreachFamily("D4E5F6"));
+}
+
+// The struct default must be the fail-loud one, so a config that never
+// mentions certainty sounds every siren immediately.
+void test_definite_breach_struct_default_is_true() {
+  SensorConfig sensor;
+  TEST_ASSERT_TRUE(sensor.definiteBreach);
+}
+
 void test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay() {
   Config config;
   config.armed = true;
@@ -823,6 +859,9 @@ void setup() {
   RUN_TEST(test_disarmed_ordinary_accumulates_no_history);
   RUN_TEST(test_count_in_window_requires_n_triggers_within_w);
   RUN_TEST(test_count_in_window_resets_outside_window);
+  RUN_TEST(test_definite_breach_defaults_true_for_unknown_family);
+  RUN_TEST(test_definite_breach_reads_the_sensor_flag);
+  RUN_TEST(test_definite_breach_struct_default_is_true);
   RUN_TEST(test_count_in_window_min_gap_rejects_echo);
   RUN_TEST(test_count_in_window_min_gap_accepts_separated_triggers);
   RUN_TEST(test_count_in_window_min_gap_skips_echo_between_witnesses);

@@ -79,6 +79,10 @@ export const onProjectConfigChange = onDocumentWritten(
     // (web UI, judge prompt, alert caption); the device captures by channel
     // NUMBER and never receives them, so renaming a camera must not churn the
     // config the device polls every 5s.
+    //
+    // judgeWaitSec IS here: it doubles as the device's siren hold (RtdbConfig
+    // `sh`), so without it the hold would be stored in Firestore and never
+    // delivered — the same silent trap sirenBaseAddress describes above.
     if (
       before.sirenEnabled === after.sirenEnabled &&
       before.sirenBaseAddress === after.sirenBaseAddress &&
@@ -87,7 +91,8 @@ export const onProjectConfigChange = onDocumentWritten(
       before.nvrPort === after.nvrPort &&
       before.nvrUser === after.nvrUser &&
       before.nvrPassword === after.nvrPassword &&
-      before.captureCooldownSec === after.captureCooldownSec
+      before.captureCooldownSec === after.captureCooldownSec &&
+      before.judgeWaitSec === after.judgeWaitSec
     ) {
       return;
     }
@@ -216,7 +221,12 @@ async function rebuildConfig(projectId: string): Promise<void> {
       nvrUser: projectData?.nvrUser,
       nvrPassword: projectData?.nvrPassword,
       captureCooldownSec: projectData?.captureCooldownSec,
-    }
+    },
+    // Deliberately the SAME setting that gates the notification deferral, not
+    // a second knob. Both answer one question — how long to wait for the
+    // judge's verdict — and two independent values would drift into a siren
+    // that outlasts the notification hold, or vice versa, for no benefit.
+    projectData?.judgeWaitSec
   );
   await rtdb.ref(`${projectId}/config`).set(config);
 }

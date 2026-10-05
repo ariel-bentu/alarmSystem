@@ -146,7 +146,10 @@ export function buildRtdbConfig(
   alwaysRules: Rule[] = [],
   remotes: Remote[] = [],
   sirenBaseAddress?: string,
-  nvr?: NvrSettings
+  nvr?: NvrSettings,
+  // Seconds the device delays the siren for a non-definite sensor. 0/unset =
+  // fire immediately, the behaviour before the hold existed.
+  sirenHoldSec?: number
 ): RtdbConfig {
   const sensorMap = new Map<string, Sensor>();
   for (const s of sensors) {
@@ -222,6 +225,24 @@ export function buildRtdbConfig(
   );
   const hasCameraFlags = cmask.some((v) => v !== 0);
 
+  // Siren hold: which sensors are NOT definite, as indices into r. Sent only
+  // when a hold is actually configured — a project that has not opted in gets
+  // the identical payload it got before this feature, which matters on a
+  // config the device polls every 5s.
+  //
+  // `!== false` rather than a truthiness test: absent means DEFINITE, the
+  // default breachCertainty.isDefiniteBreach owns, so an unconfigured sensor
+  // sounds the siren immediately rather than inheriting a hold.
+  const hold =
+    typeof sirenHoldSec === "number" && sirenHoldSec > 0 ? sirenHoldSec : 0;
+  const nonDefinite = r
+    .map((rfId, i) =>
+      familyToSensor.get(rfId)?.definiteBreach === false ? i : -1
+    )
+    .filter((i) => i !== -1);
+  const holdKeys =
+    hold > 0 && nonDefinite.length > 0 ? { sh: hold, nd: nonDefinite } : {};
+
   const indexOfRfId = (rfId: string) => rIndex.get(rfId) ?? -1;
   const conditionsByRfId = new Map<string, RtdbCondition[]>();
   for (const rfId of r) {
@@ -266,6 +287,7 @@ export function buildRtdbConfig(
     ...sirenKey(sirenBaseAddress),
     ...nvrKeys(nvr),
     ...(hasCameraFlags ? { cmask } : {}),
+    ...holdKeys,
   };
 }
 

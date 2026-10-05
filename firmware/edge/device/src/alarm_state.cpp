@@ -16,6 +16,14 @@ bool AlarmState::isPairedFamily(const char* familyId) const {
   return findSensorIndex(familyId) >= 0;
 }
 
+bool AlarmState::isDefiniteBreachFamily(const char* familyId) const {
+  int index = findSensorIndex(familyId);
+  // Unknown family -> definite. Fail loud: never hold a siren for a sensor
+  // whose certainty we cannot look up.
+  if (index < 0) return true;
+  return config_.sensors[index].definiteBreach;
+}
+
 bool AlarmState::multiSensorSatisfied(const Condition& cond, unsigned long nowMs) {
   // How many participants must be satisfied. 0 (or a nonsensical value larger
   // than the participant list) means all of them — the original AND.

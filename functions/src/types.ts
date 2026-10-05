@@ -438,6 +438,20 @@ export interface RtdbConfig {
   // channel 1 is 0x01 and channel 8 is 0x80. 0 means this sensor captures
   // nothing. Omitted entirely when every mask is 0.
   cmask?: number[];
+  // Siren hold, seconds: how long the DEVICE delays sounding the siren for a
+  // non-definite sensor, giving the AI judge time to rule it a false positive
+  // (/commands/fp cancels the pending siren). Omitted when 0/unset, which is
+  // "fire immediately" — the behaviour before this field.
+  //
+  // The device fires the siren locally with no cloud involvement, which is why
+  // this has to travel to it at all. The hold EXPIRES AND FIRES: an offline
+  // device, a down NVR or a judge error still sounds the siren, just late.
+  sh?: number;
+  // Indices into r whose sensors are NOT definite breaches, i.e. the ones the
+  // hold above applies to. Omitted when empty — absent certainty means
+  // DEFINITE (see breachCertainty.ts), so the common payload is unchanged for
+  // a project that has never ticked the box.
+  nd?: number[];
 }
 
 // Who caused an arm/disarm. The cloud sources (app/schedule/telegram) come
