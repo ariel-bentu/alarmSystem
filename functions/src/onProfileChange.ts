@@ -76,7 +76,7 @@ export const onProjectConfigChange = onDocumentWritten(
     // would look correct and do nothing.
     //
     // cameraNames is deliberately NOT here. Channel names are display-only
-    // (web UI, judge prompt, Telegram caption); the device captures by channel
+    // (web UI, judge prompt, alert caption); the device captures by channel
     // NUMBER and never receives them, so renaming a camera must not churn the
     // config the device polls every 5s.
     if (

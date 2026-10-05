@@ -34,7 +34,13 @@ export type EventType =
 // ---- Firestore documents ----
 
 export interface ServerActions {
-  sendTelegram: boolean;
+  // Despite the shorter name, this means "notify even when the siren is
+  // suppressed": onSensorEvent reads it ONLY in the else-branch of
+  // triggerSiren, because when the siren fires onAlarm sends the
+  // notification. With triggerSiren on it has no effect. Renamed from
+  // sendTelegram on 2026-10-05 — it has gated both channels since Pushover
+  // landed.
+  sendNotification: boolean;
   triggerSiren: boolean; // whether server writes siren_active to RTDB on alarm
 }
 
@@ -68,7 +74,8 @@ export interface Project {
   // themselves live in a server-only subcollection no client may read.
   pushoverConfigured?: boolean;
   // Built-in Pushover sound name; absent/"" means the user's default tone.
-  // Only alien/climb/persistent/echo/updown loop — see settingsForm.ts.
+  // Only alien/climb/persistent/echo/updown loop — see
+  // features/configure/notifySettings.ts.
   pushoverSound?: string;
   // Priority-2 repeat interval and give-up window, in seconds.
   pushoverRetrySec?: number;

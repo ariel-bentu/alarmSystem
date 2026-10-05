@@ -29,6 +29,7 @@ sensors and siren stay; the cloud dependency goes.
 - **Evaluates** alarm rules locally — five condition types, OR'd per profile
 - **Fires** the siren directly over RF using a clean-room EV1527 encoder; no hub
 - **Reports** events, state, and alarm causes to Firebase; alerts via Telegram
+  and/or Pushover, per project
 - **Keeps working offline.** Arm state and config live in EEPROM. A device with
   no WiFi still detects intrusion and sounds the siren. This is the central
   design decision — the cloud is a reporting channel, never a dependency.
@@ -70,13 +71,13 @@ records what was measured, what was ruled out, and which traps cost days.
   433MHz sensors                    ┌──────────── Firebase ────────────┐
   + key-fob remotes                 │                                  │
   (Kerui, EV1527)                   │  RTDB      events, state,        │
-        │ OOK                       │            config, commands      │
-        ▼                           │                                  │      ┌──────────┐
-  ┌───────────┐                     │  Firestore users, projects,      │      │ Telegram │
-  │  CC1101   │                     │            sensors, rules        │      │  alerts  │
-  │  433MHz   │                     │                                  │─────►│          │
+        │ OOK                       │            config, commands      │      ┌──────────┐
+        ▼                           │                                  │      │ Telegram │
+  ┌───────────┐                     │  Firestore users, projects,      │      │    +     │
+  │  CC1101   │                     │            sensors, rules        │      │ Pushover │
+  │  433MHz   │                     │                                  │─────►│  alerts  │
   └─────┬─────┘                     │  Functions device auth, alarm    │      └──────────┘
-        │ SPI + GDO0                │            eval, Telegram,       │   sent by Functions,
+        │ SPI + GDO0                │            eval, notify,         │   sent by Functions,
         ▼                           │            one cron dispatcher   │   not by the web app
   ┌─────────────────────┐           │                                  │
   │     ESP32-S3        │  HTTPS    │  Hosting   the React web app     │
@@ -288,8 +289,8 @@ A remote is treated as a *control* device, never a trigger: a paired remote's
 packets are routed away from the rule engine entirely, so a remote can never
 satisfy an alarm rule or be logged as a sensor trigger.
 
-Alarms name which remote acted (`remote:E45CA`), so the timeline and Telegram
-alerts say *which* fob disarmed the house rather than just that one did.
+Alarms name which remote acted (`remote:E45CA`), so the timeline and the
+notifications say *which* fob disarmed the house rather than just that one did.
 
 SOS is also available in the web app's Operations page, where it needs two
 presses to fire so a stray tap cannot set off the siren.
@@ -358,7 +359,7 @@ Design specs and implementation plans are in [`docs/superpowers/`](docs/superpow
 
 **Working on hardware.** The device boots, provisions WiFi, mints its Firebase
 token, decodes real sensors, evaluates rules, drives the siren hub-free, serves
-the LAN UI, and writes events with Telegram alerts confirmed. 143 native unit
+the LAN UI, and writes events with notification alerts confirmed. 143 native unit
 tests pass. Longest verified clean run: **18h16m**, single boot, zero watchdog
 reboots, flat heap.
 

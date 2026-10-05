@@ -60,7 +60,7 @@ export function isCauseFresh(cause: AlarmCause | null, now: number): boolean {
 }
 
 /**
- * The human-readable cause for the Telegram message.
+ * The human-readable cause for the notification message.
  *
  * A server-written label wins outright. Otherwise the device's rfId is mapped
  * to the name of the first rule covering that sensor, falling back to the

@@ -1,7 +1,7 @@
 // Cloud Function: onServerArmChange
 // Trigger: Firestore onDocumentUpdated on projects/{projectId}
 // The server's arm state lives on the project doc (serverArmed). When it flips,
-// mirror it to the Firestore timeline and notify Telegram, naming the profile
+// mirror it to the Firestore timeline and notify, naming the profile
 // that is active on the server.
 
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
@@ -24,7 +24,7 @@ export const onServerArmChange = onDocumentUpdated(
     const projectId = event.params.projectId;
     const armed = after.serverArmed === true;
 
-    // Resolved BEFORE the event write and regardless of Telegram config: the
+    // Resolved BEFORE the event write and regardless of channel config: the
     // timeline needs it too, and an arm/disarm row with no name is unreadable.
     let profileName: string | undefined;
     if (armed) {

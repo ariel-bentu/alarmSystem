@@ -39,11 +39,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
           ? ([{ to: "/configure", key: "nav.configure" }] as const)
           : []),
         { to: "/explore", key: "nav.explore" },
+        // "Preferences" used to sit here; its fields are Configure tabs now.
         ...(role === "admin"
-          ? ([
-              { to: "/members", key: "nav.members" },
-              { to: "/settings", key: "nav.settings" },
-            ] as const)
+          ? ([{ to: "/members", key: "nav.members" }] as const)
           : []),
         ...(DEV_SIMULATOR
           ? ([{ to: "/simulator", key: "nav.simulator" }] as const)

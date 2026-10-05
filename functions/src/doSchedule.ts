@@ -102,7 +102,7 @@ export const doSchedule = onSchedule(
 
     // Every task is isolated: one failing task must never prevent the others
     // from running this minute. allSettled rather than all — a rejection
-    // from, say, a Telegram outage must not skip a due arm/disarm edge.
+    // from, say, a notification outage must not skip a due arm/disarm edge.
     const results = await Promise.allSettled(
       schedules
         .filter((task) => isDue(task, now))

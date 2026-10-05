@@ -8,7 +8,7 @@
 // also where names, battery-change dates and the various *AlertSentAt markers
 // live, and those markers are written by the alert paths themselves, several
 // times a day, for data the device never sees. Rebuilding on each would mean a
-// pointless RTDB write (and a device-visible config churn) per Telegram alert.
+// pointless RTDB write (and a device-visible config churn) per sensor alert.
 //
 // Kept pure and separate from onProfileChange.ts so the decision is testable
 // without the Functions emulator — same split as buildConfig vs its triggers.

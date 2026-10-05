@@ -134,12 +134,12 @@ export const onSensorEvent = onValueCreated(
 
     await sensorDoc.ref.update(updates);
 
-    // (d) Get project for Telegram config
+    // (d) Get project for notification config
     const projectDoc = await db.doc(`projects/${projectId}`).get();
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
 
-    // Send a Telegram alert, only if enabled for this project. Safety events
+    // Send an alert, only if enabled for this project. Safety events
     // (tamper, water, battery-low) always notify regardless of the toggle:
     // notifyEverySensorTrigger exists to silence routine motion, not to hide
     // a tampered sensor or a leak.
@@ -286,10 +286,11 @@ export const onSensorEvent = onValueCreated(
         // notification directly instead. These two toggles are
         // independent, so notify-without-siren must still fire.
         //
-        // serverActions.sendTelegram is a SEPARATE pre-existing project
-        // toggle: despite the name it means "notify when the siren is
-        // suppressed", and is independent of notifyChannels.
-        project.serverActions.sendTelegram
+        // serverActions.sendNotification is a SEPARATE pre-existing project
+        // toggle meaning "notify when the siren is suppressed", independent
+        // of notifyChannels. (Named sendTelegram until 2026-10-05, when it
+        // had already gated both channels for a month.)
+        project.serverActions.sendNotification
       ) {
         await notify(projectId, project, {
           text: formatAlarm(label),

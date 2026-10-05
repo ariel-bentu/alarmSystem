@@ -5,7 +5,7 @@
 // battery changed last month means a faulty cell; a "low" on a two-year-old
 // one is simply due. Neither derives from the other.
 //
-// Pure, like deviceOnline.ts — the Firestore walk and the Telegram send live
+// Pure, like deviceOnline.ts — the Firestore walk and the notification send live
 // in deadSensorCheck.ts, which already iterates every project's sensors.
 //
 // The month arithmetic is duplicated from web/src/features/configure/
@@ -57,7 +57,7 @@ export function batteryAgeMonths(startedAtMs: number, nowMs: number): number {
  * Whether to send a stale-battery alert for this sensor right now.
  *
  * False once alertSentAt is set: the battery stays old until someone replaces
- * it, so without that marker this would Telegram the same sensor every noon.
+ * it, so without that marker this would alert on the same sensor every noon.
  * The web UI clears the marker when a new change date is recorded, which is
  * what allows the next battery to alert in its turn.
  */

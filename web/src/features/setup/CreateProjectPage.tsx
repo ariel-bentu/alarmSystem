@@ -60,7 +60,7 @@ export default function CreateProjectPage() {
         telegramBotToken: telegramBotToken.trim(),
         telegramChatId: telegramChatId.trim(),
         serverArmed: false,
-        serverActions: { sendTelegram: true, triggerSiren: false },
+        serverActions: { sendNotification: true, triggerSiren: false },
         sirenDurationSec: 120,
         sirenEnabled: true,
         // The browser's zone is right in almost every case — the alarm is in

@@ -7,8 +7,13 @@
 // They still must not live on projects/{projectId}: that doc is
 // `allow read: if isMember(projectId)` — ANY member — so a credential there is
 // downloaded in plaintext by every member's browser. Firestore rules do not
-// inherit, so this subcollection is denied to all clients while the parent doc
-// stays member-readable. Only the admin SDK reaches it.
+// inherit, which is the point: this subcollection is ADMIN-ONLY while the
+// parent doc stays member-readable.
+//
+// Admin-only since 2026-10-05, previously `if false`: the Notifications tab
+// edits these directly now, so changing who gets woken no longer needs a
+// service-account credential and a CLI script. The admin SDK bypasses rules
+// either way, so nothing here changed for notify().
 //
 // A leaked Pushover token is not billable like an LLM key, but it is an alert
 // channel for a SECURITY system: a spoofed "all clear", or an alert flood that

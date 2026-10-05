@@ -2,7 +2,7 @@
 // Trigger: RTDB onValueWritten on /{projectId}/commands/armed
 // This is the *intent* channel the web app writes when arming/disarming the
 // device (the device echoes it to state/armed once it acts). Mirrors the
-// arm/disarm to the Firestore timeline and sends a Telegram notification
+// arm/disarm to the Firestore timeline and sends a notification
 // naming the profile that was armed.
 
 import { onValueWritten } from "firebase-functions/v2/database";
@@ -26,14 +26,14 @@ export const onArmStateChange = onValueWritten(
 
     // If state/armed already matches, this write is a sync from
     // onDeviceArmStateChange (remote arm/disarm restoring consistency), not a
-    // fresh user action. Skip timeline + Telegram to avoid duplicating the
+    // fresh user action. Skip timeline + notify to avoid duplicating the
     // entry that onDeviceArmStateChange already wrote.
     const stateSnap = await rtdb.ref(`${projectId}/state/armed`).get();
     const stateArmed = stateSnap.exists() ? stateSnap.val() === true : false;
     if (stateArmed === armed) return;
 
     // Name the profile that is active on the device, when armed. Resolved
-    // BEFORE the event write and regardless of Telegram config: the timeline
+    // BEFORE the event write and regardless of channel config: the timeline
     // needs it too, and an arm/disarm row with no name is unreadable.
     let profileName: string | undefined;
     let profileId: string | undefined;

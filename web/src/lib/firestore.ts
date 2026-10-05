@@ -79,6 +79,16 @@ export const inviteDoc = (projectId: string, inviteId: string) =>
     inviteConverter
   ) as DocumentReference<Invite>;
 
+// Per-project notification credentials (Pushover app token + user key).
+//
+// No converter: this doc has no `id` field and is not a domain entity — it is
+// a credential bag the Notifications tab reads and writes directly.
+//
+// ADMIN-ONLY in firestore.rules, deliberately NOT on the project doc, which
+// every member can read. See notifySecrets.ts (the server half) for why.
+export const notifySecretsDoc = (projectId: string) =>
+  doc(dbSync(), "projects", projectId, "secrets", "notify");
+
 export const sensorsCol = (projectId: string) =>
   collection(dbSync(), "projects", projectId, "sensors").withConverter(
     sensorConverter

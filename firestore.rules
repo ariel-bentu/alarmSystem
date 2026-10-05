@@ -70,16 +70,24 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Server-only per-project secrets: the Pushover app token and user key.
-      // No client may read or write these, ever — Cloud Functions reach them
-      // through the admin SDK, which bypasses these rules entirely.
+      // Per-project secrets: the Pushover app token and user key.
+      //
+      // ADMIN-ONLY (2026-10-05, was `if false`): the Notifications tab now
+      // edits these directly, so the owner is not forced through
+      // `npm run set:notifyKey` and a service-account credential to change
+      // who gets woken up.
       //
       // Rules do NOT inherit, which is the whole point: the parent project
-      // doc stays `allow read: if isMember(projectId)` while this
-      // subcollection is denied outright. A credential on the parent doc
-      // would be downloaded in plaintext by every member's browser.
+      // doc stays `allow read: if isMember(projectId)` — ANY member — while
+      // this subcollection stays admin-only. A credential moved onto the
+      // parent doc would be downloaded in plaintext by every member's
+      // browser, which is exactly what this subcollection exists to prevent.
+      // Widening this to isMember would undo that; don't.
+      //
+      // Cloud Functions reach these through the admin SDK, which bypasses
+      // these rules entirely, so notify() is unaffected either way.
       match /secrets/{secretId} {
-        allow read, write: if false;
+        allow read, write: if isAdmin(projectId);
       }
 
       match /sensors/{sensorId} {

@@ -46,7 +46,6 @@ export const he: Record<TranslationKey, string> = {
   "nav.configure": "הגדרות",
   "nav.explore": "אירועים",
   "nav.members": "משתמשים",
-  "nav.settings": "העדפות",
   "nav.simulator": "סימולטור",
 
   // ---- Auth / gate ----
@@ -98,11 +97,13 @@ export const he: Record<TranslationKey, string> = {
 
   // ---- Configure ----
   "cfg.title": "הגדרות",
+  "cfg.tab.general": "כללי",
   "cfg.tab.sensors": "גלאים",
   "cfg.tab.profiles": "פרופילים",
   "cfg.tab.siren": "צופר",
   "cfg.tab.remotes": "שלטים",
   "cfg.tab.camera": "מצלמה",
+  "cfg.tab.notifications": "התראות",
 
   // Remotes tab
   "cfg.remotes.intro":
@@ -138,7 +139,7 @@ export const he: Record<TranslationKey, string> = {
   "cfg.sensors.events": "אירועים",
   "cfg.sensors.alertAfterDays": "התראה אחרי (ימים)",
   "cfg.sensors.alertAfterDaysHelp":
-    "מספר ימים ללא הפעלה עד לשליחת התראה בטלגרם. 1- = אף פעם.",
+    "מספר ימים ללא הפעלה עד לשליחת התראה. 1- = אף פעם.",
   "cfg.sensors.neverAlert": "1- = ללא התראה",
   "cfg.sensors.unpair": "ביטול שיוך",
   "cfg.sensors.pair": "שיוך",
@@ -280,7 +281,7 @@ export const he: Record<TranslationKey, string> = {
   "cfg.camera.retentionHelp": "תמונות ישנות יותר ממספר הימים הזה יימחקו אוטומטית.",
   "cfg.camera.names": "שמות מצלמות",
   "cfg.camera.namesHelp":
-    "השמות מופיעים בכל מקום שבו מוצגת מצלמה — גלריית התמונות, הגדרות החיישנים והתראות טלגרם. השאירו ריק כדי להציג ״מצלמה N״.",
+    "השמות מופיעים בכל מקום שבו מוצגת מצלמה — גלריית התמונות, הגדרות החיישנים והודעות ההתראה. השאירו ריק כדי להציג ״מצלמה N״.",
   "cfg.camera.channelN": "ערוץ {channel}",
   "cfg.camera.namePlaceholder": "מצלמה {channel}",
   "cfg.camera.judgeProvider": "ספק שיפוט AI",
@@ -370,20 +371,30 @@ export const he: Record<TranslationKey, string> = {
   "members.adminRequired": "נדרשת הרשאת מנהל.",
 
   // ---- Settings ----
-  "settings.title": "הגדרות הפרויקט",
-  "settings.adminRequired": "נדרשת הרשאת מנהל.",
   "settings.projectName": "שם הפרויקט",
   "settings.telegramBotToken": "טוקן בוט טלגרם",
   "settings.telegramChatId": "מזהה צ׳אט בטלגרם",
   "settings.notifyEveryTrigger":
-    "שליחת הודעת טלגרם בכל הפעלת גלאי (על סוללה חלשה וחבלה תמיד נשלחת התראה)",
+    "שליחת התראה בכל הפעלת גלאי (על סוללה חלשה וחבלה תמיד נשלחת התראה)",
   "settings.notifyChannels": "ערוצי התראה",
   "settings.channelTelegram": "טלגרם",
   "settings.channelPushover": "Pushover",
   "settings.notifyChannelsNone": "לא נבחר אף ערוץ — לא יישלחו התראות.",
   "settings.pushoverNotConfigured":
-    "לא הוגדרו פרטי Pushover. הרץ: npm run set:notifyKey -- <projectId> <appToken> <userKey>",
-  "settings.pushoverConfigured": "פרטי Pushover מוגדרים",
+    "לא הוגדרו פרטי Pushover — מלאו את מזהה האפליקציה ומפתח המשתמש למטה.",
+  "settings.savePushoverCreds": "שמירת הפרטים",
+  "settings.pushoverCredentialsHelp":
+    "נשמרים בנפרד משאר הגדרות הפרויקט וגלויים למנהלים בלבד. ליצירת מזהה אפליקציה היכנסו ל-pushover.net/apps/build; מפתח המשתמש מופיע בלוח הבקרה של Pushover.",
+  "settings.pushoverAppToken": "מזהה אפליקציה",
+  "settings.pushoverAppTokenHelp":
+    "מזהה ה-API של אפליקציית Pushover שיוצרים ב-pushover.net/apps/build. באורך 30 תווים בקירוב. אפליקציה אחת יכולה לשלוח התראות לכל המכשירים שלכם.",
+  "settings.pushoverUserKey": "מפתח משתמש",
+  "settings.pushoverUserKeyHelp":
+    "מפתח המשתמש שלכם, מופיע בלוח הבקרה של Pushover לאחר התחברות. באורך 30 תווים בקירוב. זה מי שיקבל את ההתראה — אפשר להשתמש גם במפתח קבוצה.",
+  "settings.pushoverCredsIncomplete":
+    "נדרשים גם מזהה האפליקציה וגם מפתח המשתמש — עם אחד מהם בלבד Pushover לא ישלח כלום.",
+  "settings.pushoverCredsLoadFailed":
+    "לא ניתן לקרוא את פרטי Pushover. נדרשת הרשאת מנהל כדי לצפות בהם או לשנותם.",
   "settings.pushoverCriticalAlertsHint":
     "רק אזעקות מחיישני ״פריצה ודאית״ יישמעו כשהטלפון במצב שקט, וגם זה רק לאחר הפעלת Critical Alerts באפליקציית Pushover. התראות מחיישנים שדורשים אימות מגיעות כהתראה רגילה ונשארות שקטות כשהטלפון מושתק, עד שהשופט האוטומטי מאשר פריצה.",
   "settings.notifications": "התראות",
@@ -403,8 +414,11 @@ export const he: Record<TranslationKey, string> = {
   "settings.sirenDuration": "משך הצופר (שניות)",
   "settings.batteryAlertMonths": "התראת גיל סוללה (חודשים)",
   "settings.batteryAlertMonthsHelp":
-    "שליחת התראה בטלגרם פעם אחת כאשר גיל הסוללה של חיישן עולה על הערך הזה. 0 מבטל את ההתראה. חיישנים שלא נרשם להם תאריך החלפה נמדדים מתאריך השיוך.",
-  "settings.serverSendsTelegram": "השרת שולח התראות טלגרם באזעקה",
+    "שליחת התראה פעם אחת כאשר גיל הסוללה של חיישן עולה על הערך הזה. 0 מבטל את ההתראה. חיישנים שלא נרשם להם תאריך החלפה נמדדים מתאריך השיוך.",
+  "settings.whatToNotify": "מה לשלוח",
+  "settings.serverSendsNotification": "שליחת התראה באזעקה",
+  "settings.serverSendsNotificationHelp":
+    "כאשר השרת אינו מפעיל את הצופר, שליחת התראת האזעקה בכל מקרה. כאשר ״השרת מפעיל את הצופר״ מסומן, התראת האזעקה נשלחת תמיד ולהגדרה הזו אין השפעה.",
   "settings.serverTriggersSiren": "השרת מפעיל את הצופר באזעקה",
   "settings.telegram": "טלגרם",
   "settings.botTokenHelp":

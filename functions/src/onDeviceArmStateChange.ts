@@ -4,7 +4,7 @@
 // state/armed is the ECHO channel: the device writes it after it acts,
 // whatever the source. onArmStateChange covers only commands/armed, the
 // web app's INTENT channel, so before this function a disarm originating
-// on the device (local web UI, remote control) produced no Telegram and no
+// on the device (local web UI, remote control) produced no notification and no
 // timeline entry at all — it was completely silent.
 //
 // That silence is why this exists: a fixed-code remote is replayable, and

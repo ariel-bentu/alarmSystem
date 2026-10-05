@@ -47,7 +47,6 @@ export const en = {
   "nav.configure": "Configure",
   "nav.explore": "Events",
   "nav.members": "Members",
-  "nav.settings": "Settings",
   "nav.simulator": "Simulator",
 
   // ---- Auth / gate ----
@@ -101,11 +100,13 @@ export const en = {
 
   // ---- Configure ----
   "cfg.title": "Configure",
+  "cfg.tab.general": "General",
   "cfg.tab.sensors": "Sensors",
   "cfg.tab.profiles": "Profiles",
   "cfg.tab.siren": "Siren",
   "cfg.tab.remotes": "Remotes",
   "cfg.tab.camera": "Camera",
+  "cfg.tab.notifications": "Notifications",
 
   // Remotes tab
   "cfg.remotes.intro":
@@ -142,7 +143,7 @@ export const en = {
   "cfg.sensors.events": "Events",
   "cfg.sensors.alertAfterDays": "Alert after (days)",
   "cfg.sensors.alertAfterDaysHelp":
-    "Days without a trigger before sending a Telegram alert. -1 = never.",
+    "Days without a trigger before sending an alert. -1 = never.",
   "cfg.sensors.neverAlert": "-1 = never alert",
   "cfg.sensors.unpair": "Unpair",
   "cfg.sensors.pair": "Pair",
@@ -286,7 +287,7 @@ export const en = {
   "cfg.camera.retentionHelp": "Snapshots older than this are deleted automatically.",
   "cfg.camera.names": "Camera names",
   "cfg.camera.namesHelp":
-    "Names appear wherever a camera is shown — photo galleries, sensor settings and Telegram alerts. Leave blank to show “Camera N”.",
+    "Names appear wherever a camera is shown — photo galleries, sensor settings and alert messages. Leave blank to show “Camera N”.",
   "cfg.camera.channelN": "Channel {channel}",
   "cfg.camera.namePlaceholder": "Camera {channel}",
   "cfg.camera.judgeProvider": "AI judge provider",
@@ -384,21 +385,31 @@ export const en = {
   "members.adminRequired": "Admin access required.",
 
   // ---- Settings ----
-  "settings.title": "Project Settings",
-  "settings.adminRequired": "Admin access required.",
   "settings.projectName": "Project Name",
   "settings.telegramBotToken": "Telegram Bot Token",
   "settings.telegramChatId": "Telegram Chat ID",
   "settings.notifyEveryTrigger":
-    "Send Telegram on every sensor trigger (battery-low and tamper always notify)",
+    "Notify on every sensor trigger (battery-low and tamper always notify)",
   "settings.notifyChannels": "Notification channels",
   "settings.channelTelegram": "Telegram",
   "settings.channelPushover": "Pushover",
   "settings.notifyChannelsNone":
     "No channels selected — no notifications will be sent.",
   "settings.pushoverNotConfigured":
-    "No Pushover credentials set. Run: npm run set:notifyKey -- <projectId> <appToken> <userKey>",
-  "settings.pushoverConfigured": "Pushover credentials are set",
+    "No Pushover credentials set — fill in the app token and user key below.",
+  "settings.savePushoverCreds": "Save credentials",
+  "settings.pushoverCredentialsHelp":
+    "Stored separately from the rest of the project and readable only by admins. Create an application at pushover.net/apps/build for the app token; the user key is on your Pushover dashboard.",
+  "settings.pushoverAppToken": "App token",
+  "settings.pushoverAppTokenHelp":
+    "The API token of a Pushover application you create at pushover.net/apps/build. Roughly 30 characters. One application can alert any number of your devices.",
+  "settings.pushoverUserKey": "User key",
+  "settings.pushoverUserKeyHelp":
+    "Your own user key, shown on the Pushover dashboard after signing in. Roughly 30 characters. This is who gets woken up — a group key works here too.",
+  "settings.pushoverCredsIncomplete":
+    "Both the app token and the user key are needed — with only one, Pushover sends nothing.",
+  "settings.pushoverCredsLoadFailed":
+    "Could not read the Pushover credentials. Admin access is required to view or change them.",
   "settings.pushoverCriticalAlertsHint":
     "Only alarms from Definite breach sensors break through a muted ringer, and only after you enable Critical Alerts inside the Pushover app. Alerts from sensors that need confirmation arrive as normal notifications and stay silent while your phone is muted, until the AI judge confirms a breach.",
   "settings.notifications": "Notifications",
@@ -418,8 +429,11 @@ export const en = {
   "settings.sirenDuration": "Siren Duration (seconds)",
   "settings.batteryAlertMonths": "Battery age alert (months)",
   "settings.batteryAlertMonthsHelp":
-    "Telegram once when a sensor battery is older than this. 0 disables it. Sensors with no recorded change date are aged from when they were paired.",
-  "settings.serverSendsTelegram": "Server sends Telegram alerts on alarm",
+    "Notify once when a sensor battery is older than this. 0 disables it. Sensors with no recorded change date are aged from when they were paired.",
+  "settings.whatToNotify": "What to notify",
+  "settings.serverSendsNotification": "Send notification on alarm",
+  "settings.serverSendsNotificationHelp":
+    "When the server is not triggering the siren, send the alarm notification anyway. With “Server triggers siren” on, the alarm notification is always sent and this has no effect.",
   "settings.serverTriggersSiren": "Server triggers siren on alarm",
   "settings.telegram": "Telegram",
   "settings.botTokenHelp":

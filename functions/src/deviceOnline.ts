@@ -6,7 +6,7 @@
 // armed is an unmonitored house, which is strictly worse than a dead sensor.
 //
 // Kept pure and separate from the Cloud Function so the thresholds and the
-// fire-once latching are unit-testable without Firestore or Telegram.
+// fire-once latching are unit-testable without Firestore or a notification channel.
 
 /** Silence tolerated while ARMED before alerting. */
 export const OFFLINE_THRESHOLD_ARMED_MS = 5 * 60 * 1000;

@@ -10,11 +10,11 @@
 //
 //  1. Dead-sensor alerts. For each project + sensor: if lastSeen older than
 //     sensor.deadSensorAlertDays and no alert has been sent yet this silence
-//     period → Telegram alert once. deadAlertSentAt is set on fire and cleared
+//     period → alert once. deadAlertSentAt is set on fire and cleared
 //     when the sensor is seen again (onSensorEvent.ts handles the clear on any
 //     trigger).
 //  2. Stale-battery alerts. If the battery's age (batteryChangedAt, else
-//     pairedAt) exceeds project.batteryAlertMonths → Telegram once.
+//     pairedAt) exceeds project.batteryAlertMonths → alert once.
 //     batteryAlertSentAt is set on fire and cleared when someone records a
 //     new replacement date in the web UI. Decision logic in batteryAgeCheck.ts.
 //  3. RTDB event retention — see eventCleanup.ts.
@@ -46,8 +46,8 @@ export async function deadSensorCheck(): Promise<void> {
     for (const projectDoc of projectsSnap.docs) {
       const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
 
-      // Runs before the Telegram guard below: retention applies to every
-      // project, including those with no Telegram configured. Isolated so a
+      // Runs before the notify guard below: retention applies to every
+      // project, including those with no channel configured. Isolated so a
       // failure here cannot cost the remaining projects their dead-sensor
       // alerts.
       try {

@@ -7,7 +7,7 @@
 //
 // Fires due schedule edges by writing exactly the fields a human pressing a
 // button in Operations writes — the scheduler gets no private path to the
-// device, so every downstream trigger (config rebuild, timeline, Telegram)
+// device, so every downstream trigger (config rebuild, timeline, notify)
 // is reused unmodified.
 //
 // Cost: an idle minute is two collection-group queries matching zero

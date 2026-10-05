@@ -7,7 +7,7 @@
 // and scheduleTick already provides it.
 //
 // The decision logic lives in deviceOnline.ts (pure, unit-tested); this file
-// is the Firestore/Telegram plumbing around it.
+// is the Firestore/notification plumbing around it.
 
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db, rtdb } from "./admin";
@@ -19,7 +19,7 @@ import { decideOfflineAction, formatSilence } from "./deviceOnline";
 /**
  * Check every project's device liveness and alert on transitions.
  *
- * Isolated per project: one project's Telegram failure must not cost the
+ * Isolated per project: one project's notification failure must not cost the
  * others their alerts, exactly as deadSensorCheck isolates event cleanup.
  */
 export async function checkDeviceLiveness(nowMs: number): Promise<void> {
@@ -112,7 +112,7 @@ export async function checkDeviceLiveness(nowMs: number): Promise<void> {
 /**
  * Add a controller-lifecycle row to the timeline.
  *
- * Called AFTER the Telegram send and the latch update, and swallowing its own
+ * Called AFTER the notification send and the latch update, and swallowing its own
  * errors, because the alert is the load-bearing part: a Firestore hiccup here
  * must not un-latch the alert and re-send it every minute, nor bubble out and
  * abort the loop before the remaining projects are checked.

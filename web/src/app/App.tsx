@@ -19,7 +19,6 @@ import { useT } from "@/i18n/I18nProvider";
 // visitor never pays for it at all.
 const OperationsPage = lazy(() => import("@/features/operations/OperationsPage"));
 const CreateProjectPage = lazy(() => import("@/features/setup/CreateProjectPage"));
-const SettingsPage = lazy(() => import("@/features/setup/SettingsPage"));
 const MembersPage = lazy(() => import("@/features/setup/MembersPage"));
 const ConfigurePage = lazy(() => import("@/features/configure/ConfigurePage"));
 const ExplorePage = lazy(() => import("@/features/explore/ExplorePage"));
@@ -103,7 +102,14 @@ function Gate() {
         <Route path="/configure" element={<ConfigurePage />} />
         <Route path="/explore" element={<ExplorePage />} />
         <Route path="/members" element={<MembersPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        {/* /settings is gone: its fields moved into Configure's General,
+            Notifications and Siren tabs. Redirected rather than dropped so a
+            bookmark lands on the page that now owns those fields, instead of
+            falling through to Operations via the catch-all below. */}
+        <Route
+          path="/settings"
+          element={<Navigate to="/configure" replace />}
+        />
         <Route path="/setup" element={<CreateProjectPage />} />
         {DEV_SIMULATOR && (
           <Route path="/simulator" element={<SimulatorPage />} />

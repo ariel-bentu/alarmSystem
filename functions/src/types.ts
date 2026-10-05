@@ -16,7 +16,7 @@ export type EventType =
   // never sirened and never fed to alarm rules.
   | "water"
   // Kerui nibble 0x3 or 0x7. Mirrored to the timeline so history is
-  // complete, but drives NOTHING: no siren, no Telegram, no rule
+  // complete, but drives NOTHING: no siren, no notification, no rule
   // evaluation, no status. The system has no concept of a door's open/closed
   // STATE, only of events; adding one is separate work. Recorded as a
   // decision, not an oversight.
@@ -109,9 +109,12 @@ export interface Sensor {
   //
   // ABSENT MEANS TRUE. A door opening is definite; motion is not. The tier of
   // the alarm notification follows from it: definite -> Pushover priority 2
-  // (repeats until acknowledged), non-definite -> priority 1 (audible through
-  // a muted ringer, single shot) which the AI judge can escalate to priority
-  // 2 on a breach verdict.
+  // (repeats until acknowledged, breaks through a muted ringer),
+  // non-definite -> priority 0 (a normal notification, which RESPECTS mute
+  // and Do Not Disturb) which the AI judge can escalate to priority 2 on a
+  // breach verdict. Priority 1 is deliberately unused: Pushover applies
+  // Critical Alerts to it as well as 2, so it broke through mute too and the
+  // two tiers were indistinguishable by ear. See severityToPriority.
   //
   // Absent defaults to definite so a newly paired sensor wakes the owner,
   // matching the fail-loud stance elsewhere (a missing judge key yields a
@@ -122,17 +125,17 @@ export interface Sensor {
   definiteBreach?: boolean;
   // Set when the stale-battery alert fires, cleared when batteryChangedAt is
   // written. Mirrors deadAlertSentAt: without it the daily check would send
-  // the same Telegram every noon until the battery was replaced.
+  // the same alert every noon until the battery was replaced.
   //
   // ALSO the once-marker for a sensor-REPORTED battery_low event (Kerui
   // nibble 0xF), cleared by onSensorEvent on the next normal trigger.
   // Deliberately ONE field, not two: both mean "the user has already been
   // told this battery needs attention", and a second field would let the same
-  // sensor send two different battery Telegrams for the same battery.
+  // sensor send two different battery alerts for the same battery.
   batteryAlertSentAt?: Timestamp | null;
   // Set when a water alert (Kerui nibble 0x5) fires, cleared when the sensor
   // next reports a normal trigger. "Once" means once per CONDITION, not once
-  // ever — without the marker a leaking sensor would Telegram on every
+  // ever — without the marker a leaking sensor would alert on every
   // packet, which is every few seconds. Same shape as deadAlertSentAt.
   waterAlertSentAt?: Timestamp | null;
   // NVR channels (1-8) to snapshot when this sensor triggers. AUTHORITATIVE:
@@ -195,7 +198,13 @@ export interface UserDoc {
 }
 
 export interface ServerActions {
-  sendTelegram: boolean;
+  // "Notify even when the siren is suppressed" — see onSensorEvent, the only
+  // reader: it is consulted ONLY when triggerSiren is off, because when the
+  // siren fires onAlarm sends the notification instead. Renamed from
+  // sendTelegram on 2026-10-05; it has gated both channels since Pushover.
+  // No dual-read fallback: the Firestore field was renamed by hand, so an
+  // unmigrated doc reads undefined → falsy and sends nothing.
+  sendNotification: boolean;
   triggerSiren: boolean;
 }
 
@@ -307,7 +316,7 @@ export interface Project {
   // Custom prompt for judge context. Optional: uses default when absent.
   judgePrompt?: string;
   // Human names for NVR channels, keyed by channel number ({"1":"Front door"}).
-  // Used in the judge prompt and the breach Telegram caption; channels with no
+  // Used in the judge prompt and the breach alert caption; channels with no
   // entry fall back to "camera N". The device never sees these.
   cameraNames?: Record<string, string>;
   device: DeviceInfo;

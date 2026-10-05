@@ -35,8 +35,8 @@ export const onAlarm = onValueWritten(
 
     const projectId = event.params.projectId;
 
-    // Resolved BEFORE the Telegram gate below: the timeline row must be
-    // written whether or not this project has Telegram configured. The alarm
+    // Resolved BEFORE the notify gate below: the timeline row must be
+    // written whether or not this project has a channel configured. The alarm
     // that actually sounded the siren is the single most important thing the
     // event list can show, and it was previously missing from it entirely —
     // only sensor triggers and arm/disarm were ever mirrored.
@@ -69,7 +69,7 @@ export const onAlarm = onValueWritten(
       // A definite sensor sends priority 2, which repeats until acknowledged.
       // A non-definite one sends priority 1 — audible through a muted ringer
       // but single-shot — which the AI judge escalates to priority 2 if it
-      // confirms a breach. The Telegram text is identical either way: that
+      // confirms a breach. The message text is identical either way: that
       // channel has no tiering, and divergent wording would make the two
       // channels disagree about one event.
       severity: alarmSeverity(definite),

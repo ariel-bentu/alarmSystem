@@ -3,7 +3,7 @@
 //
 // The sensor list deliberately lives in Configure, not here: this page is for
 // acting on the system, not inspecting it.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   getDocs,
   onSnapshot,
@@ -29,6 +29,7 @@ import {
   commandsCaptureRef,
 } from "@/lib/rtdb";
 import { useOnlineStatus } from "@/lib/useOnlineStatus";
+import { useToast } from "@/lib/useToast";
 import { useT } from "@/i18n/I18nProvider";
 import { useDeviceState } from "./useDeviceState";
 import { useAlarmState } from "./useAlarmState";
@@ -97,13 +98,7 @@ export default function OperationsPage() {
   // button; null when idle.
   const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (msg: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(msg);
-    toastTimer.current = setTimeout(() => setToast(null), 3000);
-  };
+  const { toast, showToast } = useToast();
   // SOS is armed by a first press and only fires on a second. It sits near the
   // Disarm button that gets tapped at bedtime, and an accidental siren at
   // 2am is a genuinely costly mistake, so a single stray tap must not sound it.

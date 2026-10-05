@@ -108,7 +108,8 @@ battery change sounds the siren; silence it with Disarm.
 
 Firestore: `/users/{email}`, `/deviceKeys/{apiKeyHash}`, `/projects/{projectId}`
 with `members`, `sensors`, `profiles/{id}/rules`, `schedules`, `events`, and
-`secrets/notify` (server-only: Pushover credentials, `read, write: if false`).
+`secrets/notify` (Pushover credentials, `read, write: if isAdmin` — off the
+member-readable project doc, editable in Configure → Notifications).
 
 **Device auth:** `mintDeviceToken` (API-key → Firebase custom token, scoped
 per project by `database.rules.json`). This is the real firmware's path.
@@ -277,7 +278,64 @@ seen at 28h/31.76h — that needs ~36h.
 
 **Deployed:** full web app (auth, pairing, profiles/rules, operations,
 schedules, timeline, simulator), all Cloud Functions, invite-only access,
-per-project Telegram config.
+per-project notification config.
+
+**Settings merged into Configure (2026-10-05) — built, NOT deployed.**
+`/settings` (labelled "Preferences", Hebrew "העדפות") is **gone**; the route
+redirects to `/configure`. Configure went from five tabs to seven — **General**
+(project name, timezone) and **Notifications** (channels, Telegram
+credentials, Pushover sound/repeat/expiry, notify-every-trigger,
+send-notification-on-alarm, battery-age months) — and the **Siren** tab grew a
+third card holding siren duration + server-triggers-siren.
+
+⚠️ **Save behaviour is per CONTROL, not per tab**, and the split is
+deliberate: a checkbox or `<select>` saves on change (confirmed by a toast,
+reverting its local state if the write fails), while text and number inputs
+stay behind a Save button with the dirty badge and navigation warning. The
+edit is *complete* the moment a discrete control changes; for free text there
+is no such moment, and instant-saving would write `12` on the way to `120`
+and persist half-typed bot tokens. Only the deferred fields are form state —
+putting an instant one in `form` would make `isDirty` report a change that is
+already saved. `settingsForm.ts` split into `generalSettings.ts`,
+`notifySettings.ts` and `sirenSettings.ts` (each beside its tab, tests
+ported); `Help` moved to `components/Help.tsx` and the toast to
+`lib/useToast.ts`, which `OperationsPage` now shares instead of owning.
+
+⚠️ **`serverActions.sendTelegram` renamed to `serverActions.sendNotification`**
+— it has gated both channels since Pushover landed. **No dual-read fallback
+and no migration script: the Firestore field is renamed BY HAND.** Rename the
+DB field *first*, then deploy functions, then web — an unmigrated doc reads
+`undefined` → falsy and sends nothing. The window is narrow because the flag
+is only consulted when the siren is suppressed, but it is the one path here
+that can silently drop an alert.
+
+Its label was wrong too, and the fix is help text rather than a longer name:
+`onSensorEvent` reads the flag **only** in the `else` branch of
+`triggerSiren`, because when the siren fires `onAlarm` sends the notification.
+So it means **"notify even when the siren is suppressed"** — with
+`triggerSiren` on it has no effect at all.
+
+`telegram.ts`'s `sendTelegram`/`sendTelegramPhoto` **keep** their names: that
+is the real Telegram transport. Only the project field, and the strings and
+comments describing *notification*, were renamed — Telegram-as-a-channel
+mentions (credentials, `notifyChannels` values, the breach photo, the
+webhook) are left alone on purpose. `batteryAlertMonths` stays
+**project-wide**: per-sensor is only the battery start date and the alert
+marker, never the threshold.
+
+⚠️ **Pushover credentials are now editable in the UI, which required widening
+`firestore.rules`**: `projects/{id}/secrets/notify` went from
+`allow read, write: if false` to `if isAdmin(projectId)`. They are still
+deliberately NOT on `projects/{id}` — that doc is `allow read: if isMember`,
+so a token there ships to every member's browser. **Widening this to
+`isMember` would undo the whole point.** The credential card is its own
+`<form>` with its own Save (a different document, so a failed credential
+write must not roll back an unrelated setting), and the inputs render only
+once the read SUCCEEDS — `creds === null` means "not readable", and showing
+empty inputs then would invite a save that wipes working credentials. Saving
+also syncs the non-secret `pushoverConfigured` mirror that the status badge
+and `set:notifyKey` share, and it requires BOTH halves, since Pushover sends
+nothing with one.
 
 **Camera snapshots on trigger (2026-10-03) — deployed; judge VERIFIED on hardware 2026-10-04.**
 On every armed trigger the device grabs a JPEG from each live NVR channel via
@@ -364,10 +422,13 @@ play through it. Pushover has that entitlement and applies it to priority 1
 `notifyChannels?: ("telegram"|"pushover")[]` on `projects/{projectId}` —
 **absent means `["telegram"]`** (no migration needed); an **empty array means
 send nothing** and is deliberately not coerced. Credentials live in
-`projects/{projectId}/secrets/notify`, a subcollection locked to
-`allow read, write: if false` — per-project because they identify who gets
-woken, but off the member-readable project doc. Set them with
-`cd functions && npm run set:notifyKey -- <projectId> <appToken> <userKey>`.
+`projects/{projectId}/secrets/notify`, a subcollection that is **admin-only**
+(`allow read, write: if isAdmin(projectId)`, widened from `if false` on
+2026-10-05) — per-project because they identify who gets woken, but off the
+member-readable project doc, which *any* member can read. Edited in
+Configure → Notifications; `cd functions && npm run set:notifyKey --
+<projectId> <appToken> <userKey>` still works and is the only route for a
+non-admin operator.
 
 All nine former `sendTelegram` call sites now route through `notify()`
 (`functions/src/notify.ts`), which fans out concurrently with per-channel

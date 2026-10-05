@@ -2,7 +2,7 @@
 // docs/superpowers/specs/2026-09-23-sensor-event-families-design.md, as pure
 // logic so it is unit-tested rather than discovered in production.
 //
-// | Event       | Siren           | Telegram | Alarm rules |
+// | Event       | Siren           | Notify   | Alarm rules |
 // |-------------|-----------------|----------|-------------|
 // | trigger     | via rules       | via rules| yes         |
 // | tamper      | yes, EVEN       | always   | no          |
@@ -35,11 +35,11 @@ export interface EventPolicy {
   /**
    * The Sensor field that latches a once-per-condition alert, or null when
    * this event notifies every time. Without the marker a leaking sensor
-   * would Telegram on every packet, which is every few seconds.
+   * would alert on every packet, which is every few seconds.
    */
   onceMarker: "waterAlertSentAt" | "batteryAlertSentAt" | null;
   /**
-   * Whether this event is mirrored to Firestore and Telegram at all.
+   * Whether this event is mirrored to Firestore and notified at all.
    * `close` is mirrored (history stays complete) but silent.
    */
   notify: boolean;
@@ -82,7 +82,7 @@ export function classifyEvent(event: KeruiEvent): EventPolicy {
         alwaysNotify: true,
         // Shared with the stale-battery check on purpose: both mean "the
         // user has been told this battery needs attention", and a second
-        // field would let one battery produce two different Telegrams.
+        // field would let one battery produce two different alerts.
         onceMarker: "batteryAlertSentAt",
         notify: true,
       };
