@@ -83,3 +83,27 @@ list of things to build.
   it needs an EepromStore::kMagic bump, which discards stored config on the
   first boot after flashing; the siren address itself now survives that,
   because it is re-adopted from the cloud.
+
+
+## judge logic:
+  if alarm is not aramed -> judge is off.
+  if alarm is armed, every trigger's images - as they arrive - being judged.
+    - if "breach" - it is treated as condition triggered, thus alarm goes off and p2 notification is sent
+    - if "safe" - it is logged as safe.
+    - if another trigger of same sensor comes faster than cooldown window -> the previous judgment is used. if later than cooldown (with some margin) we defer to new judgement.
+    - if a trigger comes with alarm cause, and was vetted "safe" either by own images or prev-trigger's images (see before) -> the cloud send the device command to silence siren, and sends "safe" notification
+
+  WRITTEN UP as docs/superpowers/specs/2026-10-05-judge-as-evidence-design.md
+  (design, awaiting approval). The spec keeps all of the above and adds:
+  breach_satisfies as an opt-in on the CONDITION rather than the sensor (a
+  sensor sits in several rules at once, so per-sensor would apply to all of
+  them); safe suppresses the alarm EPISODE but never retracts a trigger from
+  AlarmState's history; and safe verdicts expire faster than breach ones when
+  reused (an empty yard 25s ago is weak evidence it is empty now; a person
+  seen 25s ago is not).
+  Open in the spec: whether the judge's alarm travels as commands/breach
+  (leaning yes - symmetrical with commands/fp, keeps the siren decision on
+  the device) or as a cloud write to state/siren_active gated on
+  serverActions.triggerSiren; and whether simply lowering captureCooldownSec
+  25 -> 8 fixes the unreachable-judge bug on its own, with no code at all.
+    
