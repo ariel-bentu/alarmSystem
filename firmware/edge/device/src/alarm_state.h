@@ -165,12 +165,12 @@ struct Config {
 // so it cost 0 bytes where a uint16_t would have cost 128 (2 x 4 conditions
 // x 16 sensors) and forced its own bump.
 //
-// THE SIREN ADDRESS MUST SURVIVE THAT BUMP. A magic bump discards the whole
-// record, and Config::sirenBaseAddress is write-only device->cloud, so losing
-// it silently breaks the physical siren pairing — this has happened before
-// (docs/history/siren-hub-free.md). The recovery path is RtdbConfig.s, which
-// applyPendingConfigUpdate() re-adopts when EEPROM has none. VERIFY THAT ON
-// HARDWARE before shipping this: it is the one irreversible failure here.
+// The siren address rides in this record, and a magic bump discards the whole
+// record. It is recovered from RtdbConfig.s, which applyPendingConfigUpdate()
+// re-adopts when EEPROM has none — proven across seven bumps now. The one
+// documented loss (docs/history/siren-hub-free.md) predates that path.
+// `npm run check:sirenAddress` confirms it in one read-only command; see
+// eeprom_store.h's kMagic note for why that is the whole procedure.
 static_assert(sizeof(Config) == 2664, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the

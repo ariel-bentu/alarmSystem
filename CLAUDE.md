@@ -241,11 +241,8 @@ Telegram alerts confirmed. 182 native unit tests pass.
 moved from the 24-bit code to the 20-bit family, and tamper / water / close /
 battery-low are now distinguished per packet. The cloud + web halves are
 deployable on their own and deliver tamper/water/battery alerting without
-touching the device. The firmware half is NOT hardware-tested and carries an
-**EEPROM magic bump** (`sizeof(Config)` 2580 → 2548) — verify the
-`RtdbConfig.s` siren-address re-adoption before flashing, or the physical
-siren pairing is lost. Run `npm run check:sirenAddress` (read-only) first: if
-Firestore `sirenBaseAddress` or RTDB `config.s` is absent, do NOT flash. The
+touching the device. Carried an EEPROM magic bump (`sizeof(Config)`
+2580 → 2548); the siren address survived it, as it has every bump since. The
 `familyId` backfill (`cd functions && npm run migrate:familyIds`, dry-run by
 default) has not been run; every reader derives the family from `rfId` when
 it is absent, so nothing is blocked on it.
@@ -304,16 +301,17 @@ same derived-state trap below. `judgeWaitSec` is in
 `onProjectConfigChange`'s guard for the same reason, and **doubles as the
 hold duration** rather than adding a second knob that could drift.
 
-⚠️ **EEPROM magic bump `0xA1A2B3BB` → `BC`** — `sizeof(Config)` 2632 → 2664
+EEPROM magic bump `0xA1A2B3BB` → `BC` — `sizeof(Config)` 2632 → 2664
 (**measured**: the `bool` costs 2 bytes × 16 sensors after padding,
-`sirenHoldSec` fits in existing padding). Verified recoverable before
-commit: `npm run check:sirenAddress` reports `0x93CF80` in **both** Firestore
-`sirenBaseAddress` and RTDB `config.s`. **Re-run it before flashing anyway.**
+`sirenHoldSec` fits in existing padding). `check:sirenAddress` showed
+`0x93CF80` on both sides beforehand, as expected.
 
-Deploy order: **functions before web** (the web writes `judgeWaitSec`, which
-only means anything once the functions read it), and flashing is independent
-of both — an unflashed device simply ignores `sh`/`nd` and sirens as it does
-today.
+**FLASHED 2026-10-05.** The cloud halves are NOT deployed yet, which is a
+safe order: without `sh`/`nd` in RTDB config the device parses
+`sirenHoldSec` as 0 and every siren fires immediately — exactly today's
+behaviour. Nothing changes until functions+web are deployed **and**
+`judgeWaitSec` is set (it is off by default). Deploy **functions before
+web**: the web writes `judgeWaitSec` and only the functions act on it.
 
 ⚠️ **RTDB `/{projectId}/config` is derived state.** `buildRtdbConfig` runs only
 from triggers: profile / rule / remote / project-config, plus
@@ -442,11 +440,8 @@ until its boxes are ticked in the Sensors tab.
 
 Device config carries one `cmask[]` bitmask (channel N = bit N-1), index-aligned
 with `r`, replacing `os[]`/`cch[]`; omitted wholesale when every mask is 0.
-⚠️ **EEPROM magic bump `0xA1A2B3BA` → `BB`** — `sizeof(Config)` 2664 → 2632
-(measured, not predicted). Per
-[siren-address-never-restorable-from-cloud](docs/history/siren-hub-free.md),
-run `npm run check:sirenAddress` before flashing or the physical siren pairing
-is lost. New `onSensorConfigChange` trigger rebuilds RTDB config on a
+EEPROM magic bump `0xA1A2B3BA` → `BB` — `sizeof(Config)` 2664 → 2632
+(measured, not predicted). New `onSensorConfigChange` trigger rebuilds RTDB config on a
 device-visible sensor write — without it the camera selection would never reach
 the device (the derived-state trap below), guarded so renames and alert markers
 don't churn the config.
@@ -657,14 +652,17 @@ sensor, and the values reach RTDB. Use this to diagnose the intermittent
    explicitly definite, 8 explicitly not). Unset defaults to definite, so 9
    sensors currently break through a muted ringer. **Now also decides which
    sensors get the siren hold**, so an unset sensor sirens immediately
-7. **Deploy + flash the false-alarm suppression work (2026-10-05).** Order:
-   `check:sirenAddress` → functions → web → flash. Then on hardware:
-   two triggers ~6s apart must NOT alarm (wait 5s+ between them, per the 3s
-   dedup in `poll()`); ~25s apart must; an empty frame must hold the siren,
-   notify nothing and write `commands/fp`; a person must fire the siren after
-   the hold and escalate to P2. ⚠️ **Do not skip the fail-loud test: pull the
-   NVR's network cable and trigger** — the siren must still sound when the
-   hold expires, and the sweeper must announce it within ~60s
+7. **Deploy the false-alarm suppression work.** Firmware ~~flash~~
+   **FLASHED 2026-10-05**; functions + web still to deploy (functions
+   first), then set `judgeWaitSec` — it is off by default, so nothing is
+   active yet. Then on hardware: two triggers ~6s apart must NOT alarm
+   (wait 5s+ between them, per the 3s dedup in `poll()`); ~25s apart must;
+   an empty frame must hold the siren, notify nothing and write
+   `commands/fp`; a person must fire the siren after the hold and escalate
+   to P2. ⚠️ **Do not skip the fail-loud test: pull the NVR's network cable
+   and trigger** — the siren must still sound when the hold expires, and the
+   sweeper must announce it within ~60s. (That one is a real unknown; the
+   EEPROM bump is not — see the siren-address note above.)
 8. Set `judgePrompt` (currently **null**, so `buildPrompt()` renders
    `(none)` and the judge is blind to the insect-on-lens artifact it reported
    itself) and pin `judgeModel` (currently **unset**, riding an alias Google

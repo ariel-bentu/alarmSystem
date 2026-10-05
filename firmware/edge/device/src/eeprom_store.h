@@ -32,13 +32,14 @@ class EepromStore {
   // cloud. Paired remotes survive because they are re-pushed from Firestore;
   // a device with no WiFi at that moment has none until it reconnects once.
   //
-  // The SIREN ADDRESS is the one thing that is not merely re-pulled: the
-  // device→cloud path is write-only, so a wiped EEPROM re-adopts it from the
-  // config's `s` field (main.cpp applyPendingConfigUpdate) — and only if the
-  // project has already reported one. A device that has never been online
-  // with a valid address generates a NEW one and loses the physical siren
-  // pairing, which must then be redone by hand. Verify /{projectId}/state
-  // carries the siren address before flashing a magic bump to live hardware.
+  // The SIREN ADDRESS is the one thing not re-pulled from the usual config
+  // path, because device->cloud is write-only for it. A wiped EEPROM
+  // re-adopts it from the config's `s` field (main.cpp
+  // applyPendingConfigUpdate) — provided the project has already reported
+  // one. Only a device that has NEVER been online with a valid address mints
+  // a new one, losing the physical pairing. `npm run check:sirenAddress`
+  // answers that in one read-only command; see the note on kMagic below for
+  // the track record.
   // Bumped B8 -> B9 when SensorConfig::rfId[11] became familyId[9] (matching
   // moved from the full 24-bit code to the 20-bit family), changing
   // sizeof(Config) 2580 -> 2548. A stale record must be DISCARDED, not
@@ -59,10 +60,18 @@ class EepromStore {
   // 2632 -> 2664 (MEASURED: the bool costs 2 bytes x 16 sensors after
   // padding; sirenHoldSec fits in existing padding and costs nothing).
   //
-  // The siren address is the casualty of any bump here: it lives in this
-  // record, is write-only device->cloud, and a discarded record silently
-  // breaks the physical siren pairing. RtdbConfig.s is the recovery path —
-  // see alarm_state.h's note and verify it on hardware.
+  // A BUMP IS ROUTINE. Seven of them so far (B5->B6->B7->B8->B9->BA->BB->BC)
+  // and the siren address has survived every one since RtdbConfig.s became
+  // the recovery path. The single documented loss predates that path.
+  //
+  // So the whole procedure is: run `npm run check:sirenAddress` (read-only).
+  // If it prints an address for BOTH Firestore sirenBaseAddress and RTDB
+  // config.s, flash. If a line is MISSING, stop — that is the only dangerous
+  // case, and it means the device has never reported an address for the
+  // wiped record to re-adopt.
+  //
+  // Resist re-inflating this into a warning. The fear here outlived the bug
+  // by five bumps and made every unrelated Config change feel risky.
   static constexpr uint32_t kMagic = 0xA1A2B3BC;
 
   bool begin();
