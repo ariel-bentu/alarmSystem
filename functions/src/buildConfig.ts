@@ -40,7 +40,14 @@ function toRtdbCondition(
   const x = always ? ({ x: 1 } as const) : {};
 
   if (condition.type === "count_in_window") {
-    return { t, n: condition.count, w: condition.window_sec, ...x };
+    // Same spread-not-undefined reason as `x` above, plus: an unset min gap
+    // must leave the payload byte-identical to what it was before the field
+    // existed, since the device polls this every 5s.
+    const g =
+      typeof condition.min_gap_sec === "number" && condition.min_gap_sec > 0
+        ? { g: condition.min_gap_sec }
+        : {};
+    return { t, n: condition.count, w: condition.window_sec, ...g, ...x };
   }
   if (condition.type === "entry_delay") {
     return { t, y: condition.delay_sec, ...x };

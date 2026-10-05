@@ -208,6 +208,63 @@ describe("buildRtdbConfig", () => {
     });
   });
 
+  describe("min_gap_sec", () => {
+    it("emits g when min_gap_sec is set", () => {
+      const rules: Rule[] = [
+        {
+          id: "r1",
+          name: "PIR",
+          sensors: ["s1"],
+          condition: {
+            type: "count_in_window",
+            count: 2,
+            window_sec: 120,
+            min_gap_sec: 20,
+          },
+        },
+      ];
+      const config = buildRtdbConfig(rules, sensors, true, 120);
+
+      expect(config.c).toEqual([[{ t: 1, n: 2, w: 120, g: 20 }]]);
+    });
+
+    // Omitted, not sent as 0 or undefined: RTDB rejects undefined outright,
+    // and the device polls this payload every 5s so the common shape must not
+    // grow a key for a feature almost no rule uses.
+    it("omits g entirely when min_gap_sec is absent", () => {
+      const rules: Rule[] = [
+        {
+          id: "r1",
+          name: "PIR",
+          sensors: ["s1"],
+          condition: { type: "count_in_window", count: 2, window_sec: 120 },
+        },
+      ];
+      const config = buildRtdbConfig(rules, sensors, true, 120);
+
+      expect(config.c).toEqual([[{ t: 1, n: 2, w: 120 }]]);
+    });
+
+    it("omits g when min_gap_sec is 0", () => {
+      const rules: Rule[] = [
+        {
+          id: "r1",
+          name: "PIR",
+          sensors: ["s1"],
+          condition: {
+            type: "count_in_window",
+            count: 2,
+            window_sec: 120,
+            min_gap_sec: 0,
+          },
+        },
+      ];
+      const config = buildRtdbConfig(rules, sensors, true, 120);
+
+      expect(config.c).toEqual([[{ t: 1, n: 2, w: 120 }]]);
+    });
+  });
+
   it("returns empty r/c for empty rules", () => {
     const config = buildRtdbConfig([], sensors, false, 120);
 

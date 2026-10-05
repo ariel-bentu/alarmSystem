@@ -223,6 +223,11 @@ export const en = {
   "cfg.rule.count": "Trigger count",
   "cfg.rule.windowSec": "Window (seconds)",
   "cfg.rule.delaySec": "Delay (seconds)",
+  // Minimum separation between triggers. Optional: blank/0 = no minimum,
+  // which is how every rule behaved before the field existed.
+  "cfg.rule.minGapSec": "Minimum gap (seconds)",
+  "cfg.rule.minGapHelp":
+    "Ignores repeat triggers that arrive sooner than this, so a motion sensor re-triggering on the same movement does not count twice. Leave blank for no minimum. Use a wider window when you set this — with a 30s window and a 20s gap almost nothing can match.",
   "cfg.rule.triggersPerSensor": "Triggers required per sensor",
   "cfg.rule.conditionType": "Condition Type",
   "cfg.rule.multiHint": "Two or more sensors — the rule is a Multi Sensor condition.",

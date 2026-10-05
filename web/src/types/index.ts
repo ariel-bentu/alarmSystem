@@ -227,6 +227,15 @@ export interface Condition {
   // it to fire ("2 of 3"). ABSENT means all of them — the original AND — so
   // rules predating this field keep their behaviour untouched.
   quorum?: number;
+  // count_in_window only: minimum seconds between two triggers for the second
+  // to count as a separate witness, so a PIR re-triggering on its own
+  // stimulus cannot corroborate itself. ABSENT or 0 = no minimum, which is
+  // how every rule predating this field behaves.
+  //
+  // Pair it with a WIDER window_sec: against a 30s window, a 20s gap leaves
+  // almost no satisfiable slot. See functions/src/types.ts for the measured
+  // trigger-gap distribution this came from.
+  min_gap_sec?: number;
 }
 
 export interface Rule {

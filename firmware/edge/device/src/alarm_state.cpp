@@ -103,7 +103,33 @@ bool AlarmState::evaluateCondition(uint8_t sensorIndex, uint8_t conditionIndex, 
       }
       rt.triggerCount = kept;
       recordTrigger(rt, nowMs);
-      return rt.triggerCount >= cond.n;
+      if (cond.g == 0) return rt.triggerCount >= cond.n;
+
+      // Minimum separation: only triggers at least `g` seconds apart count as
+      // separate witnesses, so a PIR's own echo cannot corroborate itself.
+      //
+      // Greedy from the OLDEST (triggerTimesMs is append-ordered, so already
+      // ascending): take the earliest, then each one at least `g` after the
+      // last COUNTED trigger — not merely after its predecessor, or a dense
+      // burst would ratchet its way to the threshold. Maximum selection, so
+      // the rule stays as sensitive as the constraint allows.
+      //
+      // Must match evaluateCondition()'s count_in_window branch in
+      // functions/src/alarmLogic.ts exactly.
+      unsigned long minGapMs = (unsigned long)cond.g * 1000UL;
+      uint8_t witnesses = 0;
+      bool haveLast = false;
+      unsigned long lastCounted = 0;
+      for (uint8_t h = 0; h < rt.triggerCount; h++) {
+        // Subtraction, never addition: these are millis() values and
+        // lastCounted + minGapMs could overflow across the ~49-day wrap.
+        if (!haveLast || rt.triggerTimesMs[h] - lastCounted >= minGapMs) {
+          witnesses++;
+          lastCounted = rt.triggerTimesMs[h];
+          haveLast = true;
+        }
+      }
+      return witnesses >= cond.n;
     }
 
     case 2: // entry_delay

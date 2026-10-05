@@ -244,6 +244,59 @@ void test_absent_quorum_defaults_to_zero_meaning_all() {
   TEST_ASSERT_EQUAL_UINT8(0, config.sensors[0].conditions[0].q);
 }
 
+void test_parses_count_in_window_min_gap() {
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [
+      [{ "t": 1, "n": 2, "w": 120, "g": 20 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(20, config.sensors[0].conditions[0].g);
+}
+
+void test_absent_min_gap_defaults_to_zero_meaning_no_minimum() {
+  // The server omits g whenever it is unset or 0, so this is the shape of
+  // every count_in_window rule that predates the field — it must decode to
+  // "no minimum", which is why no migration is needed.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [
+      [{ "t": 1, "n": 2, "w": 120 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(0, config.sensors[0].conditions[0].g);
+}
+
+void test_min_gap_above_uint8_is_clamped_not_truncated() {
+  // 300 would wrap to 44, a SMALLER gap than configured — a weaker filter
+  // than the user asked for. Clamp to 255 instead.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [
+      [{ "t": 1, "n": 2, "w": 600, "g": 300 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(255, config.sensors[0].conditions[0].g);
+}
+
 void test_quorum_larger_than_participants_is_clamped_to_all() {
   // A quorum above kLen would be permanently unfireable. Clamped to 0
   // (= all) rather than stored, matching how bad k indices are dropped.
@@ -476,6 +529,9 @@ void setup() {
   RUN_TEST(test_k_array_with_null_holes_skips_them);
   RUN_TEST(test_parses_multi_sensor_quorum);
   RUN_TEST(test_absent_quorum_defaults_to_zero_meaning_all);
+  RUN_TEST(test_parses_count_in_window_min_gap);
+  RUN_TEST(test_absent_min_gap_defaults_to_zero_meaning_no_minimum);
+  RUN_TEST(test_min_gap_above_uint8_is_clamped_not_truncated);
   RUN_TEST(test_quorum_larger_than_participants_is_clamped_to_all);
   RUN_TEST(test_parses_always_flag);
   RUN_TEST(test_absent_x_means_not_always);

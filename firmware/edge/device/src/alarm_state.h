@@ -17,6 +17,25 @@ struct Condition {
   // existed decodes to — so no migration is needed. Mirrored by quorumOf()
   // in functions/src/alarmLogic.ts; the two evaluators must agree.
   uint8_t q = 0;
+  // count_in_window minimum separation, seconds: two triggers closer together
+  // than this count as ONE witness. 0 = no minimum, which is both the
+  // historical behaviour and what a config written before this field existed
+  // decodes to — so no migration is needed, exactly like `q` above.
+  //
+  // Why: a PIR re-triggering on its own stimulus is one physical event, and a
+  // bare count_in_window counts that echo as corroboration. Measured on
+  // sensor 0x009BFA (992 events): median gap between the 1st and 2nd trigger
+  // of a burst is 10s, and 51% of multi-trigger bursts are <=10s.
+  //
+  // Mirrored by min_gap_sec in functions/src/alarmLogic.ts; the two
+  // evaluators must agree.
+  //
+  // uint8_t, not uint16_t: a min gap is tens of seconds (it must be well
+  // under `w` to leave a satisfiable slot at all), so 255s is ample, and the
+  // narrower type packs into Condition's existing padding instead of costing
+  // 2 bytes x 4 conditions x 16 sensors = 128 in the EEPROM record.
+  // config_parser clamps anything larger.
+  uint8_t g = 0;
   // Fires regardless of arm state (smoke, gas). Always implies a
   // single-sensor immediate condition, so it carries no runtime state.
   bool always = false;

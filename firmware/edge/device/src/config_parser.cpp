@@ -104,6 +104,12 @@ bool parseConfigJson(const char* json, Config* out) {
       cond.n = condJson["n"] | 0;
       cond.w = condJson["w"] | 0;
       cond.y = condJson["y"] | 0;
+      // count_in_window minimum separation, seconds. Omitted when unset or 0.
+      // Clamped to Condition::g's uint8_t range rather than truncated: a
+      // wrapped value would silently become a SMALLER gap than configured,
+      // i.e. a weaker filter than the user asked for.
+      unsigned long gRaw = condJson["g"] | 0UL;
+      cond.g = gRaw > 255UL ? 255 : (uint8_t)gRaw;
       // Always-on: fires regardless of arm state. Omitted when false.
       cond.always = (condJson["x"] | 0) == 1;
       cond.kLen = 0;

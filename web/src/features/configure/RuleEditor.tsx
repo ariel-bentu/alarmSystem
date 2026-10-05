@@ -6,6 +6,7 @@ import {
 } from "./profileRules";
 import { useT } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/en";
+import { Help } from "@/components/Help";
 
 // Default params for each condition type.
 function defaultsFor(type: ConditionType): Condition {
@@ -125,6 +126,23 @@ export default function RuleEditor({
     onChange(next);
   };
 
+  // For OPTIONAL numeric params: clearing the input must DELETE the key, not
+  // write NaN. Writing the key as 0 would be nearly as bad — Firestore would
+  // then hold an explicit 0 where "unset" is the documented default, and
+  // buildConfig's "omit when absent or 0" rule is what keeps the
+  // device-polled payload unchanged for rules that don't use the field.
+  const handleOptionalParamChange = (key: string, raw: string) => {
+    const next = { ...localCondition };
+    const parsed = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(parsed) || parsed <= 0) {
+      delete (next as Record<string, unknown>)[key];
+    } else {
+      (next as Record<string, unknown>)[key] = parsed;
+    }
+    setLocalCondition(next);
+    onChange(next);
+  };
+
   const isValid = conditionParamsValid(localCondition);
 
   return (
@@ -224,6 +242,25 @@ export default function RuleEditor({
               value={localCondition.window_sec ?? ""}
               onChange={(e) =>
                 handleParamChange("window_sec", Number(e.target.value))
+              }
+            />
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="cond-min-gap">
+              {t("cfg.rule.minGapSec")}
+              <Help
+                text={t("cfg.rule.minGapHelp")}
+                label={t("cfg.rule.minGapSec")}
+              />
+            </label>
+            <input
+              id="cond-min-gap"
+              className="input input--narrow"
+              type="number"
+              min={0}
+              value={localCondition.min_gap_sec ?? ""}
+              onChange={(e) =>
+                handleOptionalParamChange("min_gap_sec", e.target.value)
               }
             />
           </div>

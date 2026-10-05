@@ -47,6 +47,22 @@ export interface Condition {
   // rules predating this field need no migration. Clamped, never trusted
   // raw: see quorumOf() in alarmLogic.ts.
   quorum?: number;
+  // count_in_window only: minimum seconds between two triggers for the second
+  // to count as a SEPARATE witness. ABSENT or 0 means no minimum, which is
+  // what every rule predating this field means — so no migration.
+  //
+  // Why it exists: a PIR re-triggering on its own stimulus is one physical
+  // event, and a bare count_in_window counts that echo as corroboration.
+  // Measured on sensor 0x009BFA (992 events): median gap between the 1st and
+  // 2nd trigger of a burst is 10s, and 51% of multi-trigger bursts are <=10s.
+  //
+  // Pair it with a WIDER window_sec, not the default. Against a 30s window,
+  // min_gap_sec 20 leaves only a [20,30] slot — 20 of 193 real bursts — which
+  // suppresses genuine two-pass movement too. 20/120 is the shape that works.
+  //
+  // Mirrored by Condition::g in the firmware's alarm_state.h; the two
+  // evaluators must agree or device and server disagree about the alarm.
+  min_gap_sec?: number;
 }
 
 export interface Rule {
@@ -354,6 +370,10 @@ export interface RtdbRawEvent {
 //    ("2 of 3"). Omitted when it equals the participant count, which is the
 //    AND every rule used to have, so the common payload is unchanged. The
 //    firmware reads an absent q as 0, meaning "all" (Condition::q).
+// g: min_gap_sec (count_in_window) — minimum seconds between two triggers for
+//    the second to count as a separate witness. Omitted when unset or 0, so
+//    the common payload is unchanged; the firmware reads an absent g as 0,
+//    meaning "no minimum" (Condition::g).
 // x: always-on — 1 when the rule fires regardless of arm state. Omitted when
 //    false so the common payload is unchanged (the device polls this every 5s).
 export interface RtdbCondition {
@@ -363,6 +383,7 @@ export interface RtdbCondition {
   y?: number;
   k?: Record<string, number>;
   q?: number;
+  g?: number;
   x?: 1;
 }
 

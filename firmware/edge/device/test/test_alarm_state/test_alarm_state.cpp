@@ -154,6 +154,95 @@ void test_count_in_window_resets_outside_window() {
   TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 41000));
 }
 
+// min_gap (Condition::g): a PIR re-triggering on its own stimulus is ONE
+// physical event, so a second trigger closer than `g` seconds must not count
+// as corroboration. Mirrors the count_in_window branch of evaluateCondition()
+// in functions/src/alarmLogic.ts — if the two disagree, the device and the
+// server disagree about whether the house is in alarm.
+//
+// The 2026-10-05 05:52 false alarm was exactly this shape: two triggers 6s
+// apart satisfying a 2-in-30s rule, with nobody in frame.
+void test_count_in_window_min_gap_rejects_echo() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1; // count_in_window
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 120;
+  config.sensors[0].conditions[0].g = 20; // 20s minimum separation
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000));
+  // 6s later: inside the window, but an echo -> must NOT fire.
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 7000));
+}
+
+void test_count_in_window_min_gap_accepts_separated_triggers() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1;
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 120;
+  config.sensors[0].conditions[0].g = 20;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000));
+  // 25s later: a genuinely separate witness -> fires.
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 26000));
+}
+
+// An echo between two sparse triggers must not block the pair: counting
+// greedily from the oldest, the echo is skipped and the later trigger still
+// corroborates the first.
+void test_count_in_window_min_gap_skips_echo_between_witnesses() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1;
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 120;
+  config.sensors[0].conditions[0].g = 20;
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000));  // witness 1
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 7000));  // echo, 6s -> skipped
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 26000));  // 25s after witness 1
+}
+
+// g unset (0) must behave EXACTLY as before the field existed: this is the
+// no-migration guarantee, since a config written by older firmware decodes to
+// g == 0.
+void test_count_in_window_min_gap_absent_is_unchanged() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 1;
+  config.sensors[0].conditions[0].n = 2;
+  config.sensors[0].conditions[0].w = 120;
+  // g deliberately left at its 0 default.
+
+  AlarmState state;
+  state.setConfig(config);
+
+  TEST_ASSERT_FALSE(state.onSensorEvent("A1B2C3", 1000));
+  TEST_ASSERT_TRUE(state.onSensorEvent("A1B2C3", 7000)); // 6s apart still fires
+}
+
 void test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay() {
   Config config;
   config.armed = true;
@@ -734,6 +823,10 @@ void setup() {
   RUN_TEST(test_disarmed_ordinary_accumulates_no_history);
   RUN_TEST(test_count_in_window_requires_n_triggers_within_w);
   RUN_TEST(test_count_in_window_resets_outside_window);
+  RUN_TEST(test_count_in_window_min_gap_rejects_echo);
+  RUN_TEST(test_count_in_window_min_gap_accepts_separated_triggers);
+  RUN_TEST(test_count_in_window_min_gap_skips_echo_between_witnesses);
+  RUN_TEST(test_count_in_window_min_gap_absent_is_unchanged);
   RUN_TEST(test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay);
   RUN_TEST(test_entry_delay_disarm_cancels_pending_fire);
   RUN_TEST(test_multi_sensor_requires_all_participants_within_window);

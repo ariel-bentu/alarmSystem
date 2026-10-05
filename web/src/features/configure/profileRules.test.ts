@@ -116,6 +116,58 @@ describe("conditionParamsValid", () => {
     ).toBe(false);
   });
 
+  // min_gap_sec is optional, but a gap too wide for the window makes the rule
+  // unsatisfiable: `count` witnesses each min_gap_sec apart must fit inside
+  // window_sec. The default 2-in-30s rule with a 20s gap leaves only a [20,30]
+  // slot — measured at 20 of 193 real bursts on this project's own data — and
+  // a 40s gap in a 30s window can never fire at all.
+  it("count_in_window accepts an absent or zero min_gap_sec", () => {
+    expect(
+      conditionParamsValid({ type: "count_in_window", count: 2, window_sec: 120 })
+    ).toBe(true);
+    expect(
+      conditionParamsValid({
+        type: "count_in_window",
+        count: 2,
+        window_sec: 120,
+        min_gap_sec: 0,
+      })
+    ).toBe(true);
+  });
+
+  it("count_in_window accepts a min_gap_sec that fits the window", () => {
+    // 2 witnesses 20s apart need 20s of span, which fits in 120s.
+    expect(
+      conditionParamsValid({
+        type: "count_in_window",
+        count: 2,
+        window_sec: 120,
+        min_gap_sec: 20,
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a min_gap_sec that makes the rule unsatisfiable", () => {
+    // 2 witnesses 40s apart cannot both land inside a 30s window.
+    expect(
+      conditionParamsValid({
+        type: "count_in_window",
+        count: 2,
+        window_sec: 30,
+        min_gap_sec: 40,
+      })
+    ).toBe(false);
+    // 3 witnesses 20s apart need 40s of span; a 30s window cannot hold them.
+    expect(
+      conditionParamsValid({
+        type: "count_in_window",
+        count: 3,
+        window_sec: 30,
+        min_gap_sec: 20,
+      })
+    ).toBe(false);
+  });
+
   it("entry_delay requires delay_sec > 0", () => {
     expect(conditionParamsValid({ type: "entry_delay", delay_sec: 30 })).toBe(
       true
