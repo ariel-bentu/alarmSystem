@@ -74,13 +74,35 @@ function makeFakeFirestore(seed: Record<string, FakeDocData> = {}) {
   }
 
   function collectionRef(path: string) {
-    return {
+    const listDocs = (filters: Array<[string, unknown]> = [], limit?: number) => {
+      const prefix = path + "/";
+      let docs = Array.from(store.entries())
+        .filter(([k]) => k.startsWith(prefix) && !k.slice(prefix.length).includes("/"))
+        .map(([k, v]) => ({ id: k.slice(prefix.length), data: () => v, _raw: v }));
+      for (const [field, value] of filters) {
+        docs = docs.filter((d) => (d._raw as FakeDocData)[field] === value);
+      }
+      if (limit !== undefined) docs = docs.slice(0, limit);
+      return { docs, empty: docs.length === 0 };
+    };
+
+    // Chainable where()/limit(), enough for loadDeviceActiveRules' lookup of
+    // the isActiveOnDevice profile. Only equality filters are modelled, which
+    // is all this codebase's queries use here.
+    const query = (filters: Array<[string, unknown]>, limit?: number) => ({
+      where: (field: string, _op: string, value: unknown) =>
+        query([...filters, [field, value]], limit),
+      limit: (n: number) => query(filters, n),
       async get() {
-        const prefix = path + "/";
-        const docs = Array.from(store.entries())
-          .filter(([k]) => k.startsWith(prefix) && !k.slice(prefix.length).includes("/"))
-          .map(([k, v]) => ({ id: k.slice(prefix.length), data: () => v }));
-        return { docs, empty: docs.length === 0 };
+        return listDocs(filters, limit);
+      },
+    });
+
+    return {
+      where: (field: string, _op: string, value: unknown) => query([[field, value]]),
+      limit: (n: number) => query([], n),
+      async get() {
+        return listDocs();
       },
     };
   }
@@ -146,7 +168,13 @@ function makeDeps(opts: {
     seed[`projects/${PROJECT_ID}/sensors/${id}`] = data;
   }
   const fs = makeFakeFirestore(seed);
-  const rtdb = makeFakeRtdb(opts.rtdbSeed ?? {});
+  // state/armed defaults TRUE: the judge gate is now "was the system armed?"
+  // (judgeGate.shouldJudge), and every scenario in this file describes an
+  // armed trigger. A test that needs the disarmed case seeds it explicitly.
+  const rtdb = makeFakeRtdb({
+    [`${PROJECT_ID}/state/armed`]: true,
+    ...(opts.rtdbSeed ?? {}),
+  });
 
   const deps: SnapshotUploadDeps = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -219,21 +247,45 @@ describe("handleSnapshotUpload", () => {
     expect(judgeFor).not.toHaveBeenCalled();
   });
 
-  it("(c) does NOT call the judge when there is no fresh matching alarm_cause (not armed at trigger time)", async () => {
+  // (c), (c2) and (c3) USED TO assert that an absent / mismatched / stale
+  // alarm_cause skipped the judge. That was the bug, not the contract: it made
+  // the judge structurally unreachable for count_in_window rules, because
+  // trigger 1 has no cause yet (the count is unmet) and trigger 2 is inside
+  // the capture cooldown so has no images. The tests pinned it in place, which
+  // is why it survived to be found on hardware (2026-10-05).
+  //
+  // The gate is now ARMED. The cause is still read, but only to decide what to
+  // DO with a verdict, never whether to form one.
+
+  it("(c) JUDGES an armed trigger with no alarm_cause at all", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty yard" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
     const { deps } = makeDeps({
       project: { nvrMode: "capture+judge" },
-      // No alarm_cause at all recorded for this rfId/ts.
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Front door" } },
+      // No alarm_cause: the rules have not fired. This is trigger 1 of a
+      // count_in_window episode, and its verdict is what trigger 2 inherits.
       rtdbSeed: {},
     });
 
     await handleSnapshotUpload(deps, objectName(0));
 
-    expect(judgeFor).not.toHaveBeenCalled();
+    expect(judgeFor).toHaveBeenCalled();
+    expect(stubJudge.judge).toHaveBeenCalledTimes(1);
   });
 
-  it("(c2) does NOT call the judge when the recorded cause is for a different sensor family", async () => {
+  it("(c2) judges even when the recorded cause is for a different sensor family", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty yard" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
     const { deps } = makeDeps({
       project: { nvrMode: "capture+judge" },
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Front door" } },
       rtdbSeed: {
         [`${PROJECT_ID}/state/alarm_cause`]: { rfId: "0x09999A", at: TS },
       },
@@ -241,15 +293,18 @@ describe("handleSnapshotUpload", () => {
 
     await handleSnapshotUpload(deps, objectName(0));
 
-    expect(judgeFor).not.toHaveBeenCalled();
+    expect(stubJudge.judge).toHaveBeenCalledTimes(1);
   });
 
-  it("(c3) does NOT call the judge when the recorded cause is stale relative to the trigger ts", async () => {
+  it("(c3) does NOT judge while DISARMED, whatever the cause says", async () => {
     const { deps } = makeDeps({
       project: { nvrMode: "capture+judge" },
       rtdbSeed: {
-        // Written 2 minutes before this trigger's own ts -> stale.
-        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS - 120_000 },
+        [`${PROJECT_ID}/state/armed`]: false,
+        // A fresh, perfectly matching cause must not override the arm gate:
+        // capture happens on triggers, and a disarmed system has no alarm to
+        // confirm or deny.
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
       },
     });
 
@@ -632,6 +687,153 @@ describe("handleSnapshotUpload", () => {
     expect(msg.severity).toBe("loud");
     // The photo still goes out either way.
     expect(sendTelegramPhoto).toHaveBeenCalledTimes(1);
+  });
+
+  // --- judge as EVIDENCE: raising the alarm via commands/breach ---
+  //
+  // When the rules have NOT fired but a condition covering the sensor sets
+  // breach_satisfies, a breach verdict raises the alarm itself. The rationale:
+  // count_in_window is a proxy for "is this a person", and a breach answers
+  // that directly — two unjudged triggers are weaker evidence than one trigger
+  // plus a person visibly in frame.
+
+  const flaggedRule = (sensors: string[], type: "count_in_window" | "multi_sensor") => ({
+    sensors,
+    condition:
+      type === "count_in_window"
+        ? { type, count: 2, window_sec: 30, min_gap_sec: 15, breach_satisfies: true }
+        : { type, window_sec: 30, breach_satisfies: true },
+  });
+
+  function withProfile(
+    fs: ReturnType<typeof makeFakeFirestore>,
+    rules: Record<string, FakeDocData>
+  ) {
+    fs._store.set(`projects/${PROJECT_ID}/profiles/p1`, { isActiveOnDevice: true });
+    for (const [id, r] of Object.entries(rules)) {
+      fs._store.set(`projects/${PROJECT_ID}/profiles/p1/rules/${id}`, r);
+    }
+  }
+
+  it("raises the alarm via commands/breach when no rule alarm exists and the condition opts in", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person at the shed" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs, rtdb } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: {}, // no alarm_cause: the count was never met
+    });
+    withProfile(fs, { r1: flaggedRule(["s1"], "count_in_window") });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(rtdb._store.get(`${PROJECT_ID}/commands/breach`)).toEqual({
+      rfId: RF_ID,
+      ts: TS,
+      at: 1700000000000,
+    });
+    // First and only alert for this episode, so always emergency — the
+    // definite/non-definite downgrade exists only to avoid doubling an alert
+    // that already went out, and nothing went out here.
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    expect(msg.severity).toBe("alarm");
+    expect(msg.title).toBe("Breach detected");
+  });
+
+  // One participant's breach satisfies the WHOLE multi_sensor rule: the AND
+  // exists because one PIR is noisy, and vision removes exactly that noise.
+  it("raises the alarm from a multi_sensor condition on one participant", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs, rtdb } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: {},
+    });
+    withProfile(fs, { r1: flaggedRule(["s1", "s2", "s3"], "multi_sensor") });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(rtdb._store.get(`${PROJECT_ID}/commands/breach`)).toBeDefined();
+  });
+
+  it("does NOT raise the alarm when no covering condition opts in", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs, rtdb } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: {},
+    });
+    withProfile(fs, {
+      r1: { sensors: ["s1"], condition: { type: "count_in_window", count: 2, window_sec: 30 } },
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(rtdb._store.get(`${PROJECT_ID}/commands/breach`)).toBeUndefined();
+  });
+
+  // The rules already fired, so the alarm exists and this verdict only
+  // CONFIRMS it. Raising it again would be a second alarm for one event.
+  it("does NOT write commands/breach when the rules already alarmed", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs, rtdb } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+    withProfile(fs, { r1: flaggedRule(["s1"], "count_in_window") });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(rtdb._store.get(`${PROJECT_ID}/commands/breach`)).toBeUndefined();
+    // Escalation tier, not the judge-raised tier: a non-definite sensor's
+    // alarm already went out at P0, so this is the escalation to P2.
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    expect(msg.title).toBe("Confirmed breach");
+  });
+
+  // A safe verdict never raises anything, whatever the condition says.
+  it("does NOT write commands/breach on a safe verdict", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs, rtdb } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: {},
+    });
+    withProfile(fs, { r1: flaggedRule(["s1"], "count_in_window") });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(rtdb._store.get(`${PROJECT_ID}/commands/breach`)).toBeUndefined();
   });
 
   // --- judge-gated alerting: clearing the pending-alarm marker ---
