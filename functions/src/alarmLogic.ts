@@ -82,6 +82,34 @@ function evaluateCondition(
       const matchingEvents = recentEvents.filter(
         (e) => e.sensorId === event.sensorId && e.timestamp.toMillis() >= cutoff
       );
+      const minGapMs = (condition.min_gap_sec ?? 0) * 1000;
+      if (minGapMs > 0) {
+        // Only triggers at least min_gap_sec apart count as separate
+        // witnesses, so a PIR's own echo cannot corroborate itself.
+        //
+        // Greedy from the OLDEST: take the earliest trigger, then each
+        // subsequent one that is >= minGap after the last COUNTED one (not
+        // merely after its predecessor, or a dense burst would ratchet its way
+        // to the threshold). This is the standard maximum-selection for
+        // minimum-separation and yields the largest possible witness count,
+        // which keeps the rule as sensitive as the constraint allows.
+        //
+        // recentEvents is documented newest-first and excludes the current
+        // event, so sort ascending and append `now`.
+        const times = matchingEvents
+          .map((e) => e.timestamp.toMillis())
+          .concat(now)
+          .sort((a, b) => a - b);
+        let witnesses = 0;
+        let lastCounted = -Infinity;
+        for (const t of times) {
+          if (t - lastCounted >= minGapMs) {
+            witnesses++;
+            lastCounted = t;
+          }
+        }
+        return { triggered: witnesses >= count };
+      }
       // +1 for the current event which may not yet be in recentEvents
       const total = matchingEvents.length + 1;
       return { triggered: total >= count };

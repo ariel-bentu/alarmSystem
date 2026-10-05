@@ -40,7 +40,14 @@ function toRtdbCondition(
   const x = always ? ({ x: 1 } as const) : {};
 
   if (condition.type === "count_in_window") {
-    return { t, n: condition.count, w: condition.window_sec, ...x };
+    // Same spread-not-undefined reason as `x` above, plus: an unset min gap
+    // must leave the payload byte-identical to what it was before the field
+    // existed, since the device polls this every 5s.
+    const g =
+      typeof condition.min_gap_sec === "number" && condition.min_gap_sec > 0
+        ? { g: condition.min_gap_sec }
+        : {};
+    return { t, n: condition.count, w: condition.window_sec, ...g, ...x };
   }
   if (condition.type === "entry_delay") {
     return { t, y: condition.delay_sec, ...x };
@@ -139,7 +146,10 @@ export function buildRtdbConfig(
   alwaysRules: Rule[] = [],
   remotes: Remote[] = [],
   sirenBaseAddress?: string,
-  nvr?: NvrSettings
+  nvr?: NvrSettings,
+  // Seconds the device delays the siren for a non-definite sensor. 0/unset =
+  // fire immediately, the behaviour before the hold existed.
+  sirenHoldSec?: number
 ): RtdbConfig {
   const sensorMap = new Map<string, Sensor>();
   for (const s of sensors) {
@@ -215,6 +225,24 @@ export function buildRtdbConfig(
   );
   const hasCameraFlags = cmask.some((v) => v !== 0);
 
+  // Siren hold: which sensors are NOT definite, as indices into r. Sent only
+  // when a hold is actually configured — a project that has not opted in gets
+  // the identical payload it got before this feature, which matters on a
+  // config the device polls every 5s.
+  //
+  // `!== false` rather than a truthiness test: absent means DEFINITE, the
+  // default breachCertainty.isDefiniteBreach owns, so an unconfigured sensor
+  // sounds the siren immediately rather than inheriting a hold.
+  const hold =
+    typeof sirenHoldSec === "number" && sirenHoldSec > 0 ? sirenHoldSec : 0;
+  const nonDefinite = r
+    .map((rfId, i) =>
+      familyToSensor.get(rfId)?.definiteBreach === false ? i : -1
+    )
+    .filter((i) => i !== -1);
+  const holdKeys =
+    hold > 0 && nonDefinite.length > 0 ? { sh: hold, nd: nonDefinite } : {};
+
   const indexOfRfId = (rfId: string) => rIndex.get(rfId) ?? -1;
   const conditionsByRfId = new Map<string, RtdbCondition[]>();
   for (const rfId of r) {
@@ -259,6 +287,7 @@ export function buildRtdbConfig(
     ...sirenKey(sirenBaseAddress),
     ...nvrKeys(nvr),
     ...(hasCameraFlags ? { cmask } : {}),
+    ...holdKeys,
   };
 }
 

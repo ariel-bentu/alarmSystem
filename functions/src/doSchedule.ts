@@ -25,6 +25,7 @@ import { scheduleTick } from "./scheduleTick";
 import { deadSensorCheck } from "./deadSensorCheck";
 import { checkDeviceLiveness } from "./deviceLiveness";
 import { snapshotCleanup } from "./snapshotCleanup";
+import { sweepPendingAlarms } from "./pendingAlarmSweep";
 
 const TIME_ZONE = "Asia/Jerusalem";
 
@@ -49,6 +50,17 @@ const schedules: ScheduledTask[] = [
     // Every minute because the armed threshold is 5 minutes — a coarser
     // cadence would blunt the alert that matters most.
     callback: () => checkDeviceLiveness(Date.now()),
+  },
+  {
+    desc: "Announce deferred alarms the AI judge never ruled on",
+    min: "*",
+    hour: "*",
+    weekDay: "*",
+    // Every minute, and the deadline (PENDING_FALLBACK_SEC = 45s) is under
+    // that tick so the first pass after it catches the marker. This is the
+    // fail-loud backstop for judge-gated alerting: without it, an alarm whose
+    // verdict never arrives is announced by nobody.
+    callback: () => sweepPendingAlarms(Date.now()),
   },
   {
     desc: "Dead sensor + stale battery alerts, RTDB event retention",

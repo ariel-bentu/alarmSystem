@@ -804,6 +804,29 @@ void CloudClient::applyCommandsJson(const String& json) {
     }
   }
 
+  // Breach advisory. Same parser, different key — see
+  // ConfigParser::parseAdvisory. Kept in its OWN state from the fp block
+  // above because /commands is one polled document that can carry both keys
+  // at once; sharing state would let a stand-down consume a sound-off.
+  char breachRfId[sizeof(lastBreachRfId_)] = {};
+  uint64_t breachTs = 0;
+  if (ConfigParser::parseAdvisory(json.c_str(), "breach", breachRfId,
+                                  sizeof(breachRfId), &breachTs)) {
+    if (!hadBreach_ || breachTs != lastBreachTs_ ||
+        strcmp(breachRfId, lastBreachRfId_) != 0) {
+      hadBreach_ = true;
+      strncpy(lastBreachRfId_, breachRfId, sizeof(lastBreachRfId_) - 1);
+      lastBreachRfId_[sizeof(lastBreachRfId_) - 1] = '\0';
+      lastBreachTs_ = breachTs;
+      strncpy(pendingBreachRfId_, breachRfId, sizeof(pendingBreachRfId_) - 1);
+      pendingBreachRfId_[sizeof(pendingBreachRfId_) - 1] = '\0';
+      pendingBreachTs_ = breachTs;
+      hasPendingBreach_ = true;
+      Serial.printf("cloud: commands.breach -> rfId %s ts %llu\n", breachRfId,
+                    (unsigned long long)breachTs);
+    }
+  }
+
   // Manual capture command: /commands/capture = { at: <epoch-ms> }.
   // Surface once per new `at` value — same change-only pattern as pair/fp.
   if (doc["capture"]["at"].is<uint64_t>()) {
@@ -886,6 +909,15 @@ bool CloudClient::consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOu
   return true;
 }
 
+bool CloudClient::consumeBreach(char* rfIdOut, size_t cap, uint64_t* tsOut) {
+  if (!hasPendingBreach_) return false;
+  strncpy(rfIdOut, pendingBreachRfId_, cap - 1);
+  rfIdOut[cap - 1] = '\0';
+  *tsOut = pendingBreachTs_;
+  hasPendingBreach_ = false;
+  return true;
+}
+
 bool CloudClient::consumeCaptureCommand(uint64_t* tsOut) {
   if (!hasPendingCapture_) return false;
   *tsOut = pendingCaptureCommandTs_;
@@ -894,7 +926,7 @@ bool CloudClient::consumeCaptureCommand(uint64_t* tsOut) {
 }
 
 bool CloudClient::reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
-                              const char* value) {
+                              const char* value, uint64_t tsMs) {
   if (!isReady()) return false;  // no buffering v1 — drop if not connected/authed
 
   // Hard floor. BearSSL needs a ~3424-byte contiguous block for the
@@ -943,7 +975,11 @@ bool CloudClient::reportEvent(const char* rfId, const char* event, bool batteryL
   // started in main.cpp's onNormalOperation(); if NTP hasn't completed yet
   // this is briefly epoch-adjacent rather than blocking on it (see NTP sync
   // note in main.cpp).
-  uint64_t nowMs = (uint64_t)time(nullptr) * 1000ULL;
+  // Caller-supplied when there is a trigger to key against (handleSensorEvent
+  // passes its one triggerTs), otherwise read here. See the header note: two
+  // independent reads straddling a second boundary produced an /events key 1s
+  // off the snapshot's, which broke the cloud's timeline-to-event join.
+  uint64_t nowMs = tsMs != 0 ? tsMs : (uint64_t)time(nullptr) * 1000ULL;
   char tsBuf[21];  // uint64 max is 20 digits + null
   snprintf(tsBuf, sizeof(tsBuf), "%llu", (unsigned long long)nowMs);
   String path = String("/") + projectId_ + "/events/" + rfId + "/" + tsBuf;

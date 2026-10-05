@@ -30,8 +30,14 @@ sensors and siren stay; the cloud dependency goes.
 - **Fires** the siren directly over RF using a clean-room EV1527 encoder; no hub
 - **Reports** events, state, and alarm causes to Firebase; alerts via Telegram
   and/or Pushover, per project
+- **Checks the cameras before waking you.** On an armed trigger it grabs NVR
+  snapshots and asks a vision model whether a person is actually there — a
+  false alarm can be cleared before the siren finishes, and a confirmed one can
+  alarm on a single trigger. [Details](#cameras-and-the-ai-judge)
 - **Keeps working offline.** Arm state and config live in EEPROM. A device with
-  no WiFi still detects intrusion and sounds the siren. This is the central
+  no WiFi still detects intrusion and sounds the siren. The camera checks above
+  can only ever *add* a faster path — every wait expires and acts, so a dead
+  NVR or a slow model delays the siren but never cancels it. This is the central
   design decision — the cloud is a reporting channel, never a dependency.
 - **Serves a LAN web UI** at `http://alarm.local` for arm/disarm and testing,
   fully functional with no internet
@@ -271,6 +277,58 @@ several rules.
 > you entering 9, and a rule configured that way silently never alarms. See
 > [SECURITY.md](SECURITY.md#known-issues).
 
+### Minimum gap
+
+`count_in_window` takes an optional **minimum gap**: two triggers closer
+together than this count as *one* witness.
+
+A PIR re-triggering on its own stimulus is one physical event, and a bare
+`count_in_window` counts that echo as corroboration. Measured on one sensor's
+992 events in this project: the median gap between the 1st and 2nd trigger of
+a burst is **10 s**, and **51 %** of multi-trigger bursts are ≤10 s. So the
+echo, not a second intruder pass, is usually what satisfies these rules.
+
+> [!IMPORTANT]
+> **Widen the window when you set a gap.** With a 30 s window, a 20 s gap
+> leaves only a 20–30 s slot — 20 of 193 real bursts — which suppresses genuine
+> two-pass movement as well. Something like **20 s gap / 120 s window** is the
+> shape that works. The rule editor refuses a gap that cannot fit
+> `(count − 1) × gap` inside the window, since such a rule can never fire.
+
+Leave it blank for no minimum, which is how every rule behaved before the field
+existed.
+
+### Camera evidence
+
+Where cameras cover a sensor, an AI "is there a person in frame" verdict is
+better evidence than counting triggers — a cat pacing a yard satisfies
+2-in-30 s, and no amount of counting distinguishes it from a person.
+
+So `count_in_window` and `multi_sensor` take an optional **"a camera sighting
+is enough on its own"**. With it ticked, a `breach` verdict satisfies the
+condition without the count being met, or without the other sensors
+triggering.
+
+The counting still works by itself. Vision is an *additional*, faster path —
+never a dependency:
+
+| Situation | What decides |
+|---|---|
+| Online, cameras up, person in frame | Verdict → alarm on one trigger |
+| Online, cameras up, frame empty | Falls back to counting triggers |
+| Offline, NVR down, judge erroring | Falls back to counting triggers |
+
+This preserves the project's core rule that **alarm logic never depends on the
+cloud**. The device keeps evaluating the full rule set locally and alarms on
+its own; the cloud can only ever add a path, and a verdict reaches the device
+as an advisory it matches against its own trigger.
+
+> [!NOTE]
+> A sensor usually belongs to several rules. The option is **per condition**,
+> not per sensor, so a yard rule can accept camera evidence while a
+> multi-sensor rule still demands two sensors. Resolution is OR: if any
+> condition covering the sensor has it ticked, a breach verdict fires.
+
 ## Remote controls
 
 Up to **8** cheap 433MHz key-fob remotes can be paired, giving you arm, disarm,
@@ -302,6 +360,103 @@ Pair from the web app's Remotes tab, or from `http://alarm.local` with a
 > **Pairing a remote is refused while the system is armed.** Otherwise anyone
 > in RF range could pair their own fob against an armed system and immediately
 > disarm it. Disarm first, then pair.
+
+## Cameras and the AI judge
+
+If you point the system at an NVR, every armed trigger grabs a JPEG from the
+channels that sensor is assigned to, uploads them to Firebase Storage, and
+attaches them to the timeline. In **capture + AI judge** mode each frame is
+also sent to a vision model (Claude or Gemini) which answers one question: *is
+a person visible?*
+
+Set up in **Configure → Camera**: host, port, credentials, mode, provider,
+model, a scene-description prompt, and per-channel names.
+
+| Mode | Behaviour |
+|---|---|
+| `off` | No capture |
+| `capture` | Snapshots only, attached to the timeline |
+| `capture + AI judge` | Snapshots are judged, and the verdict acts |
+
+The judge runs on **every armed trigger**, not only on triggers that alarmed.
+That matters: for a `count_in_window` rule the trigger that completes the count
+is often inside the capture cooldown and has no images of its own, so it
+inherits the verdict already taken for that episode.
+
+| Verdict | Effect |
+|---|---|
+| `breach` | Confirms the alarm and escalates the notification. With *camera evidence* ticked on the rule, can raise the alarm itself |
+| `safe` | Silences the siren and sends a quiet all-clear instead of an alert |
+| none | Everything falls back to the rules alone |
+
+> [!IMPORTANT]
+> The API keys live in a **server-only** Firestore document (`config/judge`),
+> not on the project document, because that one is readable by every member.
+> Set them with `cd functions && npm run set:judgeKey -- gemini <key>`.
+> Without a key the judge fails **safe-but-loud**: no verdict, so alarms
+> behave exactly as they would with the judge off.
+
+Pin the model explicitly rather than relying on an alias — provider aliases
+get repointed to new model generations without notice.
+
+### Waiting for the verdict
+
+**Configure → Notifications → "Wait for camera check"** (`judgeWaitSec`, 0 =
+off) is the one setting that makes the system pause for a verdict. It controls
+two holds:
+
+```
+armed trigger → rules fire
+   │
+   ├─ DEVICE: holds the siren up to N seconds
+   │    ├─ "safe" arrives      → cancelled, stays silent
+   │    ├─ disarmed            → cancelled
+   │    └─ N seconds elapse    → SIREN FIRES ANYWAY
+   │
+   └─ CLOUD: sends no notification yet
+        ├─ "breach"            → emergency alert + photo
+        ├─ "safe"              → silent all-clear only
+        └─ no verdict in ~45 s → ordinary alert (fallback)
+```
+
+> [!CAUTION]
+> **Both holds expire and act.** If the NVR is unreachable, the judge errors,
+> or the device is offline, the siren still sounds and the alert still arrives —
+> just N seconds late. Neither can go silent waiting for a verdict that never
+> comes. This is the single most important property of the feature and the one
+> worth re-testing after any change: unplug the NVR, trigger a rule, and
+> confirm the siren still sounds.
+
+Typical verdict latency measured here is **4–7 s** end to end, including the
+NVR grab, the upload and the model call. A hold of 10–30 s gives comfortable
+headroom.
+
+Holds only ever apply to sensors you have marked as needing camera
+confirmation, and only where that sensor actually has cameras assigned —
+otherwise there is nothing to wait for, so nothing waits. A confirmed breach
+skips both holds, since the verdict they were waiting for has already arrived.
+
+### Per-sensor certainty
+
+Each sensor is either a **definite** breach or one that **needs camera
+confirmation** (Configure → Sensors). A door opening is definite; a garden PIR
+is not.
+
+| | Alarm notification | After a `breach` verdict | After a `safe` verdict |
+|---|---|---|---|
+| Definite | Emergency, repeating | Confirmation (no second emergency) | Quiet all-clear |
+| Needs confirmation | Normal priority | **Escalates** to emergency | Quiet all-clear |
+
+Certainty also decides whether the siren hold applies: a definite sensor never
+waits.
+
+> [!WARNING]
+> **Absent means definite**, so a newly paired sensor wakes you until you say
+> otherwise. The inverse risk is the one to understand: a sensor marked *needs
+> confirmation* whose verdict never arrives — NVR down, no cameras assigned,
+> judge disabled — stays at normal priority, which a muted phone silences.
+> There is no timeout escalation, by choice, to avoid crying wolf. NVR health
+> is therefore load-bearing for night alerting.
 
 ## Development
 
@@ -359,18 +514,16 @@ Design specs and implementation plans are in [`docs/superpowers/`](docs/superpow
 
 **Working on hardware.** The device boots, provisions WiFi, mints its Firebase
 token, decodes real sensors, evaluates rules, drives the siren hub-free, serves
-the LAN UI, and writes events with notification alerts confirmed. 143 native unit
-tests pass. Longest verified clean run: **18h16m**, single boot, zero watchdog
-reboots, flat heap.
+the LAN UI, and writes events with notification alerts confirmed. 186 native unit
+tests pass, plus 520 cloud-function and 433 web tests. Longest verified clean
+run: **18h16m**, single boot, zero watchdog reboots, flat heap.
 
-**Camera snapshots on trigger** — on every armed trigger the device grabs a
-JPEG from each live NVR channel and uploads it to Firebase Storage.
-`onSnapshotUploaded` augments the timeline, and in `capture+judge` mode it
-calls an AI vision judge to either send a Telegram breach photo or write a
-false-positive advisory. A Manual Capture button in the Operations page
+**Camera snapshots and the AI judge** — verified end to end on real hardware.
+Every armed trigger captures from the channels assigned to that sensor and the
+frames are judged; a `safe` verdict silenced a physically sounding siren
+**~6 s** after the alarm, and a `breach` verdict raised an alarm from a single
+trigger via the camera-evidence option. A Manual Capture button in Operations
 triggers all cameras immediately, recorded as a standalone timeline entry.
-The capture pipeline is deployed and working; the AI judge path is deployed but
-not yet exercised on a real armed trigger.
 
 **Known gaps** — the device-liveness and offline-alert work is committed but
 not yet hardware-tested; the Telegram webhook is not registered, so bot

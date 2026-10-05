@@ -58,13 +58,26 @@ export function conditionParamsValid(condition: Condition): boolean {
     case "immediate":
       return true;
 
-    case "count_in_window":
-      return (
-        typeof condition.count === "number" &&
-        condition.count > 0 &&
-        typeof condition.window_sec === "number" &&
-        condition.window_sec > 0
-      );
+    case "count_in_window": {
+      if (
+        typeof condition.count !== "number" ||
+        condition.count <= 0 ||
+        typeof condition.window_sec !== "number" ||
+        condition.window_sec <= 0
+      ) {
+        return false;
+      }
+      // min_gap_sec is optional, but it must leave the rule satisfiable:
+      // `count` witnesses each min_gap_sec apart span (count-1)*min_gap_sec,
+      // which has to fit inside the window. Without this check the UI happily
+      // saves a rule that can never fire — e.g. 2 triggers 40s apart inside a
+      // 30s window — and the only symptom is an alarm that never sounds.
+      const gap = condition.min_gap_sec;
+      if (typeof gap === "number" && gap > 0) {
+        return (condition.count - 1) * gap <= condition.window_sec;
+      }
+      return true;
+    }
 
     case "entry_delay":
       return (

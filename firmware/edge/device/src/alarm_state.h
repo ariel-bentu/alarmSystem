@@ -17,6 +17,25 @@ struct Condition {
   // existed decodes to — so no migration is needed. Mirrored by quorumOf()
   // in functions/src/alarmLogic.ts; the two evaluators must agree.
   uint8_t q = 0;
+  // count_in_window minimum separation, seconds: two triggers closer together
+  // than this count as ONE witness. 0 = no minimum, which is both the
+  // historical behaviour and what a config written before this field existed
+  // decodes to — so no migration is needed, exactly like `q` above.
+  //
+  // Why: a PIR re-triggering on its own stimulus is one physical event, and a
+  // bare count_in_window counts that echo as corroboration. Measured on
+  // sensor 0x009BFA (992 events): median gap between the 1st and 2nd trigger
+  // of a burst is 10s, and 51% of multi-trigger bursts are <=10s.
+  //
+  // Mirrored by min_gap_sec in functions/src/alarmLogic.ts; the two
+  // evaluators must agree.
+  //
+  // uint8_t, not uint16_t: a min gap is tens of seconds (it must be well
+  // under `w` to leave a satisfiable slot at all), so 255s is ample, and the
+  // narrower type packs into Condition's existing padding instead of costing
+  // 2 bytes x 4 conditions x 16 sensors = 128 in the EEPROM record.
+  // config_parser clamps anything larger.
+  uint8_t g = 0;
   // Fires regardless of arm state (smoke, gas). Always implies a
   // single-sensor immediate condition, so it carries no runtime state.
   bool always = false;
@@ -50,12 +69,38 @@ struct SensorConfig {
   // grow and EepromStore's magic does NOT need a bump — asserted in
   // eeprom_store.h.
   uint8_t cameraMask = 0;
+  // Does a trigger from this sensor mean a confirmed break-in, or does it
+  // need camera confirmation?
+  //
+  // DEFAULTS TRUE, which is the fail-loud direction and matches the single
+  // source of that default in the cloud (functions/src/breachCertainty.ts,
+  // where an absent `definiteBreach` means definite). A sensor the config
+  // never mentions therefore sounds the siren immediately, exactly as before
+  // this field existed.
+  //
+  // The only thing it gates on-device is the SIREN HOLD below. Certainty also
+  // picks the notification tier, but that stays entirely cloud-side — the
+  // device has no notion of Pushover priorities.
+  bool definiteBreach = true;
 };
 
 struct Config {
   bool armed = false;
   uint16_t sirenDurationSec = 0;
   bool sirenEnabled = true; // false = never sound the siren
+  // Seconds to DELAY the siren for a non-definite sensor, giving the cloud's
+  // AI judge time to rule the trigger a false positive. 0 = fire immediately,
+  // which is the behaviour before this field and what an older config (or no
+  // config at all) decodes to.
+  //
+  // THE HOLD EXPIRES AND FIRES. If no false-positive advisory arrives — the
+  // device is offline, the NVR is down, the judge errored, the cloud never
+  // answered — the siren still sounds, just `sirenHoldSec` late. This is
+  // deliberate and is the whole reason the hold lives here rather than being
+  // "wait for the cloud to say go": alarm logic must never DEPEND on the
+  // cloud (see CLAUDE.md), and a break-in during a WiFi outage must still
+  // sound the siren.
+  uint16_t sirenHoldSec = 0;
   // EV1527 base address this device uses to talk to its siren: top 20 bits
   // are identity, bottom nibble is the command and is always 0 here.
   // 0 means "not yet generated". Randomly generated once on first boot and
@@ -109,14 +154,24 @@ struct Config {
 // MEASURED, not predicted — the initial guess was "unchanged", and it was
 // wrong: the struct SHRANK 2 bytes x 16 sensors = 32. A shrink is just as
 // unreadable as a growth, so kMagic was bumped to 0xA1A2B3BB.
+// 2632 -> 2664 when SensorConfig gained `bool definiteBreach` and Config
+// gained `uint16_t sirenHoldSec` (the siren hold for non-definite sensors).
+// MEASURED: the bool costs 2 bytes x 16 sensors = 32 after padding, while
+// sirenHoldSec fits in Config's existing padding and costs nothing. kMagic
+// bumped to 0xA1A2B3BC.
 //
-// THE SIREN ADDRESS MUST SURVIVE THAT BUMP. A magic bump discards the whole
-// record, and Config::sirenBaseAddress is write-only device->cloud, so losing
-// it silently breaks the physical siren pairing — this has happened before
-// (docs/history/siren-hub-free.md). The recovery path is RtdbConfig.s, which
-// applyPendingConfigUpdate() re-adopts when EEPROM has none. VERIFY THAT ON
-// HARDWARE before shipping this: it is the one irreversible failure here.
-static_assert(sizeof(Config) == 2632, "EEPROM layout changed - bump kMagic");
+// Condition::g (count_in_window min gap) was added in the same release and is
+// deliberately a uint8_t for this reason: it packs into Condition's padding,
+// so it cost 0 bytes where a uint16_t would have cost 128 (2 x 4 conditions
+// x 16 sensors) and forced its own bump.
+//
+// The siren address rides in this record, and a magic bump discards the whole
+// record. It is recovered from RtdbConfig.s, which applyPendingConfigUpdate()
+// re-adopts when EEPROM has none — proven across seven bumps now. The one
+// documented loss (docs/history/siren-hub-free.md) predates that path.
+// `npm run check:sirenAddress` confirms it in one read-only command; see
+// eeprom_store.h's kMagic note for why that is the whole procedure.
+static_assert(sizeof(Config) == 2664, "EEPROM layout changed - bump kMagic");
 
 // What tripped the alarm, reported to the cloud as state/alarm_cause so the
 // Telegram alert can name it. The device knows radio ids, not sensor or rule
@@ -144,6 +199,15 @@ class AlarmState {
   // evaluation entirely and so has no other way to ask. Independent of arm
   // state, because a tamper fires while disarmed.
   bool isPairedFamily(const char* familyId) const;
+  // Whether a trigger from this family is a DEFINITE breach, i.e. whether the
+  // siren should sound immediately rather than be held for the AI judge.
+  //
+  // Returns TRUE for an unknown family, which is the fail-loud direction and
+  // matches the cloud's single source of that default
+  // (functions/src/breachCertainty.ts: absent definiteBreach means definite).
+  // An unpaired sensor cannot reach the siren through the rules anyway; the
+  // tamper path can, and a tamper must never be held.
+  bool isDefiniteBreachFamily(const char* familyId) const;
 
  private:
   static constexpr uint8_t kMaxSensors = 16;

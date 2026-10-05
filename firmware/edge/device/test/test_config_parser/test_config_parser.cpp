@@ -244,6 +244,114 @@ void test_absent_quorum_defaults_to_zero_meaning_all() {
   TEST_ASSERT_EQUAL_UINT8(0, config.sensors[0].conditions[0].q);
 }
 
+void test_parses_count_in_window_min_gap() {
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [
+      [{ "t": 1, "n": 2, "w": 120, "g": 20 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(20, config.sensors[0].conditions[0].g);
+}
+
+void test_absent_min_gap_defaults_to_zero_meaning_no_minimum() {
+  // The server omits g whenever it is unset or 0, so this is the shape of
+  // every count_in_window rule that predates the field — it must decode to
+  // "no minimum", which is why no migration is needed.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [
+      [{ "t": 1, "n": 2, "w": 120 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(0, config.sensors[0].conditions[0].g);
+}
+
+void test_min_gap_above_uint8_is_clamped_not_truncated() {
+  // 300 would wrap to 44, a SMALLER gap than configured — a weaker filter
+  // than the user asked for. Clamp to 255 instead.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [
+      [{ "t": 1, "n": 2, "w": 600, "g": 300 }]
+    ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT8(255, config.sensors[0].conditions[0].g);
+}
+
+void test_parses_siren_hold_and_non_definite_sensors() {
+  const char* json = R"({
+    "a": true, "d": 60, "sh": 20, "nd": [1],
+    "r": ["0xA1B2C", "0xD4E5F"],
+    "c": [ [{ "t": 0 }], [{ "t": 0 }] ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT16(20, config.sirenHoldSec);
+  TEST_ASSERT_TRUE(config.sensors[0].definiteBreach);
+  TEST_ASSERT_FALSE(config.sensors[1].definiteBreach);
+}
+
+void test_absent_hold_fields_mean_fire_immediately() {
+  // The shape of every config written before the siren hold existed: no hold,
+  // and every sensor definite.
+  const char* json = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [ [{ "t": 0 }] ]
+  })";
+
+  Config config;
+  bool ok = ConfigParser::parseConfigJson(json, &config);
+
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT16(0, config.sirenHoldSec);
+  TEST_ASSERT_TRUE(config.sensors[0].definiteBreach);
+}
+
+// `out` is a reused Config. A sensor that was non-definite under the previous
+// config must not stay non-definite once the box is unticked, or it would go
+// on holding its siren forever.
+void test_non_definite_is_cleared_when_config_no_longer_lists_it() {
+  Config config;
+  const char* withHold = R"({
+    "a": true, "d": 60, "sh": 20, "nd": [0],
+    "r": ["0xA1B2C"],
+    "c": [ [{ "t": 0 }] ]
+  })";
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(withHold, &config));
+  TEST_ASSERT_FALSE(config.sensors[0].definiteBreach);
+
+  const char* withoutHold = R"({
+    "a": true, "d": 60,
+    "r": ["0xA1B2C"],
+    "c": [ [{ "t": 0 }] ]
+  })";
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(withoutHold, &config));
+  TEST_ASSERT_TRUE(config.sensors[0].definiteBreach);
+}
+
 void test_quorum_larger_than_participants_is_clamped_to_all() {
   // A quorum above kLen would be permanently unfireable. Clamped to 0
   // (= all) rather than stored, matching how bad k indices are dropped.
@@ -433,6 +541,58 @@ void test_parse_false_positive() {
   TEST_ASSERT_EQUAL_UINT64(1696000000123ULL, ts);
 }
 
+// commands/breach is the ADDITIVE mirror of commands/fp: same {rfId, ts}
+// shape, same parser, opposite meaning. "fp" says stand down for this
+// trigger; "breach" says sound off for it, because the AI judge saw a person
+// and the sensor's condition opted into vision evidence
+// (Condition.breach_satisfies).
+void test_parse_breach() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* json = "{ \"breach\": { \"rfId\": \"0x009BFA\", \"ts\": 1791209562000 } }";
+  TEST_ASSERT_TRUE(ConfigParser::parseAdvisory(json, "breach", rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0x009BFA", rf);
+  TEST_ASSERT_EQUAL_UINT64(1791209562000ULL, ts);
+}
+
+void test_parse_breach_absent() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  TEST_ASSERT_FALSE(
+      ConfigParser::parseAdvisory("{ \"armed\": true }", "breach", rf, sizeof(rf), &ts));
+}
+
+// The two keys must not read each other: an fp-only payload must yield no
+// breach, or a stand-down would be read as a sound-off.
+void test_breach_and_fp_do_not_cross_read() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* fpOnly = "{ \"fp\": { \"rfId\": \"0x009BFA\", \"ts\": 1791209562000 } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseAdvisory(fpOnly, "breach", rf, sizeof(rf), &ts));
+
+  const char* breachOnly = "{ \"breach\": { \"rfId\": \"0x009BFA\", \"ts\": 1791209562000 } }";
+  TEST_ASSERT_FALSE(ConfigParser::parseAdvisory(breachOnly, "fp", rf, sizeof(rf), &ts));
+}
+
+// Both present is legitimate: /commands is one polled document, so a project
+// that had an fp earlier and a breach now carries both keys. Each must parse
+// its own.
+void test_breach_and_fp_both_present_parse_independently() {
+  char rf[16] = {};
+  uint64_t ts = 0;
+  const char* both =
+      "{ \"fp\": { \"rfId\": \"0xAAAAAA\", \"ts\": 111 },"
+      "  \"breach\": { \"rfId\": \"0xBBBBBB\", \"ts\": 222 } }";
+
+  TEST_ASSERT_TRUE(ConfigParser::parseAdvisory(both, "fp", rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0xAAAAAA", rf);
+  TEST_ASSERT_EQUAL_UINT64(111ULL, ts);
+
+  TEST_ASSERT_TRUE(ConfigParser::parseAdvisory(both, "breach", rf, sizeof(rf), &ts));
+  TEST_ASSERT_EQUAL_STRING("0xBBBBBB", rf);
+  TEST_ASSERT_EQUAL_UINT64(222ULL, ts);
+}
+
 void test_parse_false_positive_absent() {
   char rf[16] = {};
   uint64_t ts = 0;
@@ -476,6 +636,12 @@ void setup() {
   RUN_TEST(test_k_array_with_null_holes_skips_them);
   RUN_TEST(test_parses_multi_sensor_quorum);
   RUN_TEST(test_absent_quorum_defaults_to_zero_meaning_all);
+  RUN_TEST(test_parses_siren_hold_and_non_definite_sensors);
+  RUN_TEST(test_absent_hold_fields_mean_fire_immediately);
+  RUN_TEST(test_non_definite_is_cleared_when_config_no_longer_lists_it);
+  RUN_TEST(test_parses_count_in_window_min_gap);
+  RUN_TEST(test_absent_min_gap_defaults_to_zero_meaning_no_minimum);
+  RUN_TEST(test_min_gap_above_uint8_is_clamped_not_truncated);
   RUN_TEST(test_quorum_larger_than_participants_is_clamped_to_all);
   RUN_TEST(test_parses_always_flag);
   RUN_TEST(test_absent_x_means_not_always);
@@ -488,6 +654,10 @@ void setup() {
   RUN_TEST(test_parses_nvr_fields);
   RUN_TEST(test_nvr_fields_default_when_absent);
   RUN_TEST(test_camera_mask_per_sensor_and_short_array);
+  RUN_TEST(test_parse_breach);
+  RUN_TEST(test_parse_breach_absent);
+  RUN_TEST(test_breach_and_fp_do_not_cross_read);
+  RUN_TEST(test_breach_and_fp_both_present_parse_independently);
   RUN_TEST(test_parse_false_positive);
   RUN_TEST(test_parse_false_positive_absent);
   RUN_TEST(test_parse_false_positive_malformed_json_is_rejected);

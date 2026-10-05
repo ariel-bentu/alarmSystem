@@ -77,4 +77,37 @@ describe("sensorConfigChanged", () => {
       sensorConfigChanged({ name: "A" }, { name: "B" })
     ).toBe(false);
   });
+
+  // definiteBreach became device-visible when the siren gained a hold for
+  // non-definite sensors: the DEVICE decides whether to delay the siren, so
+  // it must learn the flag. Previously excluded deliberately (certainty was a
+  // cloud-only notification concern) — without this the hold would never
+  // reach the device, the derived-state trap that cost the camera selection
+  // a release.
+  it("is true when definiteBreach changes", () => {
+    expect(
+      sensorConfigChanged(
+        { cameras: [1], definiteBreach: true },
+        { cameras: [1], definiteBreach: false }
+      )
+    ).toBe(true);
+  });
+
+  // Absent means DEFINITE (breachCertainty.isDefiniteBreach owns that
+  // default), so absent -> true is not a change the device can observe and
+  // must not churn the config it polls every 5s.
+  it("treats an absent definiteBreach as equivalent to true", () => {
+    expect(
+      sensorConfigChanged({ cameras: [1] }, { cameras: [1], definiteBreach: true })
+    ).toBe(false);
+    expect(
+      sensorConfigChanged({ cameras: [1], definiteBreach: true }, { cameras: [1] })
+    ).toBe(false);
+  });
+
+  it("is true when a sensor first becomes non-definite", () => {
+    expect(
+      sensorConfigChanged({ cameras: [1] }, { cameras: [1], definiteBreach: false })
+    ).toBe(true);
+  });
 });

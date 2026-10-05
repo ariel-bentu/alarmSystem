@@ -80,6 +80,87 @@ describe("evaluateRules", () => {
       const result = evaluateRules(rules, makeEvent({ timestamp: now }), recent, now);
       expect(result.triggered).toBe(false);
     });
+
+    // min_gap_sec: a PIR re-triggering on its own stimulus is ONE physical
+    // event, not corroboration. Measured on this project's own data (sensor
+    // 0x009BFA, 992 events): the median gap between the 1st and 2nd trigger
+    // of a burst is 10s and 51% of multi-trigger bursts are <=10s, so a bare
+    // count_in_window counts the sensor's own echo as a second witness. The
+    // 05:52 false alarm of 2026-10-05 was exactly this shape.
+    describe("min_gap_sec", () => {
+      const gapRules: Rule[] = [
+        {
+          id: "r1",
+          name: "PIR",
+          sensors: ["sensor1"],
+          condition: {
+            type: "count_in_window",
+            count: 2,
+            window_sec: 120,
+            min_gap_sec: 20,
+          },
+        },
+      ];
+
+      it("does not trigger when triggers are closer together than min_gap_sec", () => {
+        // The real 05:52:55 -> 05:53:01 shape: 6s apart, inside the window.
+        const recent = [makeEvent({ timestamp: now - 6_000 })];
+        const result = evaluateRules(gapRules, makeEvent({ timestamp: now }), recent, now);
+        expect(result.triggered).toBe(false);
+      });
+
+      it("triggers when triggers are at least min_gap_sec apart", () => {
+        const recent = [makeEvent({ timestamp: now - 25_000 })];
+        const result = evaluateRules(gapRules, makeEvent({ timestamp: now }), recent, now);
+        expect(result.triggered).toBe(true);
+      });
+
+      it("counts a sparse pair and skips the echo between them", () => {
+        // Three triggers at t-25s, t-6s, t. Counting greedily from the oldest:
+        // t-25s is witness 1; t-6s is only 19s later, so it is skipped as an
+        // echo; t is 25s after the last counted one, so it is witness 2.
+        // Two witnesses 25s apart -> fires, even though one echo sits between.
+        const recent = [
+          makeEvent({ timestamp: now - 6_000 }),
+          makeEvent({ timestamp: now - 25_000 }),
+        ];
+        const result = evaluateRules(gapRules, makeEvent({ timestamp: now }), recent, now);
+        expect(result.triggered).toBe(true);
+      });
+
+      it("is unchanged from today's behaviour when min_gap_sec is absent", () => {
+        const noGap: Rule[] = [
+          {
+            id: "r1",
+            name: "PIR",
+            sensors: ["sensor1"],
+            condition: { type: "count_in_window", count: 2, window_sec: 120 },
+          },
+        ];
+        const recent = [makeEvent({ timestamp: now - 6_000 })];
+        const result = evaluateRules(noGap, makeEvent({ timestamp: now }), recent, now);
+        expect(result.triggered).toBe(true);
+      });
+
+      it("treats min_gap_sec 0 as absent", () => {
+        const zeroGap: Rule[] = [
+          {
+            id: "r1",
+            name: "PIR",
+            sensors: ["sensor1"],
+            condition: {
+              type: "count_in_window",
+              count: 2,
+              window_sec: 120,
+              min_gap_sec: 0,
+            },
+          },
+        ];
+        const recent = [makeEvent({ timestamp: now - 6_000 })];
+        const result = evaluateRules(zeroGap, makeEvent({ timestamp: now }), recent, now);
+        expect(result.triggered).toBe(true);
+      });
+    });
   });
 
   describe("entry_delay condition", () => {

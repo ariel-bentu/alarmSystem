@@ -1,15 +1,12 @@
+- add option to grap image only at arm state
+
 Pushover:
-- DONE Select sound for alarm — Settings > Notifications. Note only alien/
-  climb/persistent/echo/updown LOOP; priority 2 re-sends the notification
-  rather than holding a tone, so a short sound gives blips, not an alarm.
 - Select rules who are not triggering level 2?
   PARTLY: certainty is now per SENSOR (definiteBreach on the Sensors tab), so
   a rule is quiet when its sensors are. Doing it per RULE is still open and
   needs the device to record WHICH rule fired — alarm_cause.ct is a condition
   TYPE index, not a rule id, which is exactly why rule-derived certainty was
   reverted (see the 2026-10-04 note in the breach-certainty spec).
-- DONE UI for setting the info of pushover — the section is now called
-  "Notifications" and holds the channel checkboxes plus sound/repeat/expiry.
 
 
 
@@ -20,6 +17,22 @@ list of things to build.
 - mass jam of rf alert — detect that the receiver has gone deaf
 - battery low on the device itself
 
+- replace the battery in תנועה דלת מחסן (0x009BFA) and watch whether its RSSI
+  spread closes. batteryChangedAt is 2025-12-01 and it is by far the busiest
+  sensor (992 of ~1000 stored events). On 2026-10-05 it reported -54 then -84
+  six seconds apart; every other sensor since the RSSI fix is tight (תנועה
+  דלת כניסה: 7 events, -47..-54). A tired cell browning out the oscillator on
+  the second TX of a burst fits that ordering. NOT confirmed: batteryLow has
+  never once asserted — 0 of 992 for this sensor, 0 across all sensors ever —
+  and there are only 2 real-dBm samples for it, so no trend is visible yet.
+  If the spread persists after a fresh cell, suspect a marginal sensor or a
+  second emitter on the same family instead. Note poll() drops a repeat of the
+  same 24-bit code within 3s, so wait 5s+ between test triggers.
+- per-SENSOR judgePrompt. It is project-wide today, so one prompt has to
+  describe both a yard PIR and an indoor door sensor, which share no quirks.
+  buildPrompt() already takes the text per call; the field and the Sensors-tab
+  input are the work.
+
 - the device decodes its OWN siren transmissions as sensor events. Unpaired
   families 0x3F010 and 0x62237 appear in /events with multiple nibbles, and
   0x622374 is this device's own siren EV1527 address from the siren work. The
@@ -27,6 +40,11 @@ list of things to build.
   anyone pairs either id — pairing a self-transmission would make the device
   alarm on its own siren. Found during the sensor-families audit; that work
   neither fixes nor depends on it.
+  Unchanged by the siren hold (2026-10-05), but worth knowing when reading
+  logs from it: a held siren means the device's own TX now starts seconds
+  AFTER the trigger that caused it rather than immediately, so a
+  self-decoded packet and its originating trigger are further apart in
+  /events than they used to be.
 - register the Telegram webhook so bot commands work
 - move telegramBotToken/telegramChatId into projects/{id}/secrets/notify, the
   way the Pushover credentials already are. They are on the member-readable
@@ -41,6 +59,22 @@ list of things to build.
   pre-select that row would put the triggering sensor's snapshots on screen
   directly from the notification. notify() would take the rfId and build the
   query; APP_EVENTS_URL is the seam.
+  NOTE the link opens SAFARI, not the installed PWA, and that cannot currently
+  be fixed — see the ruled-out note below. Deep-linking is still worth doing;
+  it just improves where the BROWSER lands.
+
+- RULED OUT 2026-10-05: opening the PWA from a Pushover tap on iOS.
+  Tested on a real device with the PWA backgrounded (not force-quit):
+    https://alarm-system-100.web.app/explore   -> Safari
+    webapp://alarm-system-100.web.app/         -> nothing happens
+    webapp://alarm-system-100.web.app/explore  -> nothing happens
+  The undocumented `webapp://` scheme from old forum posts does not work here.
+  Pushover's API ACCEPTS it and returns HTTP 200, so testing the send end
+  proves nothing — only tapping does. iOS has no https->installed-PWA deep
+  link (no Android App Links equivalent), and the manifest's scope/display
+  only govern navigation inside an already-running PWA; the old comment in
+  notify.ts claiming otherwise was wrong. Do not re-add a custom scheme
+  without testing the TAP on hardware.
 - test + deploy the watchdog / offline-alert work (docs/testing-device-liveness.md)
 
 - multi-siren support. The siren base address is a SINGLE value end to end:
@@ -51,3 +85,43 @@ list of things to build.
   it needs an EepromStore::kMagic bump, which discards stored config on the
   first boot after flashing; the siren address itself now survives that,
   because it is re-adopted from the cloud.
+
+
+## judge logic:
+  if alarm is not aramed -> judge is off.
+  if alarm is armed, every trigger's images - as they arrive - being judged.
+    - if "breach" - it is treated as condition triggered, thus alarm goes off and p2 notification is sent
+    - if "safe" - it is logged as safe.
+    - if another trigger of same sensor comes faster than cooldown window -> the previous judgment is used. if later than cooldown (with some margin) we defer to new judgement.
+    - if a trigger comes with alarm cause, and was vetted "safe" either by own images or prev-trigger's images (see before) -> the cloud send the device command to silence siren, and sends "safe" notification
+
+  IMPLEMENTED 2026-10-05 — spec at
+  docs/superpowers/specs/2026-10-05-judge-as-evidence-design.md, and VERIFIED
+  ON HARDWARE: a safe verdict silenced a physically sounding siren ~6s after
+  the alarm, and breach_satisfies raised an alarm from a single trigger.
+
+  Where it ended up differing from the sketch above:
+  - breach_satisfies is an opt-in on the CONDITION, not the sensor: a sensor
+    sits in several rules at once, so per-sensor would apply to all of them.
+    Covers multi_sensor too, where one participant's breach satisfies the
+    whole AND.
+  - "safe" suppresses the alarm EPISODE but never retracts a trigger from
+    AlarmState's history. That history is local state surviving cloud outages
+    and cannot be selectively forgotten.
+  - The verdict-reuse window is DERIVED from captureCooldownSec rather than
+    tuned, per the "we cannot expect new images until the cooldown has past"
+    reasoning. An earlier draft had safe expiring faster than breach; dropped,
+    since that only matters at long cooldowns and cost two knobs plus a rule
+    relating them.
+  - The judge's alarm travels as commands/breach (resolved: symmetrical with
+    commands/fp, keeps the siren decision on the device, and lets
+    serverActions.triggerSiren stay off).
+  - Lowering captureCooldownSec 25 -> 10 was done and helps, but is NOT a
+    substitute: any window_sec shorter than the cooldown still strands the
+    alarming trigger.
+
+  Still unverified: the fail-loud test. Unplug the NVR, fire two triggers
+  inside the window, and confirm the siren still sounds and the fallback
+  notification arrives. That is the test that proves vision is an added path
+  and not a dependency.
+    

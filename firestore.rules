@@ -159,6 +159,18 @@ service cloud.firestore {
         allow read: if isMember(projectId);
         allow write: if isAdmin(projectId);
       }
+
+      // Judge-gated alerting bookkeeping: an alarm whose notification is
+      // waiting on the AI verdict (onAlarm -> onSnapshotUploaded, swept by
+      // doSchedule). Server-only on BOTH sides — a client that could delete a
+      // marker would suppress the fallback alert for a real alarm, and one
+      // that could write a marker could suppress the alert outright.
+      //
+      // Stated explicitly rather than left to deny-by-default: this is
+      // load-bearing for whether an alarm is announced at all.
+      match /pendingAlarms/{pendingId} {
+        allow read, write: if false;
+      }
     }
   }
 }

@@ -66,8 +66,21 @@ class CloudClient {
   // to Firestore, and it is also skipped when contiguous heap is low. Marking
   // it "reported" after a skipped write would strand the address on-device
   // forever, which is the very failure this reporting exists to prevent.
+  // `tsMs` is the event key: epoch MILLISECONDS for the trigger this reports.
+  //
+  // PASS IT IN, do not let this re-read the clock. handleSensorEvent computes
+  // one timestamp per trigger and uses it for the snapshot upload path and the
+  // fp/breach advisory match too; a second time(nullptr) read here lands on
+  // the other side of a second boundary often enough to matter, and the cloud
+  // joins timeline docs to event rows by exactly this {rfId, ts}. When they
+  // disagreed by 1000ms the web UI declared the timeline doc an orphan and
+  // rendered a real sensor trigger as "manual capture" (seen 2026-10-05,
+  // 19:24:44 vs 19:24:45).
+  //
+  // 0 means "read the clock here" — kept for the callers that have no trigger
+  // of their own (siren-address report, boot).
   bool reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
-                   const char* value = nullptr);
+                   const char* value = nullptr, uint64_t tsMs = 0);
 
   // Write armed state to /{projectId}/state/armed so the web UI reflects
   // device-side arm/disarm (local web UI, physical button, etc.).
@@ -168,6 +181,21 @@ class CloudClient {
   // call is STRICTLY ADVISORY: it never decides on its own to touch the
   // siren or arm state.
   bool consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOut);
+  // Breach advisory: /commands/breach = { rfId: "0x..", ts: <epoch-ms> },
+  // written when the cloud judges a snapshot "breach" AND a condition covering
+  // that sensor opted into vision evidence (Condition.breach_satisfies) while
+  // the device's own rules had not fired.
+  //
+  // The ADDITIVE mirror of consumeFalsePositive: same identity semantics, same
+  // once-per-new-advisory surfacing, opposite effect. main.cpp matches the
+  // {rfId, ts} against the trigger it recorded, then sounds the siren.
+  //
+  // ⚠️ STRICTLY ADDITIVE, the mirror of fp's strictly-subtractive rule: acting
+  // on this may raise the alarm and sound the siren, and must NEVER arm or
+  // disarm, and must never write to AlarmState's trigger history. The device's
+  // trigger counts are local state that survives cloud outages; letting the
+  // cloud rewrite them would corrupt every later window.
+  bool consumeBreach(char* rfIdOut, size_t cap, uint64_t* tsOut);
   // Manual capture command: /commands/capture = { at: <epoch-ms> }, written
   // by the web UI. Returns true once per NEW request (change-only, same nonce
   // pattern as pair/fp). ts is the epoch-ms the web UI stamped; the device
@@ -389,6 +417,19 @@ class CloudClient {
   char pendingFalsePositiveRfId_[16] = {};
   uint64_t pendingFalsePositiveTs_ = 0;
   bool hasPendingFalsePositive_ = false;
+
+  // Breach advisory — the ADDITIVE mirror of the false-positive one above.
+  // Same {rfId,ts} shape, same change-only surfacing, opposite meaning: the
+  // AI judge saw a person and a condition covering the sensor opted into
+  // vision evidence, so the alarm should sound even though the device's own
+  // rules have not fired. Separate state from fp: both keys can be present on
+  // /commands at once, and one must never consume the other.
+  char lastBreachRfId_[16] = {};
+  uint64_t lastBreachTs_ = 0;
+  bool hadBreach_ = false;
+  char pendingBreachRfId_[16] = {};
+  uint64_t pendingBreachTs_ = 0;
+  bool hasPendingBreach_ = false;
 
   uint64_t lastCaptureCommandTs_ = 0;
   bool hadCaptureCommand_ = false;

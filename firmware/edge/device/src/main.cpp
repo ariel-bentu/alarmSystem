@@ -148,6 +148,35 @@ bool alarmReportedToCloud = false;
 // a stale identity can never be matched against a LATER, unrelated alarm.
 char activeAlarmRfId[11] = {};
 uint64_t activeAlarmTs = 0;
+
+// Identity of the most recent ARMED trigger, whether or not it alarmed.
+//
+// Distinct from activeAlarmRfId/activeAlarmTs above, which are only set when a
+// siren activation actually STARTED. A breach advisory arrives precisely when
+// no alarm fired — the cloud's judge is what decided there should be one — so
+// it has no active alarm to match against and needs this instead.
+//
+// RAM only, like lastCaptureMs[]: "survives nothing" is correct, because a
+// reboot means there is no in-flight trigger for an advisory to confirm.
+char lastTriggerRfId[11] = {};
+uint64_t lastTriggerTs = 0;
+
+// A siren DEFERRED by Config::sirenHoldSec, waiting for the cloud's AI judge
+// to rule the trigger a false positive before it sounds.
+//
+// Only ever set for a sensor whose SensorConfig::definiteBreach is false. The
+// identity above is populated at the same moment, so the existing
+// false-positive advisory match cancels a pending siren exactly as it stops a
+// sounding one — the advisory path needs no new matching logic.
+//
+// 0 means "nothing pending". Deliberately a millis() deadline rather than a
+// countdown: tickPendingSiren() is called from loop() and must not depend on
+// how often that happens.
+//
+// IT EXPIRES AND FIRES. Everything that can go wrong cloud-side (offline,
+// NVR down, judge error, lost upload) ends with the siren sounding late
+// rather than never — see Config::sirenHoldSec.
+unsigned long pendingSirenDeadlineMs = 0;
 unsigned long lastHeartbeatMs = 0;
 static constexpr unsigned long kHeartbeatIntervalMs = 10000UL;
 
@@ -298,18 +327,58 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   // (time(nullptr) * 1000); uint64_t, NOT uint32_t, for the same overflow
   // reason documented on CloudClient::uploadSnapshot().
   const uint64_t triggerTs = (uint64_t)time(nullptr) * 1000ULL;
+
+  // Record this trigger's identity whether or not it alarms. A breach advisory
+  // arrives for a trigger that did NOT alarm — that is the whole point of it —
+  // so the advisory matcher has nothing else to compare against. Only while
+  // armed: a disarmed trigger has no alarm for the cloud to raise.
+  if (config.armed) {
+    strncpy(lastTriggerRfId, rfId, sizeof(lastTriggerRfId) - 1);
+    lastTriggerRfId[sizeof(lastTriggerRfId) - 1] = '\0';
+    lastTriggerTs = triggerTs;
+  }
+
   if (shouldFire && config.sirenEnabled) {
-    siren.turnOn(config.sirenDurationSec, now);
+    // Hold the siren for a NON-definite sensor, giving the cloud's AI judge
+    // time to call the trigger a false positive before the whole street
+    // hears it. A definite sensor — and any sensor at all when no hold is
+    // configured — sounds immediately, exactly as before.
+    //
+    // The hold is a DEADLINE, not a dependency: tickPendingSiren() fires the
+    // siren when it expires whether or not the cloud ever answered. Offline,
+    // NVR down, judge errored, upload lost — the siren still sounds, just
+    // late. Alarm logic must never depend on the cloud (CLAUDE.md).
+    const bool hold = config.sirenHoldSec > 0 &&
+                      !alarmState.isDefiniteBreachFamily(familyId);
+    if (hold) {
+      pendingSirenDeadlineMs = now + (unsigned long)config.sirenHoldSec * 1000UL;
+      // Never 0: that is the "nothing pending" sentinel, and a deadline that
+      // landed exactly on a millis() rollover would otherwise cancel itself.
+      if (pendingSirenDeadlineMs == 0) pendingSirenDeadlineMs = 1;
+      Serial.printf("[alarm] siren HELD %us for non-definite %s\n",
+                    config.sirenHoldSec, familyId);
+    } else {
+      siren.turnOn(config.sirenDurationSec, now);
+    }
     // Record what this siren activation is FOR, so a later false-positive
     // advisory ({rfId, ts}) can be checked against the trigger that is
     // actually sounding it, instead of blindly silencing whatever happens to
     // be active. STRICTLY for that match — never read by anything that
     // could use it to raise an alarm.
+    //
+    // Set for a HELD siren too, and that is what lets the existing advisory
+    // path cancel a pending siren with no new matching logic.
     strncpy(activeAlarmRfId, rfId, sizeof(activeAlarmRfId) - 1);
     activeAlarmRfId[sizeof(activeAlarmRfId) - 1] = '\0';
     activeAlarmTs = triggerTs;
   }
-  cloudClient.reportEvent(rfId, event, batteryLow, rssi);
+  // triggerTs passed explicitly, NOT re-read inside reportEvent: the /events
+  // key must equal the snapshot path's ts or the cloud cannot join the
+  // timeline doc to the event row. Two independent time(nullptr) reads
+  // straddled a second boundary on 2026-10-05 and produced 19:24:44 vs
+  // 19:24:45, which the web UI rendered as a "manual capture". The comment on
+  // triggerTs above always claimed this; now it is true.
+  cloudClient.reportEvent(rfId, event, batteryLow, rssi, nullptr, triggerTs);
   // Reported whenever the alarm fires, NOT gated on sirenEnabled: turning the
   // siren off is a noise preference, not a "stop telling me about intrusions"
   // one. Gating both on it produced a silent alarm — no siren AND no Telegram
@@ -416,6 +485,39 @@ void pollEntryDelay(unsigned long now) {
   alarmReportedToCloud = true;
 }
 
+// Fire a siren whose hold has expired without the cloud vouching for the
+// trigger.
+//
+// This is the FAIL-LOUD half of the siren hold, and the reason the hold is
+// safe to have at all: a non-definite sensor's siren is delayed by
+// Config::sirenHoldSec, but nothing about that delay depends on the cloud
+// answering. Every way the verdict can fail to arrive — no WiFi, NVR down,
+// judge error, dropped snapshot upload, cloud simply slow — ends here, with
+// the siren sounding sirenHoldSec late instead of never.
+//
+// A matching false-positive advisory cancels the deadline before it expires
+// (see the advisory block in loop()); a disarm clears it via
+// applyArmedCommand/cancelPendingSiren.
+void tickPendingSiren(unsigned long now) {
+  if (pendingSirenDeadlineMs == 0) return;
+  // Subtraction, not `now >= deadline`: millis() wraps every ~49 days and the
+  // comparison would then be false for the whole second half of the range.
+  // The same idiom the rest of this file uses for timed work.
+  if ((long)(now - pendingSirenDeadlineMs) < 0) return;
+  pendingSirenDeadlineMs = 0;
+  if (!config.sirenEnabled) return;
+  Serial.printf("[alarm] siren hold expired with no verdict — sounding for %s\n",
+                activeAlarmRfId);
+  siren.turnOn(config.sirenDurationSec, now);
+}
+
+// Drop a pending siren without sounding it. Used by the false-positive
+// advisory (the cloud vouched for the trigger) and by disarm (the owner is
+// home; a held siren must not go off behind them).
+void cancelPendingSiren() {
+  pendingSirenDeadlineMs = 0;
+}
+
 // Shared by the cloud arm/disarm command path and LocalWebServer's
 // arm/disarm endpoints — both must update state, alarm evaluation, siren,
 // and EEPROM persistence identically.
@@ -428,6 +530,10 @@ void applyArmedCommand(bool newArmed) {
   if (!armed) {
     alarmState.disarm();
     siren.turnOff();
+    // A siren still inside its hold must not sound after a disarm: the owner
+    // is home, and turnOff() alone would leave the deadline armed to fire
+    // seconds later.
+    cancelPendingSiren();
   }
   eepromStore.save(armed, localWebEnabled, config);
   cloudClient.reportArmedState(armed, armedBySource);
@@ -1201,6 +1307,7 @@ void loop() {
   pollCc1101(now);
 
   pollEntryDelay(now);
+  tickPendingSiren(now);
   siren.tick(now);
 
   // Clear state/siren_active once the alarm is over. onAlarm triggers on the
@@ -1333,16 +1440,76 @@ void loop() {
   char fpRfId[11] = {};
   uint64_t fpTs = 0;
   if (cloudClient.consumeFalsePositive(fpRfId, sizeof(fpRfId), &fpTs)) {
-    if (siren.isActive() && activeAlarmRfId[0] != '\0' &&
+    // A siren that is SOUNDING or one still inside its hold both count as
+    // "current" here: the hold exists precisely so this advisory can land
+    // first, and gating on isActive() alone would let the deadline expire and
+    // sound the siren the cloud just vouched against. The identity match is
+    // unchanged — handleSensorEvent records it for a held siren too.
+    const bool pending = pendingSirenDeadlineMs != 0;
+    if ((siren.isActive() || pending) && activeAlarmRfId[0] != '\0' &&
         fpTs == activeAlarmTs && strcmp(fpRfId, activeAlarmRfId) == 0) {
-      Serial.printf("[camera] false-positive advisory: stopping siren for %s\n",
-                    fpRfId);
+      Serial.printf("[camera] false-positive advisory: %s siren for %s\n",
+                    pending ? "cancelling held" : "stopping", fpRfId);
+      cancelPendingSiren();
       siren.turnOff();
       activeAlarmRfId[0] = '\0';
       activeAlarmTs = 0;
     } else {
       Serial.printf("[camera] false-positive advisory: no match (stale/not-current) "
                     "for %s, no-op\n", fpRfId);
+    }
+  }
+
+  // Breach advisory — the cloud's AI judge saw a person, and a condition
+  // covering that sensor opted into vision evidence (breach_satisfies), so the
+  // alarm should sound even though our own rules did not fire.
+  //
+  // STRICTLY ADDITIVE, the exact mirror of the fp block above being strictly
+  // subtractive: this path may only turn the siren ON. It must never arm or
+  // disarm, and must never touch alarmState — the trigger history is local
+  // state that survives cloud outages, and letting the cloud rewrite it would
+  // corrupt every later window.
+  //
+  // Matched against activeAlarmRfId/activeAlarmTs like the advisory, with one
+  // deliberate difference: those are only set when a siren activation STARTED,
+  // and by definition no alarm fired here. So the match is against the LAST
+  // TRIGGER's identity instead — recorded on every armed trigger, whether or
+  // not it alarmed, precisely so this can be matched.
+  char breachRfId[11] = {};
+  uint64_t breachTs = 0;
+  if (cloudClient.consumeBreach(breachRfId, sizeof(breachRfId), &breachTs)) {
+    const bool matches = lastTriggerRfId[0] != '\0' &&
+                         breachTs == lastTriggerTs &&
+                         strcmp(breachRfId, lastTriggerRfId) == 0;
+    if (!matches) {
+      // A stale or unrecognised advisory is a logged no-op, never a siren.
+      Serial.printf("[camera] breach advisory: no match (stale/unknown) for %s, "
+                    "no-op\n", breachRfId);
+    } else if (!config.armed) {
+      // Disarmed since the trigger. The cloud's verdict describes an armed
+      // moment that has passed, and sounding now would be an alarm the owner
+      // just cancelled.
+      Serial.printf("[camera] breach advisory for %s but DISARMED, no-op\n",
+                    breachRfId);
+    } else if (!config.sirenEnabled) {
+      Serial.printf("[camera] breach advisory for %s but siren disabled, "
+                    "reporting only\n", breachRfId);
+      cloudClient.reportAlarm(breachRfId, 0);
+      alarmReportedToCloud = true;
+    } else {
+      Serial.printf("[camera] breach advisory: sounding siren for %s\n", breachRfId);
+      // Cancel any hold first: a judge-raised alarm is already confirmed, so
+      // waiting out sirenHoldSec would delay exactly the case the hold exists
+      // to resolve.
+      cancelPendingSiren();
+      siren.turnOn(config.sirenDurationSec, now);
+      // Adopt this trigger as the one sustaining the siren, so a LATER fp
+      // advisory for the same trigger can still silence it.
+      strncpy(activeAlarmRfId, breachRfId, sizeof(activeAlarmRfId) - 1);
+      activeAlarmRfId[sizeof(activeAlarmRfId) - 1] = '\0';
+      activeAlarmTs = breachTs;
+      cloudClient.reportAlarm(breachRfId, 0);
+      alarmReportedToCloud = true;
     }
   }
 

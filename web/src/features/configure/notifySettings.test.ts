@@ -15,6 +15,8 @@ import {
   credsComplete,
   PUSHOVER_SOUNDS_LONG,
   PUSHOVER_SOUNDS_SHORT,
+  JUDGE_WAIT_OFF,
+  JUDGE_WAIT_MAX_SEC,
 } from "./notifySettings";
 import { DEFAULT_BATTERY_ALERT_MONTHS } from "./batteryAge";
 
@@ -24,6 +26,7 @@ const base: NotifyForm = {
   pushoverRetrySec: 60,
   pushoverExpireSec: 3600,
   batteryAlertMonths: DEFAULT_BATTERY_ALERT_MONTHS,
+  judgeWaitSec: JUDGE_WAIT_OFF,
 };
 
 const source = {
@@ -44,6 +47,7 @@ describe("isDirty", () => {
     expect(isDirty(base, { ...base, pushoverRetrySec: 30 })).toBe(true);
     expect(isDirty(base, { ...base, pushoverExpireSec: 600 })).toBe(true);
     expect(isDirty(base, { ...base, batteryAlertMonths: 6 })).toBe(true);
+    expect(isDirty(base, { ...base, judgeWaitSec: 20 })).toBe(true);
   });
 
   it("is false again once a field is changed back", () => {
@@ -81,7 +85,28 @@ describe("formFromProject", () => {
       pushoverRetrySec: 30,
       pushoverExpireSec: 600,
       batteryAlertMonths: 6,
+      judgeWaitSec: JUDGE_WAIT_OFF,
     });
+  });
+});
+
+describe("judgeWaitSec", () => {
+  // OFF by default, deliberately: deferring changes when the owner is woken
+  // for a real alarm, so it must be opted into rather than inherited by every
+  // existing project on deploy.
+  it("defaults to off when the project has no value", () => {
+    expect(formFromProject(source).judgeWaitSec).toBe(JUDGE_WAIT_OFF);
+    expect(JUDGE_WAIT_OFF).toBe(0);
+  });
+
+  it("reads an explicit value", () => {
+    expect(formFromProject({ ...source, judgeWaitSec: 20 }).judgeWaitSec).toBe(20);
+  });
+
+  // Above the server's own 45s fallback the sweeper fires first, so a larger
+  // value cannot do anything. The cap documents that rather than inviting it.
+  it("caps at the server's fallback deadline", () => {
+    expect(JUDGE_WAIT_MAX_SEC).toBe(45);
   });
 });
 

@@ -47,6 +47,48 @@ export interface Condition {
   // rules predating this field need no migration. Clamped, never trusted
   // raw: see quorumOf() in alarmLogic.ts.
   quorum?: number;
+  // count_in_window only: minimum seconds between two triggers for the second
+  // to count as a SEPARATE witness. ABSENT or 0 means no minimum, which is
+  // what every rule predating this field means — so no migration.
+  //
+  // Why it exists: a PIR re-triggering on its own stimulus is one physical
+  // event, and a bare count_in_window counts that echo as corroboration.
+  // Measured on sensor 0x009BFA (992 events): median gap between the 1st and
+  // 2nd trigger of a burst is 10s, and 51% of multi-trigger bursts are <=10s.
+  //
+  // Pair it with a WIDER window_sec, not the default. Against a 30s window,
+  // min_gap_sec 20 leaves only a [20,30] slot — 20 of 193 real bursts — which
+  // suppresses genuine two-pass movement too. 20/120 is the shape that works.
+  //
+  // Mirrored by Condition::g in the firmware's alarm_state.h; the two
+  // evaluators must agree or device and server disagree about the alarm.
+  min_gap_sec?: number;
+  // A `breach` verdict from the AI judge satisfies this condition ON ITS OWN:
+  // for count_in_window, without the trigger count being met; for
+  // multi_sensor, without the other participants triggering. ABSENT = false,
+  // so no migration and every existing rule is unchanged.
+  //
+  // Why: count_in_window is a PROXY for "is this a person, not a cat", and a
+  // breach verdict answers that question directly. Two unjudged triggers are
+  // WEAKER evidence than one trigger plus a person visibly in frame — a cat
+  // pacing a yard satisfies 2-in-30s. So the count is the fallback for when
+  // vision is unavailable, not the gold standard the judge merely filters.
+  //
+  // On multi_sensor it satisfies the WHOLE rule, regardless of `quorum`: the
+  // AND exists because any one PIR is noisy, and vision removes exactly that
+  // noise. Satisfying only the one participant would leave the rule waiting
+  // for a sensor that may never trigger.
+  //
+  // CLOUD-SIDE ONLY, and deliberately not mirrored into the device config: a
+  // verdict only exists where there are cameras and an LLM. The device keeps
+  // evaluating the plain count/AND, which is exactly the offline fallback —
+  // "alarm logic never depends on the cloud" is preserved. The judge's alarm
+  // reaches the device as /{projectId}/commands/breach.
+  //
+  // Resolution across a sensor's several conditions is OR — see
+  // breachSatisfiesAny() in judgeGate.ts for why the firing rule cannot (and
+  // need not) be identified.
+  breach_satisfies?: boolean;
 }
 
 export interface Rule {
@@ -319,6 +361,15 @@ export interface Project {
   // Used in the judge prompt and the breach alert caption; channels with no
   // entry fall back to "camera N". The device never sees these.
   cameraNames?: Record<string, string>;
+  // How long an alarm notification may wait for the AI judge's verdict, in
+  // seconds. ABSENT or 0 = today's behaviour: onAlarm notifies immediately.
+  //
+  // Applies ONLY to non-definite sensors with cameras ticked while the project
+  // is in capture+judge — see shouldDeferToJudge(). When it applies, onAlarm
+  // sends nothing and the verdict decides the tier, so a false positive never
+  // wakes anyone. doSchedule's sweeper is the backstop if no verdict arrives;
+  // the value is the age at which it gives up and sends the fallback.
+  judgeWaitSec?: number;
   device: DeviceInfo;
 }
 
@@ -354,6 +405,10 @@ export interface RtdbRawEvent {
 //    ("2 of 3"). Omitted when it equals the participant count, which is the
 //    AND every rule used to have, so the common payload is unchanged. The
 //    firmware reads an absent q as 0, meaning "all" (Condition::q).
+// g: min_gap_sec (count_in_window) — minimum seconds between two triggers for
+//    the second to count as a separate witness. Omitted when unset or 0, so
+//    the common payload is unchanged; the firmware reads an absent g as 0,
+//    meaning "no minimum" (Condition::g).
 // x: always-on — 1 when the rule fires regardless of arm state. Omitted when
 //    false so the common payload is unchanged (the device polls this every 5s).
 export interface RtdbCondition {
@@ -363,6 +418,7 @@ export interface RtdbCondition {
   y?: number;
   k?: Record<string, number>;
   q?: number;
+  g?: number;
   x?: 1;
 }
 
@@ -408,6 +464,20 @@ export interface RtdbConfig {
   // channel 1 is 0x01 and channel 8 is 0x80. 0 means this sensor captures
   // nothing. Omitted entirely when every mask is 0.
   cmask?: number[];
+  // Siren hold, seconds: how long the DEVICE delays sounding the siren for a
+  // non-definite sensor, giving the AI judge time to rule it a false positive
+  // (/commands/fp cancels the pending siren). Omitted when 0/unset, which is
+  // "fire immediately" — the behaviour before this field.
+  //
+  // The device fires the siren locally with no cloud involvement, which is why
+  // this has to travel to it at all. The hold EXPIRES AND FIRES: an offline
+  // device, a down NVR or a judge error still sounds the siren, just late.
+  sh?: number;
+  // Indices into r whose sensors are NOT definite breaches, i.e. the ones the
+  // hold above applies to. Omitted when empty — absent certainty means
+  // DEFINITE (see breachCertainty.ts), so the common payload is unchanged for
+  // a project that has never ticked the box.
+  nd?: number[];
 }
 
 // Who caused an arm/disarm. The cloud sources (app/schedule/telegram) come

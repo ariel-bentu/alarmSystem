@@ -21,6 +21,7 @@ import {
   type CameraNames,
 } from "./cameraNames";
 import { liveWindowStart, mergeEventPages } from "./eventPaging";
+import { findOrphanTimeline } from "./timelineJoin";
 import { eventSubject } from "./eventSubject";
 import { snapshotSummary } from "./snapshotThumb";
 import { DayHeaderRow } from "@/components/DayHeaderRow";
@@ -266,12 +267,19 @@ export default function ExplorePage() {
 
   const events = mergeEventPages(live, history);
 
-  // Build the set of timeline keys that already have a matching event row.
-  // Timeline entries with no match are manual captures (rfId="MANUAL") or
-  // orphans — surface them as standalone rows so manual captures are visible.
-  const eventKeys = new Set(events.map((ev) => `${ev.rfId}_${ev.timestamp.toMillis()}`));
-  const orphanTimeline = Array.from(timelineById.values()).filter(
-    (tl) => tl.timestamp && !eventKeys.has(tl.id)
+  // Timeline entries with no matching event row are manual captures
+  // (rfId="MANUAL") or orphans — surface them as standalone rows so manual
+  // captures are visible.
+  //
+  // Matched with a 1s skew tolerance rather than on an exact key: the device
+  // used to stamp the /events key and the snapshot path from two separate
+  // clock reads, so a trigger crossing a second boundary mislabelled a real
+  // sensor trigger as a manual capture. See timelineJoin.ts.
+  const orphanTimeline = findOrphanTimeline(
+    Array.from(timelineById.values())
+      .filter((tl) => tl.timestamp)
+      .map((tl) => ({ ...tl, ms: tl.timestamp!.toMillis() })),
+    events.map((ev) => ({ rfId: ev.rfId, ms: ev.timestamp.toMillis() }))
   );
 
   // Unified row type: real event or orphan timeline entry.

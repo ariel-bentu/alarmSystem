@@ -60,10 +60,15 @@ bool parseConfigJson(const char* json, Config* out) {
   out->nvrMode = doc["nm"] | 0;
   out->captureCooldownSec = doc["cc"] | 45;
 
+  // Siren hold for non-definite sensors. 0/absent = fire immediately, which
+  // is what every config written before this field decodes to.
+  out->sirenHoldSec = doc["sh"] | 0;
+
   JsonArray r = doc["r"];
   JsonArray c = doc["c"];
   // Hoisted out of the per-sensor loop below: one lookup, not one per sensor.
   JsonArray cmask = doc["cmask"];
+  JsonArray nd = doc["nd"];
   // Paired with onProfileChange.ts: RTDB drops empty arrays on .set(), so
   // "no active profile" writes {a, d} with r/c omitted entirely rather than
   // r:[]/c:[]. Missing r/c means zero sensors (arm nothing), NOT a parse
@@ -95,6 +100,29 @@ bool parseConfigJson(const char* json, Config* out) {
                             ? static_cast<uint8_t>(cmask[i] | 0)
                             : 0;
 
+    // Breach certainty, as an OPTIONAL list of r-indices that are NOT
+    // definite (`nd`), rather than a per-sensor flag array: the overwhelming
+    // common case is "every sensor is definite", which omits the key entirely
+    // and keeps the payload the device polls every 5s unchanged.
+    //
+    // Assigned EXPLICITLY on every pass, never left to the struct's default:
+    // `out` is a reused Config, so a sensor that was non-definite in the
+    // previous config would otherwise stay non-definite here and keep holding
+    // its siren after the box was unticked.
+    sensor.definiteBreach = true;
+    if (!nd.isNull()) {
+      for (JsonVariant v : nd) {
+        // Compared as a SIGNED int: casting a negative index to size_t would
+        // wrap to a huge value that could never match, which is harmless, but
+        // comparing signed makes garbage input obviously a no-op instead.
+        int idx = v.as<int>();
+        if (idx >= 0 && (size_t)idx == i) {
+          sensor.definiteBreach = false;
+          break;
+        }
+      }
+    }
+
     JsonArray conditions = c[i];
     sensor.conditionCount = 0;
     for (JsonVariant condJson : conditions) {
@@ -104,6 +132,12 @@ bool parseConfigJson(const char* json, Config* out) {
       cond.n = condJson["n"] | 0;
       cond.w = condJson["w"] | 0;
       cond.y = condJson["y"] | 0;
+      // count_in_window minimum separation, seconds. Omitted when unset or 0.
+      // Clamped to Condition::g's uint8_t range rather than truncated: a
+      // wrapped value would silently become a SMALLER gap than configured,
+      // i.e. a weaker filter than the user asked for.
+      unsigned long gRaw = condJson["g"] | 0UL;
+      cond.g = gRaw > 255UL ? 255 : (uint8_t)gRaw;
       // Always-on: fires regardless of arm state. Omitted when false.
       cond.always = (condJson["x"] | 0) == 1;
       cond.kLen = 0;
@@ -174,12 +208,12 @@ bool parseConfigJson(const char* json, Config* out) {
   return true;
 }
 
-bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
-                        uint64_t* tsOut) {
+bool parseAdvisory(const char* json, const char* key, char* rfIdOut, size_t cap,
+                   uint64_t* tsOut) {
   JsonDocument doc;
   if (deserializeJson(doc, json)) return false;
 
-  JsonVariant fp = doc["fp"];
+  JsonVariant fp = doc[key];
   if (fp.isNull() || !fp.is<JsonObject>()) return false;
 
   JsonVariant rfId = fp["rfId"];
@@ -202,6 +236,11 @@ bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
   rfIdOut[cap - 1] = '\0';
   *tsOut = ts.as<uint64_t>();
   return true;
+}
+
+bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
+                        uint64_t* tsOut) {
+  return parseAdvisory(json, "fp", rfIdOut, cap, tsOut);
 }
 
 }  // namespace ConfigParser

@@ -101,7 +101,7 @@ import { onObjectFinalized } from "firebase-functions/v2/storage";
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 import type { Database } from "firebase-admin/database";
 import { parseSnapshotPath } from "./snapshotPath";
-import { Project, Sensor } from "./types";
+import { Project, Rule, Sensor } from "./types";
 import { causeFamilyOf, familyIdOf } from "./keruiEvent";
 import { sensorFamilyId } from "./sensorFamily";
 import { parseCause, isCauseFresh } from "./alarmCause";
@@ -110,6 +110,7 @@ import { loadJudgeKeys, type JudgeKeys } from "./judgeConfig";
 import { sendTelegramPhoto } from "./telegram";
 import { notify } from "./notify";
 import { breachVerdictSeverity, isDefiniteBreach } from "./breachCertainty";
+import { shouldJudge, breachSatisfiesAny } from "./judgeGate";
 
 /**
  * Everything the core handler needs, injected so it is unit-testable
@@ -215,36 +216,45 @@ export async function handleSnapshotUpload(
     return;
   }
 
-  if (project.nvrMode !== "capture+judge") {
+  // --- 2a. The ARMED gate (was: "did this trigger alarm?") ---
+  //
+  // Judge every armed trigger. The old gate required a fresh matching
+  // alarm_cause, which made the judge structurally unreachable for
+  // count_in_window rules — see judgeGate.shouldJudge() and the spec. An
+  // unalarmed trigger's verdict is now load-bearing: a later trigger in the
+  // same episode inherits it.
+  const armedSnap = await deps.rtdb.ref(`${projectId}/state/armed`).get();
+  const armed = armedSnap.val() === true;
+  if (!shouldJudge({ armed, nvrMode: project.nvrMode })) {
     console.log(
-      `onSnapshotUploaded: nvrMode=${project.nvrMode ?? "off"} for ${projectId} — skipping judge`
+      `onSnapshotUploaded: armed=${armed} nvrMode=${project.nvrMode ?? "off"} ` +
+        `for ${projectId} — skipping judge`
     );
     return;
   }
 
-  const causeSnap = await deps.rtdb.ref(`${projectId}/state/alarm_cause`).get();
-  const cause = parseCause(causeSnap.val());
+  // Did THIS trigger already alarm? No longer a gate on judging — only on what
+  // to do with the verdict. A matching fresh cause means the rules fired, so a
+  // safe verdict should write the false-positive advisory; its absence means
+  // the rules have not fired (yet), so a breach verdict may need to raise the
+  // alarm itself via commands/breach.
+  //
   // causeFamilyOf, NOT familyIdOf: the cause carries the already-shifted
   // 20-bit family when the DEVICE wrote it and the full 24-bit rfId when the
   // server did. familyIdOf shifted the device's value a second time
-  // ("0x009BF" -> "0x0009B"), so this gate never matched a device-written
-  // cause and the judge never ran on real hardware.
+  // ("0x009BF" -> "0x0009B"), which is why this never matched a device-written
+  // cause and the judge never ran on real hardware before 2026-10-04.
+  const causeSnap = await deps.rtdb.ref(`${projectId}/state/alarm_cause`).get();
+  const cause = parseCause(causeSnap.val());
   const causeFamily = cause?.rfId ? causeFamilyOf(cause.rfId) : null;
-  const armedAtTrigger =
+  const alreadyAlarmed =
     cause !== null &&
     causeFamily !== null &&
     causeFamily === family &&
-    // Freshness is judged relative to the TRIGGER's own ts, not wall-clock
-    // now — see the module doc comment for why this is what makes the gate
-    // race-safe against a later disarm.
+    // Freshness against the TRIGGER's own ts, not wall-clock now — see the
+    // module doc comment for why that is what makes this race-safe against a
+    // later disarm.
     isCauseFresh(cause, ts);
-
-  if (!armedAtTrigger) {
-    console.log(
-      `onSnapshotUploaded: no fresh matching alarm_cause for rfId=${rfId} ts=${ts} — skipping judge`
-    );
-    return;
-  }
 
   // Keys live in the server-only `config/judge` doc (see judgeConfig.ts).
   // Read only here, past every gate above.
@@ -299,7 +309,56 @@ export async function handleSnapshotUpload(
     { merge: true }
   );
 
+  // This verdict is about to announce the alarm (breach escalation, silent
+  // all-clear, or a sibling's breach having announced it already), so release
+  // any deferral onAlarm set up. Cleared on EVERY path below — a surviving
+  // marker would have doSchedule's sweeper announce the same alarm twice.
+  //
+  // Keyed by family, the only identity onAlarm and this handler share: see
+  // pendingAlarm.ts. Best-effort — a failure here must never cost the verdict
+  // itself, and the worst case is one duplicate fallback notification.
+  const clearPending = async () => {
+    if (family === null) return;
+    try {
+      await deps.db.doc(`projects/${projectId}/pendingAlarms/${family}`).delete();
+    } catch (err) {
+      console.warn(
+        `onSnapshotUploaded: could not clear pendingAlarms/${family} for ${projectId}`,
+        err
+      );
+    }
+  };
+
   if (verdict === "breach") {
+    await clearPending();
+
+    // --- Judge-as-evidence: RAISE the alarm when the rules have not ---
+    //
+    // The rules did not fire for this trigger (no fresh matching cause), but a
+    // condition covering this sensor opted into vision evidence. A person
+    // visibly in frame is STRONGER evidence than two unjudged triggers — a cat
+    // pacing a yard satisfies 2-in-30s — so the count/AND is the fallback, not
+    // the gold standard. See the spec and judgeGate.breachSatisfiesAny().
+    //
+    // commands/breach, not a cloud write to state/siren_active: the siren
+    // decision stays on the DEVICE, where every other siren decision lives,
+    // and serverActions.triggerSiren can remain off. Strictly ADDITIVE, the
+    // mirror of commands/fp's strictly-subtractive rule.
+    let raisedByJudge = false;
+    if (!alreadyAlarmed && sensor) {
+      const rules = await loadDeviceActiveRules(deps, projectId);
+      if (breachSatisfiesAny(rules, sensor.id)) {
+        await deps.rtdb
+          .ref(`${projectId}/commands/breach`)
+          .set({ rfId, ts, at: deps.now() });
+        raisedByJudge = true;
+        console.log(
+          `onSnapshotUploaded: breach on ${rfId}/${ts} with no rule alarm — ` +
+            `raising via commands/breach (breach_satisfies)`
+        );
+      }
+    }
+
     await timelineRef.update({
       aiNote: `confirmed breach (AI): ${reason}`,
     });
@@ -317,10 +376,22 @@ export async function handleSnapshotUpload(
     // repeating; a second emergency would be two repeating alerts for one
     // event. A NON-DEFINITE sensor's alarm went out as priority 1, so this
     // verdict is the escalation and the first emergency push.
+    //
+    // A JUDGE-RAISED alarm is a third case: nothing has been sent at all for
+    // this episode, because the rules never fired. So it is always the first
+    // and only alert, and always emergency — the downgrade above exists purely
+    // to avoid doubling an alert that already went out.
+    //
+    // This is also why a judge-raised alarm skips judgeWaitSec and
+    // sirenHoldSec: both exist to WAIT for a verdict, and the verdict is what
+    // raised this alarm. There is nothing left to wait for, and holding would
+    // only delay a confirmed breach.
     await deps.notify(projectId, project, {
       text: caption,
-      severity: breachVerdictSeverity(isDefiniteBreach(sensor)),
-      title: "Confirmed breach",
+      severity: raisedByJudge
+        ? "alarm"
+        : breachVerdictSeverity(isDefiniteBreach(sensor)),
+      title: raisedByJudge ? "Breach detected" : "Confirmed breach",
       link: true, // the snapshots this breach was judged on are on that page
     });
 
@@ -344,6 +415,9 @@ export async function handleSnapshotUpload(
       `onSnapshotUploaded: safe verdict for ${rfId}/${ts} ch${channel}, but a sibling ` +
         `channel already judged breach — NOT writing the false-positive advisory`
     );
+    // The sibling's breach invocation already announced this alarm, so the
+    // deferral is spent even though THIS channel adds nothing.
+    await clearPending();
     await timelineRef.update({
       // Prefix "safe (AI" is load-bearing: web/src/features/explore/
       // snapshotThumb.ts parses the verdict back out of this free text by
@@ -356,6 +430,7 @@ export async function handleSnapshotUpload(
     return;
   }
 
+  await clearPending();
   await deps.rtdb.ref(`${projectId}/commands/fp`).set({ rfId, ts, at: deps.now() });
   await timelineRef.update({
     aiNote: `false positive (AI): ${reason}`,
@@ -378,6 +453,30 @@ export async function handleSnapshotUpload(
     text: `✓ Cleared — ${sensorName}, ${cameraName ?? `camera ${channel}`} — ${reason}`,
     severity: "notice",
   });
+}
+
+/**
+ * Rules of the profile the DEVICE is running — the same lookup onAlarm's
+ * resolveCause does, and for the same reason: that is the profile which
+ * evaluated (or failed to evaluate) this trigger, not the server's active one.
+ *
+ * Read lazily, only on a breach verdict that might need to raise an alarm, so
+ * the common paths (safe verdicts, already-alarmed breaches) pay nothing.
+ */
+async function loadDeviceActiveRules(
+  deps: Pick<SnapshotUploadDeps, "db">,
+  projectId: string
+): Promise<Rule[]> {
+  const profileSnap = await deps.db
+    .collection(`projects/${projectId}/profiles`)
+    .where("isActiveOnDevice", "==", true)
+    .limit(1)
+    .get();
+  if (profileSnap.empty) return [];
+  const rulesSnap = await deps.db
+    .collection(`projects/${projectId}/profiles/${profileSnap.docs[0].id}/rules`)
+    .get();
+  return rulesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Rule);
 }
 
 // Bucket pinned explicitly rather than left to firebase-functions' default-

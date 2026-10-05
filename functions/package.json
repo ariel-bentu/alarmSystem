@@ -16,6 +16,7 @@
     "dump:configInputs": "tsx scripts/dumpConfigInputs.ts",
     "set:judgeKey": "tsx scripts/setJudgeKey.ts",
     "set:notifyKey": "tsx scripts/setNotifyKey.ts",
+    "set:judgeTuning": "tsx scripts/setJudgeTuning.ts",
     "touch:project": "tsx scripts/touchProject.ts"
   },
   "dependencies": {

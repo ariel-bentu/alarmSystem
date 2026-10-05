@@ -223,6 +223,16 @@ export const en = {
   "cfg.rule.count": "Trigger count",
   "cfg.rule.windowSec": "Window (seconds)",
   "cfg.rule.delaySec": "Delay (seconds)",
+  // Minimum separation between triggers. Optional: blank/0 = no minimum,
+  // which is how every rule behaved before the field existed.
+  "cfg.rule.breachSatisfies": "A camera sighting is enough on its own",
+  "cfg.rule.breachSatisfiesHelp":
+    "When the AI sees a person in the snapshots, raise the alarm immediately — without waiting for the trigger count or the other sensors. The counting still works on its own when the cameras or the internet are unavailable, so this only ever adds a faster path.",
+  "cfg.rule.breachSatisfiesNote":
+    "Needs cameras selected for the sensor and camera mode set to Capture + AI judge.",
+  "cfg.rule.minGapSec": "Minimum gap (seconds)",
+  "cfg.rule.minGapHelp":
+    "Ignores repeat triggers that arrive sooner than this, so a motion sensor re-triggering on the same movement does not count twice. Leave blank for no minimum. Use a wider window when you set this — with a 30s window and a 20s gap almost nothing can match.",
   "cfg.rule.triggersPerSensor": "Triggers required per sensor",
   "cfg.rule.conditionType": "Condition Type",
   "cfg.rule.multiHint": "Two or more sensors — the rule is a Multi Sensor condition.",
@@ -430,6 +440,9 @@ export const en = {
   "settings.batteryAlertMonths": "Battery age alert (months)",
   "settings.batteryAlertMonthsHelp":
     "Notify once when a sensor battery is older than this. 0 disables it. Sensors with no recorded change date are aged from when they were paired.",
+  "settings.judgeWaitSec": "Wait for camera check (seconds)",
+  "settings.judgeWaitSecHelp":
+    "For sensors marked “needs camera confirmation”, hold the alarm notification until the AI has looked at the snapshots, so a false alarm never wakes you. 0 sends immediately. Only applies when the sensor has cameras selected and the camera mode is Capture + AI judge; if no verdict arrives the alarm is sent anyway after 45 seconds. The siren is not affected.",
   "settings.whatToNotify": "What to notify",
   "settings.serverSendsNotification": "Send notification on alarm",
   "settings.serverSendsNotificationHelp":

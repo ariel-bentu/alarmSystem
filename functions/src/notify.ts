@@ -22,10 +22,30 @@ import { loadNotifySecrets } from "./notifySecrets";
 
 export type { Severity };
 
-// The hosted web app. Its PWA manifest declares scope "/" and display
-// "standalone", so an in-scope https link opens the INSTALLED app rather than
-// a browser tab — which is why no custom URL scheme or App Store presence is
-// needed to deep-link into it.
+// The hosted web app.
+//
+// ⚠️ Tapping this link on iOS opens SAFARI, not the installed PWA. An earlier
+// version of this comment claimed the opposite — that the manifest's
+// scope "/" + display "standalone" made an in-scope https link open the
+// installed app, so no custom scheme was needed. That is WRONG, and it went
+// unnoticed because nobody tapped one: scope and display govern navigation
+// *within* an already-running PWA, not what a third-party app does with a
+// URL. iOS has no https->installed-PWA deep-link mechanism at all (no
+// equivalent of Android App Links), and Pushover opens the URL in its own
+// web view / Safari.
+//
+// MEASURED 2026-10-05, on a real device, with the PWA backgrounded:
+//   https://alarm-system-100.web.app/explore  -> Safari
+//   webapp://alarm-system-100.web.app/        -> nothing happens
+//   webapp://alarm-system-100.web.app/explore -> nothing happens
+// The undocumented `webapp://` scheme is reported to work in 3-year-old
+// forum posts; it does not work here, on this iOS version, through Pushover.
+// Pushover's API accepts it (HTTP 200) — the tap is simply inert, so an
+// apparent success at the send end proves nothing. Do not re-add it without
+// testing the TAP on hardware.
+//
+// Accepted: the link lands in a browser. Telegram already renders URLs in the
+// message body, so this only affects the Pushover `url` field.
 export const APP_URL = "https://alarm-system-100.web.app";
 // The events page: where a trigger's camera snapshots are, and so the right
 // landing place for an alert link.

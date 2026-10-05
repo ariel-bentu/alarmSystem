@@ -235,20 +235,83 @@ watchdog / offline-alert work (untested on hardware as of 2026-09-02).
 **Working on real hardware:** ESP32-S3 boots, provisions WiFi, mints its
 Firebase token, decodes real Kerui sensors, evaluates rules, drives the siren
 over RF hub-free, serves the LAN web UI, and writes events to Firebase with
-Telegram alerts confirmed. 169 native unit tests pass.
+Telegram alerts confirmed. 182 native unit tests pass.
 
 **Sensor event families (2026-09-23) — built, not yet on hardware.** Matching
 moved from the 24-bit code to the 20-bit family, and tamper / water / close /
 battery-low are now distinguished per packet. The cloud + web halves are
 deployable on their own and deliver tamper/water/battery alerting without
-touching the device. The firmware half is NOT hardware-tested and carries an
-**EEPROM magic bump** (`sizeof(Config)` 2580 → 2548) — verify the
-`RtdbConfig.s` siren-address re-adoption before flashing, or the physical
-siren pairing is lost. Run `npm run check:sirenAddress` (read-only) first: if
-Firestore `sirenBaseAddress` or RTDB `config.s` is absent, do NOT flash. The
+touching the device. Carried an EEPROM magic bump (`sizeof(Config)`
+2580 → 2548); the siren address survived it, as it has every bump since. The
 `familyId` backfill (`cd functions && npm run migrate:familyIds`, dry-run by
 default) has not been run; every reader derives the family from `rfId` when
 it is absent, so nothing is blocked on it.
+
+**False-alarm suppression (2026-10-05) — built, NOT deployed, NOT flashed.**
+Prompted by the 05:52 false alarm: `תנועה דלת מחסן` (`0x009BFA`,
+non-definite, cameras 1+2) triggered at 05:52:55 and again **6s later**,
+satisfied its 2-in-30s `count_in_window`, and Gemini then judged both
+channels empty — *"an artifact or insect near the lens"* — **one second
+after** the Pushover alert went out. Everything worked as designed; the
+design was wrong in two places. Three independent parts:
+
+1. **`min_gap_sec` on `count_in_window`** (optional, absent/0 = unchanged,
+   no migration). Two triggers closer than N seconds count as ONE witness,
+   so a PIR's own echo cannot corroborate itself. Counting is **greedy from
+   the oldest**, so an echo sitting between two sparse triggers is skipped
+   rather than blocking the pair. ⚠️ **Pair it with a WIDER `window_sec`** —
+   measured on that sensor's 992 events, the median 1st→2nd gap is **10s and
+   51% of multi-trigger bursts are ≤10s**, so `min_gap 20` against the
+   default 30s window leaves only a `[20,30]` slot (20 of 193 bursts) and
+   would suppress genuine two-pass movement. 20/120 is the shape that works;
+   the rule editor rejects a gap that cannot fit `(count-1)*gap` in the
+   window. `Condition::g` is **`uint8_t` on purpose**: it packs into existing
+   padding, so `sizeof(Config)` was unchanged and this half needed **no
+   magic bump** (a `uint16_t` cost 128 bytes and tripped the `static_assert`).
+2. **Judge-gated notification.** With `judgeWaitSec > 0`, `onAlarm` sends
+   **nothing** for a non-definite sensor and the verdict is the only
+   announcement (breach → P2, safe → silent all-clear). Gated by
+   `judgeDefer.ts` on: opted in AND explicitly non-definite AND
+   `capture+judge` AND ≥1 camera ticked — that last condition matters, since
+   **10 of 17 sensors here have no cameras** and would otherwise defer to a
+   once-a-minute sweeper for no benefit. Marker is keyed by **20-bit family**,
+   the only identity `onAlarm` (reads `alarm_cause`) and `onSnapshotUploaded`
+   (has the snapshot's rfId + its own `ts`) can both compute. Also closes the
+   premature-safe race `onSnapshotUploaded` documented as accepted: a safe
+   verdict can now suppress the *only* alert, so waiting for all configured
+   channels stopped being optional.
+3. **Siren hold** (`sh` + `nd` in RTDB config). A non-definite sensor's siren
+   is delayed while the judge looks. ⚠️ **The hold EXPIRES AND FIRES** — an
+   offline device, down NVR or judge error sounds the siren *late*, never not
+   at all, because alarm logic must not depend on the cloud. The `fp`
+   advisory cancels a held siren as well as a sounding one (gating on
+   `siren.isActive()` alone would let the deadline fire the siren the cloud
+   had just vouched against).
+
+**Fail-loud backstop:** one new row in `doSchedule`'s table (NOT a new
+`onSchedule()`) announces any alarm still pending after 45s, so the worst
+cloud failure costs ~60s of lateness. `judgeWaitSec` is **off by default**,
+so nothing changes on deploy until it is set.
+
+⚠️ **`definiteBreach` is now DEVICE-VISIBLE** — added to
+`sensorConfigChanged`'s guard, having been deliberately excluded when
+certainty was cloud-only. The device fires the siren locally, so it must know
+which sensors to hold; omitting it would mean the hold never arriving, the
+same derived-state trap below. `judgeWaitSec` is in
+`onProjectConfigChange`'s guard for the same reason, and **doubles as the
+hold duration** rather than adding a second knob that could drift.
+
+EEPROM magic bump `0xA1A2B3BB` → `BC` — `sizeof(Config)` 2632 → 2664
+(**measured**: the `bool` costs 2 bytes × 16 sensors after padding,
+`sirenHoldSec` fits in existing padding). `check:sirenAddress` showed
+`0x93CF80` on both sides beforehand, as expected.
+
+**FLASHED 2026-10-05.** The cloud halves are NOT deployed yet, which is a
+safe order: without `sh`/`nd` in RTDB config the device parses
+`sirenHoldSec` as 0 and every siren fires immediately — exactly today's
+behaviour. Nothing changes until functions+web are deployed **and**
+`judgeWaitSec` is set (it is off by default). Deploy **functions before
+web**: the web writes `judgeWaitSec` and only the functions act on it.
 
 ⚠️ **RTDB `/{projectId}/config` is derived state.** `buildRtdbConfig` runs only
 from triggers: profile / rule / remote / project-config, plus
@@ -377,11 +440,8 @@ until its boxes are ticked in the Sensors tab.
 
 Device config carries one `cmask[]` bitmask (channel N = bit N-1), index-aligned
 with `r`, replacing `os[]`/`cch[]`; omitted wholesale when every mask is 0.
-⚠️ **EEPROM magic bump `0xA1A2B3BA` → `BB`** — `sizeof(Config)` 2664 → 2632
-(measured, not predicted). Per
-[siren-address-never-restorable-from-cloud](docs/history/siren-hub-free.md),
-run `npm run check:sirenAddress` before flashing or the physical siren pairing
-is lost. New `onSensorConfigChange` trigger rebuilds RTDB config on a
+EEPROM magic bump `0xA1A2B3BA` → `BB` — `sizeof(Config)` 2664 → 2632
+(measured, not predicted). New `onSensorConfigChange` trigger rebuilds RTDB config on a
 device-visible sensor write — without it the camera selection would never reach
 the device (the derived-state trap below), guarded so renames and alert markers
 don't churn the config.
@@ -449,11 +509,28 @@ replies to a typed Telegram command, addressed to the `chatId` from the
 incoming webhook, not to the project's configured channels.
 
 Alarm, breach and sensor-alert messages carry `link: true`, which adds
-Pushover's `url`/`url_title` pointing at `/explore`. Because the PWA manifest
-declares `scope: "/"` and `display: "standalone"`, tapping it opens the
-**installed app**, not Safari — no custom URL scheme and no App Store
-presence needed. The link is Pushover-only; Telegram already renders URLs in
-the message body.
+Pushover's `url`/`url_title` pointing at `/explore`. The link is
+Pushover-only; Telegram already renders URLs in the message body.
+
+⚠️ **That link opens SAFARI, not the installed PWA**, and this entry used to
+claim the opposite — that `scope: "/"` + `display: "standalone"` made an
+in-scope https link launch the installed app, so no custom scheme was needed.
+**That was wrong and nobody had tapped one to find out.** Those manifest
+fields govern navigation *within* a running PWA; iOS has no
+https→installed-PWA deep-link mechanism (no Android App Links equivalent),
+and Pushover opens the URL itself.
+
+Tested on a real device 2026-10-05 with the PWA **backgrounded**:
+`https://…/explore` → Safari; `webapp://alarm-system-100.web.app/` → **nothing
+happens**; same with an `/explore` path. The undocumented `webapp://` scheme
+circulating in 3-year-old forum posts does not work here. Note Pushover's API
+**accepts `webapp://` and returns HTTP 200**, so a successful send proves
+nothing — only tapping it does. Don't re-add a custom scheme without testing
+the tap on hardware.
+
+Landing in a browser is accepted for now. The open improvement is
+`?rfId=&ts=` deep-linking so the browser at least lands on the triggering
+sensor's snapshots rather than an unfiltered list (`todo.txt`).
 
 ⚠️ **Critical Alerts must be opted into inside the Pushover iOS app** —
 Apple requires that consent separately from normal push. Without it,
@@ -573,9 +650,27 @@ sensor, and the values reach RTDB. Use this to diagnose the intermittent
    testing)
 6. Set `definiteBreach` on the **7 sensors still unset** (of 17; 2 are
    explicitly definite, 8 explicitly not). Unset defaults to definite, so 9
-   sensors currently break through a muted ringer
-7. Run in parallel with W184
-8. Register the Telegram webhook so bot commands work
-9. Decommission W184
+   sensors currently break through a muted ringer. **Now also decides which
+   sensors get the siren hold**, so an unset sensor sirens immediately
+7. **Deploy the false-alarm suppression work.** Firmware ~~flash~~
+   **FLASHED 2026-10-05**; functions + web still to deploy (functions
+   first), then set `judgeWaitSec` — it is off by default, so nothing is
+   active yet. Then on hardware: two triggers ~6s apart must NOT alarm
+   (wait 5s+ between them, per the 3s dedup in `poll()`); ~25s apart must;
+   an empty frame must hold the siren, notify nothing and write
+   `commands/fp`; a person must fire the siren after the hold and escalate
+   to P2. ⚠️ **Do not skip the fail-loud test: pull the NVR's network cable
+   and trigger** — the siren must still sound when the hold expires, and the
+   sweeper must announce it within ~60s. (That one is a real unknown; the
+   EEPROM bump is not — see the siren-address note above.)
+8. Set `judgePrompt` (currently **null**, so `buildPrompt()` renders
+   `(none)` and the judge is blind to the insect-on-lens artifact it reported
+   itself) and pin `judgeModel` (currently **unset**, riding an alias Google
+   can repoint). Neither needs a deploy —
+   `npm run set:judgeTuning -- --write`, dry-run by default
+9. Replace the battery in `0x009BFA` and re-check its RSSI spread (`todo.txt`)
+10. Run in parallel with W184
+11. Register the Telegram webhook so bot commands work
+12. Decommission W184
 
 See `todo.txt` for smaller known gaps.

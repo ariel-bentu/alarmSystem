@@ -37,4 +37,17 @@ bool parseConfigJson(const char* json, Config* out);
 bool parseFalsePositive(const char* json, char* rfIdOut, size_t cap,
                         uint64_t* tsOut);
 
+// Same shape, any advisory key. `commands/breach` is the ADDITIVE mirror of
+// `fp`: identical {rfId, ts} payload, opposite meaning — "fp" says stand down
+// for this trigger, "breach" says sound off for it because the AI judge saw a
+// person and the sensor's condition opted into vision evidence
+// (Condition.breach_satisfies in the cloud types).
+//
+// One parser for both so the two can never drift in how they read an rfId or
+// a ts. /commands is a single polled document, so BOTH keys may be present at
+// once (an older fp alongside a new breach); each parses independently and
+// neither reads the other.
+bool parseAdvisory(const char* json, const char* key, char* rfIdOut, size_t cap,
+                   uint64_t* tsOut);
+
 }  // namespace ConfigParser
