@@ -91,8 +91,9 @@ The cooldown stops being a blind spot and becomes a cache.
 A new optional field on `Condition`, beside `min_gap_sec`:
 
 ```ts
-// count_in_window only: a `breach` verdict satisfies this condition on its
-// own, without the trigger count being met. ABSENT = false, so no migration
+// A `breach` verdict satisfies this condition on its own: for
+// count_in_window, without the trigger count being met; for multi_sensor,
+// without the other participants triggering. ABSENT = false, so no migration
 // and every existing rule is unchanged.
 breach_satisfies?: boolean;
 ```
@@ -110,10 +111,64 @@ exactly what `count`, `window_sec` and `min_gap_sec` already express.
 And it avoids overloading `definiteBreach`, which picks a notification tier
 and should keep meaning only that.
 
-**Scoped to `count_in_window` only**, like `min_gap_sec` was. On a
-`multi_sensor` condition "a breach satisfies it" is ambiguous — one
-participant's breach, or the whole AND? Deferred until there is a concrete
-need.
+**Applies to `count_in_window` AND `multi_sensor`.** On a `multi_sensor`
+condition, one participant's breach verdict **satisfies the whole rule** — it
+does not merely mark that participant satisfied.
+
+That follows the same logic as the count: a `multi_sensor` AND exists because
+any single PIR is noisy, and vision removes exactly that noise. A person
+visibly in frame on one camera is stronger evidence than three PIRs agreeing
+that *something* moved. Satisfying only the one participant would leave the
+rule waiting for a second sensor that may never trigger, so vision would add
+almost nothing.
+
+An earlier draft scoped this to `count_in_window` only, on the grounds that
+"a breach satisfies it" was ambiguous for an AND. The ambiguity is real but
+it resolves the same way the count does, and leaving `multi_sensor` out has a
+concrete cost in this project: **`תנועה כניסה מערבה` (`0x00927A`) sits in TWO
+`multi_sensor` rules and no `count_in_window`, with cameras 1+3 ticked.**
+Scoped to counts only, that sensor could never use vision evidence at all.
+
+`quorum` interaction: a breach satisfies the rule outright, regardless of
+`quorum`. A breach is not "one more satisfied participant" to be counted
+against the quorum — it is independent evidence that the rule's question is
+already answered. (Reducing the effective quorum by 1 was considered and
+rejected: it adds a third interacting concept — quorum × breach × per-sensor
+counts — for no gain over "fires".)
+
+### Resolving WHICH condition a verdict satisfies
+
+A sensor commonly belongs to several conditions, and `alarm_cause.ct` is a
+condition **TYPE** index, not a rule id — the same limitation that forced
+rule-derived certainty to be reverted on 2026-10-04. So the firing rule
+cannot be identified from the cause.
+
+It does not need to be. **The cloud scans every condition covering that
+sensor in the device-active profile, and a breach fires if ANY of them has
+`breach_satisfies`.** OR semantics, matching how rules already combine
+(`AlarmState` fires on any satisfied condition).
+
+This is deterministic — no dependence on Firestore document order, which is
+precisely what made the old `rules.find(...)` approach non-deterministic — and
+needs **no firmware change**. Carrying a rule id in `TriggerCause` was
+considered and rejected: it is a firmware change plus another struct revision,
+and the cause is written *before* the judge runs anyway.
+
+Measured overlaps in this project's `default` profile, all three of which this
+rule must handle correctly:
+
+| Sensor | Conditions it belongs to |
+|---|---|
+| `חלון מרפסת` (`0x516A09`) | `count_in_window(n=2,w=30,g=15)` + `multi_sensor "תנועה במרפסת x2"` |
+| `תנועה דלת כניסה` (`0x0061DA`) | `count_in_window(n=2,w=30,g=15)` + `multi_sensor "תנועה באיזור הדלת x2"` |
+| `תנועה כניסה מערבה` (`0x00927A`) | `multi_sensor "תנועה במרפסת x2"` + `multi_sensor "תנועה באיזור הדלת x2"` |
+
+Note the consequence for the first two: putting `breach_satisfies` on the
+`count_in_window` but not the `multi_sensor` still fires on a breach, because
+of the OR. Per-condition opt-in therefore controls *whether vision may fire at
+all for this sensor*, not which rule gets the credit. If you need a sensor's
+vision evidence to fire one rule but not another, that is not expressible —
+and deliberately so, since "fires" is the only outcome either way.
 
 ### What a `safe` verdict does
 
@@ -190,26 +245,45 @@ distinction is worth almost nothing, and it costs two tunable numbers plus a
 rule about their relationship. Dropped in favour of the derived window. Worth
 revisiting only if a long cooldown is ever needed again.
 
+### How the judge's alarm reaches the device: `commands/breach`
+
+**DECIDED.** A new `/{projectId}/commands/breach = { rfId, ts, at }`, which
+the device consumes exactly as it consumes `commands/fp` — same nonce-change
+polling, same `{rfId, ts}` identity match.
+
+Chosen over having the cloud write `state/siren_active` (as `onSensorEvent`
+does, gated on `serverActions.triggerSiren`) because it keeps the siren
+decision **on the device**, where every other siren decision already lives.
+The cloud supplies evidence; the device decides what to do with it. That also
+means `serverActions.triggerSiren` can stay `false` — the judge path does not
+require turning on server-side rule evaluation, which is a separate behaviour
+change with its own blast radius.
+
+Symmetry with `commands/fp` is the point: `fp` is "stand down for this
+{rfId, ts}", `breach` is "sound off for this {rfId, ts}". One mechanism, two
+directions, and the device's existing advisory plumbing is the model to copy.
+
+⚠️ `commands/breach` must be **strictly ADDITIVE**, the mirror of the
+"strictly subtractive" rule on `fp` (`main.cpp`'s advisory handler may only
+call `siren.turnOff()`). `breach` may raise the alarm and sound the siren for
+a matching trigger; it must never arm/disarm and must never write to
+`AlarmState`'s trigger history. See "What a `safe` verdict does" above for why
+trigger history stays local and unrewritable.
+
 ## Open questions
 
-1. **Who raises the judge's alarm?** Two options:
-   - **Cloud writes `state/siren_active`**, as `onSensorEvent` already does,
-     gated on `serverActions.triggerSiren` — currently `false` in this
-     project, so the server has never sounded the siren.
-   - **New `commands/breach`**, which the device consumes exactly as it
-     consumes `commands/fp`. Symmetrical, keeps the siren decision local,
-     and arguably the better fit with the rest of the design.
-
-   Leaning toward `commands/breach`.
-
-2. **Does a wrong `breach` need bounding beyond `definiteBreach`?** The judge
+1. **Does a wrong `breach` need bounding beyond `definiteBreach`?** The judge
    only ever sees frames *because a sensor fired*, so a breach verdict is
    always "one trigger + vision confirmation", never vision alone. Combined
    with per-sensor certainty (a wrong breach on a non-definite sensor lands
    at P0, not P2) this may be sufficient. Note the accuracy evidence is
    **6/6 on six real frames** — encouraging, not conclusive.
 
-3. ~~Does lowering `captureCooldownSec` alone fix problem 1?~~ **Partly, and
+   Sharper now that `multi_sensor` is in scope: a breach collapses a 3-sensor
+   AND to one trigger, so a single wrong verdict has more leverage than it did
+   under `count_in_window` alone.
+
+2. ~~Does lowering `captureCooldownSec` alone fix problem 1?~~ **Partly, and
    it is worth doing regardless.** Measured latency is ~7s (table above)
    against a cooldown of 25, so ~10 is defensible and already editable in
    Configure → Camera with no deploy. At 10s the alarming trigger of an
@@ -224,20 +298,51 @@ revisiting only if a long cooldown is ever needed again.
    Unknown: how the NVR behaves under more frequent OPSNAP grabs. Two
    channels every ~10s is well short of streaming, but it is untested.
 
-4. **`judgeWaitSec` interaction.** The notification hold already built
+3. **`judgeWaitSec` interaction.** The notification hold already built
    (2026-10-05) defers a non-definite sensor's notification pending a
    verdict. Under this design the verdict may now also *raise* the alarm, so
-   the hold and the breach path need to agree on ordering.
+   the hold and the breach path need to agree on ordering. Specifically: a
+   breach that RAISES an alarm should notify immediately rather than defer —
+   there is nothing left to wait for, the verdict already arrived.
+
+4. **Does the siren hold still make sense for a `breach_satisfies` rule?**
+   `sirenHoldSec` delays a non-definite sensor's siren pending a verdict. If
+   the verdict is what raised the alarm in the first place, holding it again
+   would delay a confirmed breach. Likely answer: a `commands/breach`-raised
+   alarm skips the hold entirely.
 
 ## Verification
 
-- Unit: `breach_satisfies` absent ⇒ identical to today (no migration);
-  present + breach ⇒ condition satisfied on one trigger; present + safe ⇒
-  falls back to ordinary counting; reuse honours each expiry; a safe verdict
-  never alters trigger history.
-- Hardware: two triggers 18s apart on `0x009BFA` with `breach_satisfies` on —
-  empty yard ⇒ no alarm; a person in frame on trigger 1 ⇒ alarm immediately,
-  without waiting for trigger 2.
-- Hardware, fail-safe: NVR cable pulled ⇒ no verdict ever arrives ⇒ the rule
-  falls back to plain `count_in_window` and alarms on two triggers as it does
-  today. **This is the test that proves the cloud-independence claim.**
+Unit:
+
+- `breach_satisfies` absent ⇒ behaviour identical to today, on both condition
+  types (no migration).
+- `count_in_window` + flag + breach ⇒ satisfied on one trigger, count waived.
+- `multi_sensor` + flag + breach on ONE participant ⇒ whole rule fires,
+  regardless of `quorum` and of the other participants' counts.
+- flag + **safe** ⇒ falls back to ordinary counting / ordinary AND; the
+  episode is suppressed but no trigger is removed from history.
+- **Overlap resolution**, using this project's real shapes: a sensor in a
+  flagged `count_in_window` AND an unflagged `multi_sensor` ⇒ breach fires
+  (OR semantics). A sensor in two unflagged conditions ⇒ breach does not
+  fire. Order of the conditions must not matter — assert both orderings, since
+  Firestore document order is what made the old `rules.find(...)`
+  non-deterministic.
+- Verdict reuse bounded by `captureCooldownSec`, compared against the
+  snapshot's `ts` rather than wall-clock now.
+
+Hardware:
+
+- `0x009BFA`, `breach_satisfies` on its `count_in_window`: two triggers 18s
+  apart with an empty yard ⇒ no alarm; a person in frame on trigger 1 ⇒ alarm
+  immediately, without waiting for trigger 2.
+- `0x00927A` (`תנועה כניסה מערבה`, two `multi_sensor` rules, cameras 1+3):
+  a person in frame on its trigger alone ⇒ alarm, without the other
+  participants triggering. This is the case the earlier `count_in_window`-only
+  scope could not serve at all.
+- **Fail-safe: NVR cable pulled** ⇒ no verdict ever arrives ⇒ rules fall back
+  to plain `count_in_window` / plain AND and alarm exactly as they do today.
+  **This is the test that proves the cloud-independence claim and must not be
+  skipped.**
+- `commands/breach` is additive only: confirm a breach for a NON-matching
+  `{rfId, ts}` is a logged no-op, and that it never changes arm state.
