@@ -149,6 +149,18 @@ bool alarmReportedToCloud = false;
 char activeAlarmRfId[11] = {};
 uint64_t activeAlarmTs = 0;
 
+// Identity of the most recent ARMED trigger, whether or not it alarmed.
+//
+// Distinct from activeAlarmRfId/activeAlarmTs above, which are only set when a
+// siren activation actually STARTED. A breach advisory arrives precisely when
+// no alarm fired — the cloud's judge is what decided there should be one — so
+// it has no active alarm to match against and needs this instead.
+//
+// RAM only, like lastCaptureMs[]: "survives nothing" is correct, because a
+// reboot means there is no in-flight trigger for an advisory to confirm.
+char lastTriggerRfId[11] = {};
+uint64_t lastTriggerTs = 0;
+
 // A siren DEFERRED by Config::sirenHoldSec, waiting for the cloud's AI judge
 // to rule the trigger a false positive before it sounds.
 //
@@ -315,6 +327,17 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   // (time(nullptr) * 1000); uint64_t, NOT uint32_t, for the same overflow
   // reason documented on CloudClient::uploadSnapshot().
   const uint64_t triggerTs = (uint64_t)time(nullptr) * 1000ULL;
+
+  // Record this trigger's identity whether or not it alarms. A breach advisory
+  // arrives for a trigger that did NOT alarm — that is the whole point of it —
+  // so the advisory matcher has nothing else to compare against. Only while
+  // armed: a disarmed trigger has no alarm for the cloud to raise.
+  if (config.armed) {
+    strncpy(lastTriggerRfId, rfId, sizeof(lastTriggerRfId) - 1);
+    lastTriggerRfId[sizeof(lastTriggerRfId) - 1] = '\0';
+    lastTriggerTs = triggerTs;
+  }
+
   if (shouldFire && config.sirenEnabled) {
     // Hold the siren for a NON-definite sensor, giving the cloud's AI judge
     // time to call the trigger a false positive before the whole street
@@ -1428,6 +1451,59 @@ void loop() {
     } else {
       Serial.printf("[camera] false-positive advisory: no match (stale/not-current) "
                     "for %s, no-op\n", fpRfId);
+    }
+  }
+
+  // Breach advisory — the cloud's AI judge saw a person, and a condition
+  // covering that sensor opted into vision evidence (breach_satisfies), so the
+  // alarm should sound even though our own rules did not fire.
+  //
+  // STRICTLY ADDITIVE, the exact mirror of the fp block above being strictly
+  // subtractive: this path may only turn the siren ON. It must never arm or
+  // disarm, and must never touch alarmState — the trigger history is local
+  // state that survives cloud outages, and letting the cloud rewrite it would
+  // corrupt every later window.
+  //
+  // Matched against activeAlarmRfId/activeAlarmTs like the advisory, with one
+  // deliberate difference: those are only set when a siren activation STARTED,
+  // and by definition no alarm fired here. So the match is against the LAST
+  // TRIGGER's identity instead — recorded on every armed trigger, whether or
+  // not it alarmed, precisely so this can be matched.
+  char breachRfId[11] = {};
+  uint64_t breachTs = 0;
+  if (cloudClient.consumeBreach(breachRfId, sizeof(breachRfId), &breachTs)) {
+    const bool matches = lastTriggerRfId[0] != '\0' &&
+                         breachTs == lastTriggerTs &&
+                         strcmp(breachRfId, lastTriggerRfId) == 0;
+    if (!matches) {
+      // A stale or unrecognised advisory is a logged no-op, never a siren.
+      Serial.printf("[camera] breach advisory: no match (stale/unknown) for %s, "
+                    "no-op\n", breachRfId);
+    } else if (!config.armed) {
+      // Disarmed since the trigger. The cloud's verdict describes an armed
+      // moment that has passed, and sounding now would be an alarm the owner
+      // just cancelled.
+      Serial.printf("[camera] breach advisory for %s but DISARMED, no-op\n",
+                    breachRfId);
+    } else if (!config.sirenEnabled) {
+      Serial.printf("[camera] breach advisory for %s but siren disabled, "
+                    "reporting only\n", breachRfId);
+      cloudClient.reportAlarm(breachRfId, 0);
+      alarmReportedToCloud = true;
+    } else {
+      Serial.printf("[camera] breach advisory: sounding siren for %s\n", breachRfId);
+      // Cancel any hold first: a judge-raised alarm is already confirmed, so
+      // waiting out sirenHoldSec would delay exactly the case the hold exists
+      // to resolve.
+      cancelPendingSiren();
+      siren.turnOn(config.sirenDurationSec, now);
+      // Adopt this trigger as the one sustaining the siren, so a LATER fp
+      // advisory for the same trigger can still silence it.
+      strncpy(activeAlarmRfId, breachRfId, sizeof(activeAlarmRfId) - 1);
+      activeAlarmRfId[sizeof(activeAlarmRfId) - 1] = '\0';
+      activeAlarmTs = breachTs;
+      cloudClient.reportAlarm(breachRfId, 0);
+      alarmReportedToCloud = true;
     }
   }
 

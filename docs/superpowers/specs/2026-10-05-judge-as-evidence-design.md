@@ -136,6 +136,23 @@ already answered. (Reducing the effective quorum by 1 was considered and
 rejected: it adds a third interacting concept — quorum × breach × per-sensor
 counts — for no gain over "fires".)
 
+### `alarmLogic.ts` is deliberately NOT changed
+
+`evaluateRules` runs from `onSensorEvent`, i.e. **when a trigger arrives** —
+before any verdict for that trigger can exist (capture + judge takes ~4–7s).
+So a `breach_satisfies` branch there could never fire, and adding one would be
+actively misleading: it would read as though server-side evaluation honours
+vision evidence when the data is not available at that point in time.
+
+The verdict path is inherently later and lives where the verdict lands:
+`onSnapshotUploaded` (fresh verdict) and `onAlarm` (inherited verdict). Both
+are after the fact by construction.
+
+Consequence worth stating: `breach_satisfies` is **not** part of rule
+evaluation at all, on either side. It is a property of how a VERDICT is acted
+on. That is why it needs no device mirror and no change to the two rule
+evaluators that must otherwise agree.
+
 ### Resolving WHICH condition a verdict satisfies
 
 A sensor commonly belongs to several conditions, and `alarm_cause.ct` is a

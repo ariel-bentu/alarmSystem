@@ -225,6 +225,11 @@ export const en = {
   "cfg.rule.delaySec": "Delay (seconds)",
   // Minimum separation between triggers. Optional: blank/0 = no minimum,
   // which is how every rule behaved before the field existed.
+  "cfg.rule.breachSatisfies": "A camera sighting is enough on its own",
+  "cfg.rule.breachSatisfiesHelp":
+    "When the AI sees a person in the snapshots, raise the alarm immediately — without waiting for the trigger count or the other sensors. The counting still works on its own when the cameras or the internet are unavailable, so this only ever adds a faster path.",
+  "cfg.rule.breachSatisfiesNote":
+    "Needs cameras selected for the sensor and camera mode set to Capture + AI judge.",
   "cfg.rule.minGapSec": "Minimum gap (seconds)",
   "cfg.rule.minGapHelp":
     "Ignores repeat triggers that arrive sooner than this, so a motion sensor re-triggering on the same movement does not count twice. Leave blank for no minimum. Use a wider window when you set this — with a 30s window and a 20s gap almost nothing can match.",

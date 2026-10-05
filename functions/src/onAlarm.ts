@@ -20,7 +20,14 @@ import { db, rtdb } from "./admin";
 import { AlarmEvent, Project, Rule, Sensor } from "./types";
 import { formatAlarm } from "./telegram";
 import { notify } from "./notify";
-import { isCauseFresh, parseCause, resolveCauseLabel } from "./alarmCause";
+import {
+  isCauseFresh,
+  parseCause,
+  resolveCauseLabel,
+  type AlarmCause,
+} from "./alarmCause";
+import { reusableVerdict } from "./judgeGate";
+import { priorVerdictsFromDocs } from "./verdictHistory";
 import { sensorFamilyId } from "./sensorFamily";
 import { alarmSeverity, resolveCauseCertainty } from "./breachCertainty";
 import { shouldDeferToJudge } from "./judgeDefer";
@@ -42,7 +49,7 @@ export const onAlarm = onValueWritten(
     // that actually sounded the siren is the single most important thing the
     // event list can show, and it was previously missing from it entirely —
     // only sensor triggers and arm/disarm were ever mirrored.
-    const { label, definite, sensor, causeRfId } = await resolveCause(projectId);
+    const { label, definite, sensor, causeRfId, cause } = await resolveCause(projectId);
 
     try {
       const alarmEvent: Omit<AlarmEvent, "id"> = {
@@ -65,6 +72,50 @@ export const onAlarm = onValueWritten(
     const projectDoc = await db.doc(`projects/${projectId}`).get();
     if (!projectDoc.exists) return;
     const project = { id: projectDoc.id, ...projectDoc.data() } as Project;
+
+    // --- Verdict REUSE: this alarm's own trigger may have no images ---
+    //
+    // The capture cooldown is enforced on the DEVICE, so a trigger inside it
+    // produces no snapshot at all and onSnapshotUploaded never runs for it.
+    // That is the normal shape of a count_in_window alarm: trigger 1 captures
+    // and is judged, trigger 2 completes the count and has nothing.
+    //
+    // So the alarming trigger inherits the episode's existing verdict rather
+    // than waiting for one that cannot arrive. Reuse is FORCED, not chosen —
+    // the window is exactly the period during which fresh evidence is
+    // unobtainable (judgeGate.reusableVerdict).
+    const reused = await reuseVerdictFor(projectId, project, cause, sensor);
+    if (reused?.verdict === "safe") {
+      // Already judged safe, and the rules fired anyway. Silence the siren and
+      // say so quietly, instead of waking anyone and then explaining.
+      console.log(
+        `onAlarm: ${projectId} alarm on ${causeRfId} inherits a SAFE verdict ` +
+          `(${reused.reason}) — suppressing`
+      );
+      await rtdb
+        .ref(`${projectId}/commands/fp`)
+        .set({ rfId: reused.rfId, ts: reused.ts, at: Date.now() });
+      await notify(projectId, project, {
+        text: `✓ Cleared — ${label ?? "alarm"} — ${reused.reason}`,
+        severity: "notice",
+      });
+      return;
+    }
+    if (reused?.verdict === "breach") {
+      // Already judged breach: this is a confirmed intrusion, so skip the
+      // deferral entirely and go straight out at emergency.
+      console.log(
+        `onAlarm: ${projectId} alarm on ${causeRfId} inherits a BREACH verdict ` +
+          `(${reused.reason}) — notifying at emergency`
+      );
+      await notify(projectId, project, {
+        text: label ? formatAlarm(label) : "🚨 Alarm triggered!",
+        severity: "alarm",
+        title: "Breach confirmed",
+        link: true,
+      });
+      return;
+    }
 
     // Judge-gated alerting: for a non-definite sensor whose cameras can
     // actually produce a verdict, say nothing NOW and let the verdict decide
@@ -119,6 +170,74 @@ export const onAlarm = onValueWritten(
 );
 
 /**
+ * The verdict this alarm should inherit, or null.
+ *
+ * Looks up the sensor's recent coordination docs and picks the newest one
+ * inside the reuse window. Returns the rfId/ts it came from as well, because a
+ * `safe` result is acted on by writing /commands/fp — which the device matches
+ * against the trigger that is actually sounding the siren, so it must carry
+ * the identity of the judged trigger, not of the alarm.
+ *
+ * Returns null on anything unresolvable: no sensor, no cameras, judge not
+ * enabled, nothing recent enough. Fail-loud — the caller then behaves exactly
+ * as it did before this path existed.
+ */
+async function reuseVerdictFor(
+  projectId: string,
+  project: Project,
+  cause: AlarmCause | null,
+  sensor: Sensor | null
+): Promise<{ verdict: "safe" | "breach"; reason: string; rfId: string; ts: number } | null> {
+  if (!sensor || project.nvrMode !== "capture+judge") return null;
+  if ((sensor.cameras?.length ?? 0) === 0) return null;
+
+  // The alarm's own moment. The cause's `at` is written synchronously just
+  // before siren_active flips, so it is the closest thing to the trigger ts
+  // available here.
+  const alarmAt = typeof cause?.at === "number" ? cause.at : Date.now();
+
+  // Only this sensor's docs: ids are `{rfId}_{ts}`, so a prefix range on the
+  // document name avoids reading every judging doc in the project.
+  //
+  // endAt appends \uf8ff (a high private-use code point) rather than repeating
+  // the prefix. Firestore range bounds are lexicographic, so
+  // startAt(p)+endAt(p) would match only the exact string `p` and return
+  // nothing at all. This is the standard prefix-query idiom.
+  const snap = await db
+    .collection(`projects/${projectId}/snapshotJudging`)
+    .orderBy("__name__")
+    .startAt(`${sensor.rfId}_`)
+    .endAt(`${sensor.rfId}_`)
+    .get();
+
+  const priors = priorVerdictsFromDocs(
+    snap.docs.map((d) => ({ id: d.id, ...(d.data() as { channels?: never }) }))
+  );
+  const best = reusableVerdict(
+    priors,
+    alarmAt,
+    project.captureCooldownSec ?? DEFAULT_CAPTURE_COOLDOWN_SEC,
+    JUDGE_LATENCY_GRACE_SEC
+  );
+  if (!best) return null;
+  return {
+    verdict: best.verdict,
+    reason: best.reason,
+    rfId: sensor.rfId,
+    ts: best.ts,
+  };
+}
+
+/** Matches the firmware's own default when `cc` is absent from the config. */
+const DEFAULT_CAPTURE_COOLDOWN_SEC = 45;
+/**
+ * Grace added to the reuse window for judge latency: a trigger just past the
+ * cooldown does get its own images, but the verdict takes a few seconds to
+ * land. Measured ~4-7s end to end on hardware 2026-10-05.
+ */
+const JUDGE_LATENCY_GRACE_SEC = 8;
+
+/**
  * Read the recorded cause and resolve BOTH what to call it and how loudly to
  * notify.
  *
@@ -147,12 +266,15 @@ async function resolveCause(projectId: string): Promise<{
   // 20-bit family (device-written) or a full 24-bit rfId (server-written);
   // pendingAlarmId() normalises both.
   causeRfId: string | null;
+  // The parsed cause itself, for verdict reuse — which needs its `at` as the
+  // alarm's moment. Null when there is no usable cause.
+  cause: AlarmCause | null;
 }> {
   const causeSnap = await rtdb.ref(`${projectId}/state/alarm_cause`).get();
   const cause = parseCause(causeSnap.val());
   if (!cause || !isCauseFresh(cause, Date.now())) {
     // No usable cause: generic message, and fail loud.
-    return { label: null, definite: true, sensor: null, causeRfId: null };
+    return { label: null, definite: true, sensor: null, causeRfId: null, cause: null };
   }
 
   // Map the reported code → sensor, then find a rule covering that sensor.
@@ -213,5 +335,6 @@ async function resolveCause(projectId: string): Promise<{
     definite: resolveCauseCertainty(cause, sensorsById, sensorIdsByRfId),
     sensor: causeSensorId ? (sensorsById[causeSensorId] ?? null) : null,
     causeRfId,
+    cause,
   };
 }

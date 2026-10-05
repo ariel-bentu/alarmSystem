@@ -131,6 +131,20 @@ export default function RuleEditor({
   // then hold an explicit 0 where "unset" is the documented default, and
   // buildConfig's "omit when absent or 0" rule is what keeps the
   // device-polled payload unchanged for rules that don't use the field.
+  // breach_satisfies is a BOOLEAN opt-in, stored only when true so an
+  // untouched rule's condition is byte-identical to what it was before the
+  // field existed (absent = false everywhere that reads it).
+  const handleBreachSatisfiesChange = (checked: boolean) => {
+    const next = { ...localCondition };
+    if (checked) {
+      next.breach_satisfies = true;
+    } else {
+      delete next.breach_satisfies;
+    }
+    setLocalCondition(next);
+    onChange(next);
+  };
+
   const handleOptionalParamChange = (key: string, raw: string) => {
     const next = { ...localCondition };
     const parsed = Number(raw);
@@ -358,6 +372,32 @@ export default function RuleEditor({
             </div>
           )}
         </div>
+      )}
+
+      {/* Vision evidence. Offered for the two conditions that demand
+          corroboration — a count of triggers, or several sensors — because
+          those are exactly the bars an AI "person in frame" verdict can clear
+          on its own. `immediate` needs no help (one trigger already fires) and
+          `entry_delay` is about grace time, not evidence. */}
+      {(localCondition.type === "count_in_window" ||
+        localCondition.type === "multi_sensor") && (
+        <>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={localCondition.breach_satisfies === true}
+              onChange={(e) => handleBreachSatisfiesChange(e.target.checked)}
+            />
+            <span>{t("cfg.rule.breachSatisfies")}</span>
+            <Help
+              text={t("cfg.rule.breachSatisfiesHelp")}
+              label={t("cfg.rule.breachSatisfies")}
+            />
+          </label>
+          {localCondition.breach_satisfies === true && (
+            <p className="muted">{t("cfg.rule.breachSatisfiesNote")}</p>
+          )}
+        </>
       )}
 
       {!isValid && (

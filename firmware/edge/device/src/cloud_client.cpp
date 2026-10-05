@@ -804,6 +804,29 @@ void CloudClient::applyCommandsJson(const String& json) {
     }
   }
 
+  // Breach advisory. Same parser, different key — see
+  // ConfigParser::parseAdvisory. Kept in its OWN state from the fp block
+  // above because /commands is one polled document that can carry both keys
+  // at once; sharing state would let a stand-down consume a sound-off.
+  char breachRfId[sizeof(lastBreachRfId_)] = {};
+  uint64_t breachTs = 0;
+  if (ConfigParser::parseAdvisory(json.c_str(), "breach", breachRfId,
+                                  sizeof(breachRfId), &breachTs)) {
+    if (!hadBreach_ || breachTs != lastBreachTs_ ||
+        strcmp(breachRfId, lastBreachRfId_) != 0) {
+      hadBreach_ = true;
+      strncpy(lastBreachRfId_, breachRfId, sizeof(lastBreachRfId_) - 1);
+      lastBreachRfId_[sizeof(lastBreachRfId_) - 1] = '\0';
+      lastBreachTs_ = breachTs;
+      strncpy(pendingBreachRfId_, breachRfId, sizeof(pendingBreachRfId_) - 1);
+      pendingBreachRfId_[sizeof(pendingBreachRfId_) - 1] = '\0';
+      pendingBreachTs_ = breachTs;
+      hasPendingBreach_ = true;
+      Serial.printf("cloud: commands.breach -> rfId %s ts %llu\n", breachRfId,
+                    (unsigned long long)breachTs);
+    }
+  }
+
   // Manual capture command: /commands/capture = { at: <epoch-ms> }.
   // Surface once per new `at` value — same change-only pattern as pair/fp.
   if (doc["capture"]["at"].is<uint64_t>()) {
@@ -883,6 +906,15 @@ bool CloudClient::consumeFalsePositive(char* rfIdOut, size_t cap, uint64_t* tsOu
   rfIdOut[cap - 1] = '\0';
   *tsOut = pendingFalsePositiveTs_;
   hasPendingFalsePositive_ = false;
+  return true;
+}
+
+bool CloudClient::consumeBreach(char* rfIdOut, size_t cap, uint64_t* tsOut) {
+  if (!hasPendingBreach_) return false;
+  strncpy(rfIdOut, pendingBreachRfId_, cap - 1);
+  rfIdOut[cap - 1] = '\0';
+  *tsOut = pendingBreachTs_;
+  hasPendingBreach_ = false;
   return true;
 }
 

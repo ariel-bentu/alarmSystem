@@ -241,6 +241,14 @@ export interface Condition {
   // almost no satisfiable slot. See functions/src/types.ts for the measured
   // trigger-gap distribution this came from.
   min_gap_sec?: number;
+  // count_in_window / multi_sensor: a `breach` verdict from the AI judge
+  // satisfies this condition ON ITS OWN — without the trigger count being met,
+  // or without the other participants triggering. ABSENT = false.
+  //
+  // The count is a PROXY for "is this a person, not a cat", and a breach
+  // answers that directly. Cloud-side only: the device keeps evaluating the
+  // plain count/AND, which is the offline fallback.
+  breach_satisfies?: boolean;
 }
 
 export interface Rule {
