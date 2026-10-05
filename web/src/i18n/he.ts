@@ -420,6 +420,9 @@ export const he: Record<TranslationKey, string> = {
   "settings.batteryAlertMonths": "התראת גיל סוללה (חודשים)",
   "settings.batteryAlertMonthsHelp":
     "שליחת התראה פעם אחת כאשר גיל הסוללה של חיישן עולה על הערך הזה. 0 מבטל את ההתראה. חיישנים שלא נרשם להם תאריך החלפה נמדדים מתאריך השיוך.",
+  "settings.judgeWaitSec": "המתנה לבדיקת מצלמה (שניות)",
+  "settings.judgeWaitSecHelp":
+    "עבור חיישנים המסומנים ״דרוש אימות מצלמה״, עיכוב התראת האזעקה עד שה-AI יבדוק את התצלומים, כך שאזעקת שווא לא תעיר אותך. 0 שולח מיד. חל רק כאשר נבחרו מצלמות לחיישן ומצב המצלמה הוא צילום + שופט AI; אם לא מתקבלת הכרעה, ההתראה נשלחת בכל מקרה לאחר 45 שניות. אין השפעה על הצופר.",
   "settings.whatToNotify": "מה לשלוח",
   "settings.serverSendsNotification": "שליחת התראה באזעקה",
   "settings.serverSendsNotificationHelp":

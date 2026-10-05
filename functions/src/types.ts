@@ -335,6 +335,15 @@ export interface Project {
   // Used in the judge prompt and the breach alert caption; channels with no
   // entry fall back to "camera N". The device never sees these.
   cameraNames?: Record<string, string>;
+  // How long an alarm notification may wait for the AI judge's verdict, in
+  // seconds. ABSENT or 0 = today's behaviour: onAlarm notifies immediately.
+  //
+  // Applies ONLY to non-definite sensors with cameras ticked while the project
+  // is in capture+judge — see shouldDeferToJudge(). When it applies, onAlarm
+  // sends nothing and the verdict decides the tier, so a false positive never
+  // wakes anyone. doSchedule's sweeper is the backstop if no verdict arrives;
+  // the value is the age at which it gives up and sends the fallback.
+  judgeWaitSec?: number;
   device: DeviceInfo;
 }
 

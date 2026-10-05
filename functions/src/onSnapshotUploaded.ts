@@ -299,7 +299,28 @@ export async function handleSnapshotUpload(
     { merge: true }
   );
 
+  // This verdict is about to announce the alarm (breach escalation, silent
+  // all-clear, or a sibling's breach having announced it already), so release
+  // any deferral onAlarm set up. Cleared on EVERY path below — a surviving
+  // marker would have doSchedule's sweeper announce the same alarm twice.
+  //
+  // Keyed by family, the only identity onAlarm and this handler share: see
+  // pendingAlarm.ts. Best-effort — a failure here must never cost the verdict
+  // itself, and the worst case is one duplicate fallback notification.
+  const clearPending = async () => {
+    if (family === null) return;
+    try {
+      await deps.db.doc(`projects/${projectId}/pendingAlarms/${family}`).delete();
+    } catch (err) {
+      console.warn(
+        `onSnapshotUploaded: could not clear pendingAlarms/${family} for ${projectId}`,
+        err
+      );
+    }
+  };
+
   if (verdict === "breach") {
+    await clearPending();
     await timelineRef.update({
       aiNote: `confirmed breach (AI): ${reason}`,
     });
@@ -344,6 +365,9 @@ export async function handleSnapshotUpload(
       `onSnapshotUploaded: safe verdict for ${rfId}/${ts} ch${channel}, but a sibling ` +
         `channel already judged breach — NOT writing the false-positive advisory`
     );
+    // The sibling's breach invocation already announced this alarm, so the
+    // deferral is spent even though THIS channel adds nothing.
+    await clearPending();
     await timelineRef.update({
       // Prefix "safe (AI" is load-bearing: web/src/features/explore/
       // snapshotThumb.ts parses the verdict back out of this free text by
@@ -356,6 +380,7 @@ export async function handleSnapshotUpload(
     return;
   }
 
+  await clearPending();
   await deps.rtdb.ref(`${projectId}/commands/fp`).set({ rfId, ts, at: deps.now() });
   await timelineRef.update({
     aiNote: `false positive (AI): ${reason}`,

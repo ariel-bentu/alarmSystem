@@ -435,6 +435,9 @@ export const en = {
   "settings.batteryAlertMonths": "Battery age alert (months)",
   "settings.batteryAlertMonthsHelp":
     "Notify once when a sensor battery is older than this. 0 disables it. Sensors with no recorded change date are aged from when they were paired.",
+  "settings.judgeWaitSec": "Wait for camera check (seconds)",
+  "settings.judgeWaitSecHelp":
+    "For sensors marked “needs camera confirmation”, hold the alarm notification until the AI has looked at the snapshots, so a false alarm never wakes you. 0 sends immediately. Only applies when the sensor has cameras selected and the camera mode is Capture + AI judge; if no verdict arrives the alarm is sent anyway after 45 seconds. The siren is not affected.",
   "settings.whatToNotify": "What to notify",
   "settings.serverSendsNotification": "Send notification on alarm",
   "settings.serverSendsNotificationHelp":

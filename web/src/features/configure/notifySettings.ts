@@ -47,6 +47,8 @@ export interface NotifyForm {
   pushoverRetrySec: number;
   pushoverExpireSec: number;
   batteryAlertMonths: number;
+  /** 0 = off (notify immediately). See JUDGE_WAIT_* below. */
+  judgeWaitSec: number;
 }
 
 /** Pushover credentials, which live in a DIFFERENT Firestore document to
@@ -129,6 +131,20 @@ export const PUSHOVER_SOUNDS_SHORT = [
 export const RETRY_MIN_SEC = 30;
 export const EXPIRE_MAX_SEC = 10800;
 
+/** Judge-gated alerting: how long an alarm notification may wait for the AI
+ *  verdict.
+ *
+ *  0 = OFF, and that is the default — this changes when the owner is woken,
+ *  so it must be opted into rather than inherited. It applies only to
+ *  NON-definite sensors that have cameras ticked while the project is in
+ *  capture+judge (functions/src/judgeDefer.ts owns that gate).
+ *
+ *  The server's own backstop (PENDING_FALLBACK_SEC) announces a deferred
+ *  alarm after 45s if no verdict arrives, so values above that are pointless:
+ *  the sweeper fires first. Capped here to say so. */
+export const JUDGE_WAIT_OFF = 0;
+export const JUDGE_WAIT_MAX_SEC = 45;
+
 /** The subset of Project this form reads. */
 export interface NotifySource {
   telegramBotToken: string;
@@ -136,6 +152,7 @@ export interface NotifySource {
   pushoverRetrySec?: number;
   pushoverExpireSec?: number;
   batteryAlertMonths?: number;
+  judgeWaitSec?: number;
 }
 
 export function formFromProject(project: NotifySource): NotifyForm {
@@ -151,6 +168,9 @@ export function formFromProject(project: NotifySource): NotifyForm {
     pushoverExpireSec: project.pushoverExpireSec ?? 3600,
     batteryAlertMonths:
       project.batteryAlertMonths ?? DEFAULT_BATTERY_ALERT_MONTHS,
+    // Absent = off, NOT a default wait: deferring changes when the owner is
+    // woken for a real alarm, so it is opt-in.
+    judgeWaitSec: project.judgeWaitSec ?? JUDGE_WAIT_OFF,
   };
 }
 
@@ -167,6 +187,7 @@ export function isDirty(saved: NotifyForm, current: NotifyForm): boolean {
     saved.chatId.trim() !== current.chatId.trim() ||
     saved.pushoverRetrySec !== current.pushoverRetrySec ||
     saved.pushoverExpireSec !== current.pushoverExpireSec ||
-    saved.batteryAlertMonths !== current.batteryAlertMonths
+    saved.batteryAlertMonths !== current.batteryAlertMonths ||
+    saved.judgeWaitSec !== current.judgeWaitSec
   );
 }

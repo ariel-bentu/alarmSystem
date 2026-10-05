@@ -31,6 +31,8 @@ import {
   PUSHOVER_SOUNDS_SHORT,
   RETRY_MIN_SEC,
   EXPIRE_MAX_SEC,
+  JUDGE_WAIT_OFF,
+  JUDGE_WAIT_MAX_SEC,
 } from "./notifySettings";
 
 export default function NotificationsTab() {
@@ -204,14 +206,24 @@ export default function NotificationsTab() {
         pushoverRetrySec: form.pushoverRetrySec,
         pushoverExpireSec: form.pushoverExpireSec,
         batteryAlertMonths: form.batteryAlertMonths,
+        // Clamped on the way out, not just via the input's max: a typed value
+        // above the server's own 45s fallback can never take effect (the
+        // sweeper fires first), so storing one would misreport the behaviour.
+        judgeWaitSec: Math.min(
+          Math.max(form.judgeWaitSec, JUDGE_WAIT_OFF),
+          JUDGE_WAIT_MAX_SEC
+        ),
       };
       await updateDoc(projectDoc(project.id), payload);
       await reloadProject();
-      // Baseline moves to the trimmed values actually written.
+      // Baseline moves to the values actually written — trimmed text, and the
+      // clamped wait. Without the clamp echoed here, typing 90 would save 45
+      // and leave the form permanently dirty against a value it cannot store.
       const persisted: NotifyForm = {
         ...form,
         botToken: payload.telegramBotToken,
         chatId: payload.telegramChatId,
+        judgeWaitSec: payload.judgeWaitSec,
       };
       setSaved(persisted);
       setForm(persisted);
@@ -585,6 +597,25 @@ export default function NotificationsTab() {
               onChange={(e) =>
                 setField("batteryAlertMonths", Number(e.target.value))
               }
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="judge-wait-sec">
+              {t("settings.judgeWaitSec")}
+              <Help
+                text={t("settings.judgeWaitSecHelp")}
+                label={t("settings.help")}
+              />
+            </label>
+            <input
+              id="judge-wait-sec"
+              className="input input--narrow"
+              type="number"
+              min={JUDGE_WAIT_OFF}
+              max={JUDGE_WAIT_MAX_SEC}
+              value={form.judgeWaitSec}
+              onChange={(e) => setField("judgeWaitSec", Number(e.target.value))}
             />
           </div>
         </section>

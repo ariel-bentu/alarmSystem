@@ -112,6 +112,11 @@ export interface Project {
   // Display-only: the device captures by number and never sees these. Channels
   // with no entry render as "Camera N" — see features/explore/cameraNames.ts.
   cameraNames?: Record<string, string>;
+  // Judge-gated alerting: seconds an alarm notification may wait for the AI
+  // verdict. ABSENT or 0 = notify immediately (the behaviour before this
+  // field). Only ever applies to a non-definite sensor with cameras selected
+  // in capture+judge mode — functions/src/judgeDefer.ts owns that gate.
+  judgeWaitSec?: number;
   device: DeviceInfo;
 }
 

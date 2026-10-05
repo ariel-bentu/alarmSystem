@@ -53,6 +53,9 @@ function makeFakeFirestore(seed: Record<string, FakeDocData> = {}) {
         const existing = store.get(path) ?? {};
         store.set(path, mergeDeep(existing, value));
       },
+      async delete() {
+        store.delete(path);
+      },
     };
   }
 
@@ -629,6 +632,99 @@ describe("handleSnapshotUpload", () => {
     expect(msg.severity).toBe("loud");
     // The photo still goes out either way.
     expect(sendTelegramPhoto).toHaveBeenCalledTimes(1);
+  });
+
+  // --- judge-gated alerting: clearing the pending-alarm marker ---
+  //
+  // When onAlarm defers (non-definite sensor, cameras ticked, capture+judge),
+  // it writes projects/{id}/pendingAlarms/{family} and sends NOTHING. The
+  // verdict is then the first and only announcement, so it must clear the
+  // marker or doSchedule's sweeper would send a duplicate fallback.
+
+  it("clears the pending-alarm marker on a breach verdict", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs } = makeDeps({
+      project: { nvrMode: "capture+judge", telegramBotToken: "tok", telegramChatId: "c" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+    fs._store.set(`projects/${PROJECT_ID}/pendingAlarms/0x0061D`, {
+      at: TS,
+      rfId: "0x0061D",
+      definite: false,
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(fs._store.has(`projects/${PROJECT_ID}/pendingAlarms/0x0061D`)).toBe(false);
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    expect(msg.severity).toBe("alarm");
+  });
+
+  it("clears the pending-alarm marker on a safe verdict", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty frame" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+    fs._store.set(`projects/${PROJECT_ID}/pendingAlarms/0x0061D`, {
+      at: TS,
+      rfId: "0x0061D",
+      definite: false,
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(fs._store.has(`projects/${PROJECT_ID}/pendingAlarms/0x0061D`)).toBe(false);
+    // The all-clear is the only notification the owner gets for this alarm,
+    // and it is silent — the false positive never woke anyone.
+    const [, , msg] = vi.mocked(deps.notify).mock.calls[0];
+    expect(msg.severity).toBe("notice");
+  });
+
+  // The withheld-advisory branch returns early. It must STILL clear the
+  // marker: a sibling channel saw a breach, so that channel's invocation
+  // already announced the alarm, and leaving the marker would have the
+  // sweeper announce it a second time.
+  it("clears the pending-alarm marker when the advisory is withheld", async () => {
+    const stubJudge = {
+      judge: vi.fn(async () => ({ verdict: "safe" as const, reason: "empty frame" })),
+    };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps, fs } = makeDeps({
+      project: { nvrMode: "capture+judge" },
+      sensors: {
+        s1: { rfId: RF_ID, familyId: "0x0061D", name: "Garden PIR", definiteBreach: false },
+      },
+      rtdbSeed: { [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS } },
+    });
+    // A sibling channel already recorded a breach for this {rfId, ts}.
+    fs._store.set(`projects/${PROJECT_ID}/snapshotJudging/${RF_ID}_${TS}`, {
+      channels: { "1": { verdict: "breach", reason: "person", at: TS } },
+    });
+    fs._store.set(`projects/${PROJECT_ID}/pendingAlarms/0x0061D`, {
+      at: TS,
+      rfId: "0x0061D",
+      definite: false,
+    });
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(fs._store.has(`projects/${PROJECT_ID}/pendingAlarms/0x0061D`)).toBe(false);
   });
 
   // --- safe verdict: quiet all-clear ---
