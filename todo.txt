@@ -20,6 +20,22 @@ list of things to build.
 - mass jam of rf alert — detect that the receiver has gone deaf
 - battery low on the device itself
 
+- replace the battery in תנועה דלת מחסן (0x009BFA) and watch whether its RSSI
+  spread closes. batteryChangedAt is 2025-12-01 and it is by far the busiest
+  sensor (992 of ~1000 stored events). On 2026-10-05 it reported -54 then -84
+  six seconds apart; every other sensor since the RSSI fix is tight (תנועה
+  דלת כניסה: 7 events, -47..-54). A tired cell browning out the oscillator on
+  the second TX of a burst fits that ordering. NOT confirmed: batteryLow has
+  never once asserted — 0 of 992 for this sensor, 0 across all sensors ever —
+  and there are only 2 real-dBm samples for it, so no trend is visible yet.
+  If the spread persists after a fresh cell, suspect a marginal sensor or a
+  second emitter on the same family instead. Note poll() drops a repeat of the
+  same 24-bit code within 3s, so wait 5s+ between test triggers.
+- per-SENSOR judgePrompt. It is project-wide today, so one prompt has to
+  describe both a yard PIR and an indoor door sensor, which share no quirks.
+  buildPrompt() already takes the text per call; the field and the Sensors-tab
+  input are the work.
+
 - the device decodes its OWN siren transmissions as sensor events. Unpaired
   families 0x3F010 and 0x62237 appear in /events with multiple nibbles, and
   0x622374 is this device's own siren EV1527 address from the siren work. The
@@ -27,6 +43,11 @@ list of things to build.
   anyone pairs either id — pairing a self-transmission would make the device
   alarm on its own siren. Found during the sensor-families audit; that work
   neither fixes nor depends on it.
+  Unchanged by the siren hold (2026-10-05), but worth knowing when reading
+  logs from it: a held siren means the device's own TX now starts seconds
+  AFTER the trigger that caused it rather than immediately, so a
+  self-decoded packet and its originating trigger are further apart in
+  /events than they used to be.
 - register the Telegram webhook so bot commands work
 - move telegramBotToken/telegramChatId into projects/{id}/secrets/notify, the
   way the Pushover credentials already are. They are on the member-readable
