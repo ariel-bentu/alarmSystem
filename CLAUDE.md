@@ -514,11 +514,28 @@ replies to a typed Telegram command, addressed to the `chatId` from the
 incoming webhook, not to the project's configured channels.
 
 Alarm, breach and sensor-alert messages carry `link: true`, which adds
-Pushover's `url`/`url_title` pointing at `/explore`. Because the PWA manifest
-declares `scope: "/"` and `display: "standalone"`, tapping it opens the
-**installed app**, not Safari — no custom URL scheme and no App Store
-presence needed. The link is Pushover-only; Telegram already renders URLs in
-the message body.
+Pushover's `url`/`url_title` pointing at `/explore`. The link is
+Pushover-only; Telegram already renders URLs in the message body.
+
+⚠️ **That link opens SAFARI, not the installed PWA**, and this entry used to
+claim the opposite — that `scope: "/"` + `display: "standalone"` made an
+in-scope https link launch the installed app, so no custom scheme was needed.
+**That was wrong and nobody had tapped one to find out.** Those manifest
+fields govern navigation *within* a running PWA; iOS has no
+https→installed-PWA deep-link mechanism (no Android App Links equivalent),
+and Pushover opens the URL itself.
+
+Tested on a real device 2026-10-05 with the PWA **backgrounded**:
+`https://…/explore` → Safari; `webapp://alarm-system-100.web.app/` → **nothing
+happens**; same with an `/explore` path. The undocumented `webapp://` scheme
+circulating in 3-year-old forum posts does not work here. Note Pushover's API
+**accepts `webapp://` and returns HTTP 200**, so a successful send proves
+nothing — only tapping it does. Don't re-add a custom scheme without testing
+the tap on hardware.
+
+Landing in a browser is accepted for now. The open improvement is
+`?rfId=&ts=` deep-linking so the browser at least lands on the triggering
+sensor's snapshots rather than an unfiltered list (`todo.txt`).
 
 ⚠️ **Critical Alerts must be opted into inside the Pushover iOS app** —
 Apple requires that consent separately from normal push. Without it,

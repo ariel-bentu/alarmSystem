@@ -1,15 +1,10 @@
 Pushover:
-- DONE Select sound for alarm — Settings > Notifications. Note only alien/
-  climb/persistent/echo/updown LOOP; priority 2 re-sends the notification
-  rather than holding a tone, so a short sound gives blips, not an alarm.
 - Select rules who are not triggering level 2?
   PARTLY: certainty is now per SENSOR (definiteBreach on the Sensors tab), so
   a rule is quiet when its sensors are. Doing it per RULE is still open and
   needs the device to record WHICH rule fired — alarm_cause.ct is a condition
   TYPE index, not a rule id, which is exactly why rule-derived certainty was
   reverted (see the 2026-10-04 note in the breach-certainty spec).
-- DONE UI for setting the info of pushover — the section is now called
-  "Notifications" and holds the channel checkboxes plus sound/repeat/expiry.
 
 
 
@@ -62,6 +57,22 @@ list of things to build.
   pre-select that row would put the triggering sensor's snapshots on screen
   directly from the notification. notify() would take the rfId and build the
   query; APP_EVENTS_URL is the seam.
+  NOTE the link opens SAFARI, not the installed PWA, and that cannot currently
+  be fixed — see the ruled-out note below. Deep-linking is still worth doing;
+  it just improves where the BROWSER lands.
+
+- RULED OUT 2026-10-05: opening the PWA from a Pushover tap on iOS.
+  Tested on a real device with the PWA backgrounded (not force-quit):
+    https://alarm-system-100.web.app/explore   -> Safari
+    webapp://alarm-system-100.web.app/         -> nothing happens
+    webapp://alarm-system-100.web.app/explore  -> nothing happens
+  The undocumented `webapp://` scheme from old forum posts does not work here.
+  Pushover's API ACCEPTS it and returns HTTP 200, so testing the send end
+  proves nothing — only tapping does. iOS has no https->installed-PWA deep
+  link (no Android App Links equivalent), and the manifest's scope/display
+  only govern navigation inside an already-running PWA; the old comment in
+  notify.ts claiming otherwise was wrong. Do not re-add a custom scheme
+  without testing the TAP on hardware.
 - test + deploy the watchdog / offline-alert work (docs/testing-device-liveness.md)
 
 - multi-siren support. The siren base address is a SINGLE value end to end:
