@@ -421,7 +421,7 @@ void handleSensorEvent(const char* familyId, const char* rfId, const char* event
   if (sensorIndex >= 0) {
     const SensorConfig& sensor = config.sensors[sensorIndex];
     if (CameraGate::shouldCapture(config, sensor, cloudClient.isReady(), now,
-                                  lastCaptureMs[sensorIndex])) {
+                                  lastCaptureMs[sensorIndex], shouldFire)) {
       // Reuses triggerTs (computed once, above) rather than re-reading
       // time(nullptr) here — this is the SAME {rfId, ts} as the
       // /events/{rfId}/{ts} key reportEvent() just wrote AND the

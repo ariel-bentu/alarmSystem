@@ -20,9 +20,14 @@ constexpr uint8_t kMaxChannels = 8;
 
 // true iff the device should take a snapshot right now for this sensor:
 // online, NVR capture enabled, at least one camera selected for the sensor,
-// and either no prior capture or the cooldown has elapsed.
+// either no prior capture or the cooldown has elapsed, AND the arm state
+// allows it — armed, or the project captures while disarmed
+// (cfg.captureWhenDisarmed), or this very trigger raised an alarm
+// (`alarmRaised`: an `always` rule fires while disarmed, and that is exactly
+// the trigger worth a photo).
 bool shouldCapture(const Config& cfg, const SensorConfig& sensor, bool online,
-                    uint32_t nowMs, uint32_t lastCaptureMs);
+                    uint32_t nowMs, uint32_t lastCaptureMs,
+                    bool alarmRaised = false);
 
 // Expands the sensor's cameraMask into explicit channel numbers, ascending.
 // Channel N is bit N-1, so mask 0b10000101 yields {1, 3, 8}. A zero mask

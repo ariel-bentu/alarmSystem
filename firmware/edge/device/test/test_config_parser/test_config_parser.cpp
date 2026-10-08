@@ -505,6 +505,8 @@ void test_nvr_fields_default_when_absent() {
   TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
   TEST_ASSERT_EQUAL_UINT8(0, cfg.nvrMode);      // off
   TEST_ASSERT_EQUAL_UINT16(45, cfg.captureCooldownSec); // default
+  // No `cd`: keep capturing while disarmed, the behaviour before the field.
+  TEST_ASSERT_TRUE(cfg.captureWhenDisarmed);
   // No cmask at all: capture nothing, NOT all channels.
   TEST_ASSERT_EQUAL_UINT8(0, cfg.sensors[0].cameraMask);
 }
@@ -512,6 +514,15 @@ void test_nvr_fields_default_when_absent() {
 // cmask is index-aligned with r, and buildConfig omits it wholesale when every
 // sensor's mask is 0. A SHORT array (shouldn't happen, but RTDB drops trailing
 // nulls) must leave the unlisted sensors at 0 rather than read out of bounds.
+void test_capture_when_disarmed_off() {
+  const char* json =
+    "{ \"a\":false, \"d\":0, \"nm\":1, \"cd\":0, "
+    "\"r\":[\"0x0061D\"], \"c\":[[{\"t\":0}]] }";
+  Config cfg;
+  TEST_ASSERT_TRUE(ConfigParser::parseConfigJson(json, &cfg));
+  TEST_ASSERT_FALSE(cfg.captureWhenDisarmed);
+}
+
 void test_camera_mask_per_sensor_and_short_array() {
   const char* json =
     "{ \"a\":true, \"d\":0, \"nm\":1, "
@@ -653,6 +664,7 @@ void setup() {
   RUN_TEST(test_siren_address_parsed_when_r_and_c_absent);
   RUN_TEST(test_parses_nvr_fields);
   RUN_TEST(test_nvr_fields_default_when_absent);
+  RUN_TEST(test_capture_when_disarmed_off);
   RUN_TEST(test_camera_mask_per_sensor_and_short_array);
   RUN_TEST(test_parse_breach);
   RUN_TEST(test_parse_breach_absent);

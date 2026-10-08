@@ -129,6 +129,11 @@ struct Config {
   char nvrUser[24] = {};
   char nvrPassword[24] = {};
   uint8_t nvrMode = 0;
+  // false = trigger snapshots only while ARMED (or when the trigger itself
+  // raised an alarm, e.g. an `always` rule). true — the default, and what a
+  // config without `cd` decodes to — captures on every trigger, which is the
+  // behaviour before this field. Manual capture ignores it.
+  bool captureWhenDisarmed = true;
   uint16_t captureCooldownSec = 45;
 };
 

@@ -3,6 +3,7 @@ import { updateDoc } from "firebase/firestore";
 import { useProject } from "@/app/ProjectProvider";
 import { projectDoc } from "@/lib/firestore";
 import { useT } from "@/i18n/I18nProvider";
+import { useToast } from "@/lib/useToast";
 import { validateNvrSettings, type NvrMode, type JudgeProvider } from "./cameraSettings";
 import { ALL_CHANNELS } from "@/features/explore/cameraNames";
 
@@ -40,9 +41,41 @@ export default function CameraTab() {
     () => ({ ...(project?.cameraNames ?? {}) })
   );
 
+  // Saved on change, NOT part of the Save-button form below: a checkbox edit
+  // is complete the moment it is ticked (the project-wide convention — see
+  // NotificationsTab's save-model note), and keeping it out of the form means
+  // Save never rewrites it from stale local state. Absent = true.
+  const [captureWhenDisarmed, setCaptureWhenDisarmed] = useState(
+    project?.captureWhenDisarmed !== false
+  );
+  const [instantBusy, setInstantBusy] = useState(false);
+  const { toast, showToast } = useToast();
+
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setCaptureWhenDisarmed(project?.captureWhenDisarmed !== false);
+  }, [project?.captureWhenDisarmed]);
+
+  const toggleCaptureWhenDisarmed = async (next: boolean) => {
+    if (!projectId) return;
+    const previous = captureWhenDisarmed;
+    setCaptureWhenDisarmed(next);
+    setInstantBusy(true);
+    setError(null);
+    try {
+      await updateDoc(projectDoc(projectId), { captureWhenDisarmed: next });
+      await reloadProject();
+      showToast(t("common.saved"));
+    } catch (e) {
+      setCaptureWhenDisarmed(previous);
+      setError(e instanceof Error ? e.message : t("settings.saveFailed"));
+    } finally {
+      setInstantBusy(false);
+    }
+  };
 
   // Stable key for the saved names, so the sync effect below re-runs only when
   // their CONTENT changes — see the note on its deps array.
@@ -227,6 +260,19 @@ export default function CameraTab() {
           </div>
 
           <div className="field">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={captureWhenDisarmed}
+                disabled={instantBusy}
+                onChange={(e) => void toggleCaptureWhenDisarmed(e.target.checked)}
+              />
+              <span>{t("cfg.camera.captureWhenDisarmed")}</span>
+            </label>
+            <p className="muted">{t("cfg.camera.captureWhenDisarmedHelp")}</p>
+          </div>
+
+          <div className="field">
             <label className="field__label" htmlFor="camera-retention">
               {t("cfg.camera.retention")}
             </label>
@@ -340,6 +386,7 @@ export default function CameraTab() {
           </div>
         </div>
       </section>
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }

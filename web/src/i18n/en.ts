@@ -322,6 +322,9 @@ export const en = {
   "cfg.camera.cooldown": "Capture cooldown (seconds)",
   "cfg.camera.cooldownHelp":
     "Minimum time between snapshots, to avoid flooding the NVR on repeated triggers.",
+  "cfg.camera.captureWhenDisarmed": "Capture while disarmed",
+  "cfg.camera.captureWhenDisarmedHelp":
+    "Off: snapshots are taken only while the system is armed, or when a trigger raises an alarm while disarmed (an always-on rule). Manual Capture always works.",
   "cfg.camera.retention": "Snapshot retention (days)",
   "cfg.camera.retentionHelp": "Snapshots older than this are deleted automatically.",
   "cfg.camera.names": "Camera names",

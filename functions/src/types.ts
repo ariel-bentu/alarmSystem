@@ -347,6 +347,10 @@ export interface Project {
   nvrPassword?: string;
   // Seconds to wait before allowing next snapshot after trigger. Optional: absent uses default.
   captureCooldownSec?: number;
+  // Grab trigger snapshots while DISARMED too. Absent = true (the behaviour
+  // before this field). false = only while armed, or when the trigger raised
+  // an alarm (an `always` rule). Device-visible as RtdbConfig `cd`.
+  captureWhenDisarmed?: boolean;
   // Days to retain snapshots before deletion. Optional: absent uses default.
   snapshotRetentionDays?: number;
   // Judge provider for alarm-cause analysis. Optional: absent means no judgment.
@@ -460,6 +464,9 @@ export interface RtdbConfig {
   nm?: 0 | 1 | 2;
   // Capture cooldown in seconds. Omitted when using default.
   cc?: number;
+  // 0 = no trigger snapshots while disarmed. Omitted (device default: capture)
+  // unless the project turned captureWhenDisarmed off.
+  cd?: 0;
   // Per-sensor camera bitmask, index-aligned with r: channel N is bit N-1, so
   // channel 1 is 0x01 and channel 8 is 0x80. 0 means this sensor captures
   // nothing. Omitted entirely when every mask is 0.

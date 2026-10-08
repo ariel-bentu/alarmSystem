@@ -59,6 +59,9 @@ bool parseConfigJson(const char* json, Config* out) {
   out->nvrPassword[sizeof(out->nvrPassword) - 1] = '\0';
   out->nvrMode = doc["nm"] | 0;
   out->captureCooldownSec = doc["cc"] | 45;
+  // Absent = capture while disarmed too (the pre-field behaviour); the cloud
+  // only emits `cd: 0` when the project turned it off.
+  out->captureWhenDisarmed = (doc["cd"] | 1) != 0;
 
   // Siren hold for non-definite sensors. 0/absent = fire immediately, which
   // is what every config written before this field decodes to.
