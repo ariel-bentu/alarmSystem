@@ -444,6 +444,17 @@ outcome land in `state/ota`.
 - Deploy `storage.rules` + `firestore.rules` before the first publish, or the
   device's download (403) and the web's manifest read both fail.
 
+**Capture while disarmed toggle (2026-10-08) — built, NOT deployed, NOT
+flashed.** `projects/{id}.captureWhenDisarmed` (Configure → Camera, saves on
+change). **Absent = true**, i.e. today's behaviour: the device has always
+grabbed trigger snapshots armed or not. `false` → RTDB config `cd: 0` → the
+device captures only while armed, **or when that trigger raised an alarm**
+(an `always` rule firing while disarmed is exactly the trigger worth a
+photo). Manual Capture ignores it. `cd` is emitted only when false, so
+existing payloads are unchanged; the `bool` fit Config's padding
+(`sizeof` still 2664) — no EEPROM magic bump. In `onProjectConfigChange`'s
+guard, or the toggle would never reach the device.
+
 **Camera snapshots on trigger (2026-10-03) — deployed; judge VERIFIED on hardware 2026-10-04.**
 On every armed trigger the device grabs a JPEG from each live NVR channel via
 DVRIP/Sofia OPSNAP (port 34567), uploads to Firebase Storage under

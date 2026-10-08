@@ -86,6 +86,9 @@ export interface NvrSettings {
   nvrUser?: string;
   nvrPassword?: string;
   captureCooldownSec?: number;
+  // Absent/true = capture on every trigger (the behaviour before this field).
+  // false = only while armed, or when the trigger itself raised an alarm.
+  captureWhenDisarmed?: boolean;
 }
 
 const NVR_MODE_CODE: Record<"off" | "capture" | "capture+judge", 0 | 1 | 2> = {
@@ -292,14 +295,17 @@ export function buildRtdbConfig(
 }
 
 /**
- * The `nh/np/nu/nw/nm/cc` keys, or {} when NVR is off or unconfigured.
+ * The `nh/np/nu/nw/nm/cc/cd` keys, or {} when NVR is off or unconfigured.
+ * `cd: 0` is emitted ONLY when capture-while-disarmed is turned off: the
+ * device defaults an absent `cd` to "capture", which keeps every existing
+ * config's payload — and behaviour — unchanged.
  * Shared shape with sirenKey's omit-when-absent contract: RTDB rejects
  * undefined, and an explicit `nm: undefined` would show up in toEqual
  * comparisons.
  */
 function nvrKeys(
   nvr?: NvrSettings
-): Pick<RtdbConfig, "nh" | "np" | "nu" | "nw" | "nm" | "cc"> {
+): Pick<RtdbConfig, "nh" | "np" | "nu" | "nw" | "nm" | "cc" | "cd"> {
   const mode = nvr?.nvrMode;
   if (!mode || mode === "off") return {};
   return {
@@ -309,6 +315,7 @@ function nvrKeys(
     ...(nvr.nvrUser ? { nu: nvr.nvrUser } : {}),
     ...(nvr.nvrPassword ? { nw: nvr.nvrPassword } : {}),
     ...(nvr.captureCooldownSec !== undefined ? { cc: nvr.captureCooldownSec } : {}),
+    ...(nvr.captureWhenDisarmed === false ? { cd: 0 as const } : {}),
   };
 }
 

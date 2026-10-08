@@ -34,6 +34,44 @@ void test_cooldown_blocks_then_allows() {
   TEST_ASSERT_TRUE(CameraGate::shouldCapture(onCfg(), withCameras(0b1), true, 146000, 100000));
 }
 
+// ---- arm-state gate (captureWhenDisarmed) ----
+
+static Config armedOnlyCfg(bool armed) {
+  Config c = onCfg();
+  c.captureWhenDisarmed = false;
+  c.armed = armed;
+  return c;
+}
+
+void test_default_captures_while_disarmed() {
+  // The pre-setting behaviour, and what a config without `cd` decodes to.
+  Config c = onCfg();
+  c.armed = false;
+  TEST_ASSERT_TRUE(c.captureWhenDisarmed);
+  TEST_ASSERT_TRUE(CameraGate::shouldCapture(c, withCameras(0b1), true, 100000, 0));
+}
+void test_armed_only_skips_disarmed_trigger() {
+  TEST_ASSERT_FALSE(CameraGate::shouldCapture(armedOnlyCfg(false), withCameras(0b1),
+                                              true, 100000, 0));
+}
+void test_armed_only_captures_when_armed() {
+  TEST_ASSERT_TRUE(CameraGate::shouldCapture(armedOnlyCfg(true), withCameras(0b1),
+                                             true, 100000, 0));
+}
+void test_armed_only_still_captures_an_alarm_while_disarmed() {
+  // An `always` rule fires while disarmed — the one disarmed trigger that
+  // is an alarm, and so worth a photo regardless of the setting.
+  TEST_ASSERT_TRUE(CameraGate::shouldCapture(armedOnlyCfg(false), withCameras(0b1),
+                                             true, 100000, 0, /*alarmRaised=*/true));
+}
+void test_alarm_does_not_bypass_other_gates() {
+  Config c = armedOnlyCfg(false);
+  c.nvrMode = 0;
+  TEST_ASSERT_FALSE(CameraGate::shouldCapture(c, withCameras(0b1), true, 100000, 0, true));
+  TEST_ASSERT_FALSE(CameraGate::shouldCapture(armedOnlyCfg(false), withCameras(0b1),
+                                              true, 120000, 100000, true));
+}
+
 void test_channels_single_bit() {
   SensorConfig s = withCameras(0b10); // channel 2
   uint8_t ch[8]; uint8_t n = 0;
@@ -72,6 +110,11 @@ void setup() {
   RUN_TEST(test_no_capture_when_no_cameras_selected);
   RUN_TEST(test_capture_first_time);
   RUN_TEST(test_cooldown_blocks_then_allows);
+  RUN_TEST(test_default_captures_while_disarmed);
+  RUN_TEST(test_armed_only_skips_disarmed_trigger);
+  RUN_TEST(test_armed_only_captures_when_armed);
+  RUN_TEST(test_armed_only_still_captures_an_alarm_while_disarmed);
+  RUN_TEST(test_alarm_does_not_bypass_other_gates);
   RUN_TEST(test_channels_single_bit);
   RUN_TEST(test_channels_multiple_bits_ascending);
   RUN_TEST(test_channels_all_eight);

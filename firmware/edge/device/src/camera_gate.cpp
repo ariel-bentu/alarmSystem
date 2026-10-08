@@ -2,7 +2,8 @@
 
 bool CameraGate::shouldCapture(const Config& cfg, const SensorConfig& sensor,
                                 bool online, uint32_t nowMs,
-                                uint32_t lastCaptureMs) {
+                                uint32_t lastCaptureMs, bool alarmRaised) {
+  if (!cfg.armed && !cfg.captureWhenDisarmed && !alarmRaised) return false;
   // cameraMask == 0 is the authoritative "no cameras for this sensor" and
   // replaces the old outOfSight flag: with an explicit per-sensor channel
   // list there is nothing left for a separate opt-out to say.

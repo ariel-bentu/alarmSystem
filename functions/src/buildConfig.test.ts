@@ -474,6 +474,21 @@ describe("buildRtdbConfig — NVR + per-sensor camera mask", () => {
     expect(cfg.cmask).toEqual([0b10]);
   });
 
+  it("emits cd:0 only when capture-while-disarmed is turned off", () => {
+    const build = (captureWhenDisarmed?: boolean) =>
+      buildRtdbConfig(
+        [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],
+        [{ ...sensors[0], id: "s1", rfId: "0x0061DA", cameras: [1] } as any],
+        true, 30, true, [], [], undefined,
+        { nvrMode: "capture", nvrHost: "h", nvrPort: 34567, captureWhenDisarmed }
+      );
+    // Absent and true both mean "capture while disarmed" — the device's own
+    // default — so the payload stays exactly what it was before the field.
+    expect(build(undefined)).not.toHaveProperty("cd");
+    expect(build(true)).not.toHaveProperty("cd");
+    expect(build(false).cd).toBe(0);
+  });
+
   it("ORs several cameras on one sensor into a single mask entry", () => {
     const cfg = buildRtdbConfig(
       [{ id: "r1", name: "R", sensors: ["s1"], condition: { type: "immediate" } }],

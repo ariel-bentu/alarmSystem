@@ -97,6 +97,10 @@ export interface Project {
   nvrPassword?: string;
   // Seconds to wait before allowing next snapshot after trigger. Optional: absent uses default.
   captureCooldownSec?: number;
+  // Grab trigger snapshots while DISARMED too. Absent = true (the behaviour
+  // before this field). false = only while armed, or when the trigger raised
+  // an alarm. Saved on change in the Camera tab; device-visible as `cd`.
+  captureWhenDisarmed?: boolean;
   // Days to retain snapshots before deletion. Optional: absent uses default.
   snapshotRetentionDays?: number;
   // Judge provider for alarm-cause analysis. Optional: absent means no judgment.

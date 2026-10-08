@@ -1,5 +1,3 @@
-- add option to grap image only at arm state
-
 Pushover:
 - Select rules who are not triggering level 2?
   PARTLY: certainty is now per SENSOR (definiteBreach on the Sensors tab), so

@@ -92,6 +92,7 @@ export const onProjectConfigChange = onDocumentWritten(
       before.nvrUser === after.nvrUser &&
       before.nvrPassword === after.nvrPassword &&
       before.captureCooldownSec === after.captureCooldownSec &&
+      before.captureWhenDisarmed === after.captureWhenDisarmed &&
       before.judgeWaitSec === after.judgeWaitSec
     ) {
       return;
@@ -221,6 +222,7 @@ async function rebuildConfig(projectId: string): Promise<void> {
       nvrUser: projectData?.nvrUser,
       nvrPassword: projectData?.nvrPassword,
       captureCooldownSec: projectData?.captureCooldownSec,
+      captureWhenDisarmed: projectData?.captureWhenDisarmed,
     },
     // Deliberately the SAME setting that gates the notification deferral, not
     // a second knob. Both answer one question — how long to wait for the

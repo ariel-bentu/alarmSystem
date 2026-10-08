@@ -316,6 +316,9 @@ export const he: Record<TranslationKey, string> = {
   "cfg.camera.cooldown": "צינון בין צילומים (שניות)",
   "cfg.camera.cooldownHelp":
     "זמן מינימלי בין צילומים, כדי לא להציף את ה-NVR בהפעלות חזרתיות.",
+  "cfg.camera.captureWhenDisarmed": "צלם גם כשהמערכת לא דרוכה",
+  "cfg.camera.captureWhenDisarmedHelp":
+    "כבוי: צילום רק כשהמערכת דרוכה, או כשהפעלה גורמת לאזעקה גם במצב לא דרוך (חוק שפעיל תמיד). צילום ידני עובד תמיד.",
   "cfg.camera.retention": "שמירת תמונות (ימים)",
   "cfg.camera.retentionHelp": "תמונות ישנות יותר ממספר הימים הזה יימחקו אוטומטית.",
   "cfg.camera.names": "שמות מצלמות",
