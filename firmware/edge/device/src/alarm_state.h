@@ -193,6 +193,10 @@ class AlarmState {
   bool onSensorEvent(const char* familyId, unsigned long nowMs,
                      TriggerCause* cause = nullptr);
   bool tickEntryDelay(unsigned long nowMs, TriggerCause* cause = nullptr);
+  // True while any entry-delay countdown is running. The countdown lives only
+  // in RAM, so a reboot during it silently drops the alarm it would have
+  // raised — the OTA path checks this before restarting the board.
+  bool isEntryDelayPending() const;
   void disarm();
   // Whether this family is in the config at all — i.e. a PAIRED sensor with
   // at least one rule. Used by the tamper path, which sirens outside rule

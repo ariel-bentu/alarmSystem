@@ -52,6 +52,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // The published firmware manifest (firmware/latest): version, Storage
+    // path, size, md5. Written only by functions/scripts/publishFirmware.ts
+    // via the admin SDK. Nothing secret in it — any signed-in user may read
+    // it so the web UI can offer the update; the image itself is device-only
+    // in storage.rules.
+    match /firmware/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     match /projects/{projectId} {
       // Only a system admin may create a project.
       allow create: if isSystemAdmin()

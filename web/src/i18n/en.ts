@@ -98,6 +98,35 @@ export const en = {
   "ops.forceSilence": "Force Silence",
   "ops.offlineCannotArm": "Offline — arming is unavailable",
 
+  // ---- Firmware (over-the-air update) ----
+  "fw.title": "Firmware",
+  "fw.running": "Running {version}",
+  "fw.runningUnknown": "Running version not reported yet",
+  "fw.unsupported":
+    "This device's firmware predates remote updates. Flash it over USB once; every update after that can be installed from here.",
+  "fw.upToDate": "Up to date",
+  "fw.nonePublished": "No firmware has been published yet",
+  "fw.available": "Update available: {version}",
+  "fw.publishedAt": "Published {time}",
+  "fw.install": "Install",
+  "fw.installConfirm": "Press again to install",
+  "fw.installTitle":
+    "The device downloads the update while it keeps protecting, then restarts (a few seconds). If the new firmware cannot reach the cloud within 10 minutes it reverts to this version by itself.",
+  "fw.offline": "Device offline — cannot install",
+  "fw.sirenBusy": "Not while the siren is sounding",
+  "fw.requested": "Request sent — waiting for the device…",
+  "fw.status.downloading": "Downloading {version} — {progress}%",
+  "fw.status.rebooting": "Restarting into {version}…",
+  "fw.status.ok": "Updated to {version}",
+  "fw.status.failed": "Update to {version} failed",
+  "fw.status.refused": "Device declined update to {version}",
+  "fw.status.rolledBack": "{version} failed its health check — reverted to the previous firmware",
+  "fw.refused.siren": "the alarm was active",
+  "fw.refused.expired": "the request expired before the device saw it",
+  "fw.refused.sameVersion": "already running it",
+  "fw.refused.busy": "another update was in progress",
+  "fw.refused.badRequest": "the request was malformed",
+
   // ---- Configure ----
   "cfg.title": "Configure",
   "cfg.tab.general": "General",

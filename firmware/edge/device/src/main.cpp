@@ -9,8 +9,10 @@
 #include "cc1101_receiver.h"
 #include "cloud_client.h"
 #include "eeprom_store.h"
+#include "fw_version.h"
 #include "kerui_event.h"
 #include "local_web_server.h"
+#include "ota_updater.h"
 #include "provision_store.h"
 #include "provisioning_portal.h"
 #include "remote_control.h"
@@ -64,6 +66,11 @@ AlarmState alarmState;
 Cc1101Receiver cc1101;
 RelaySiren siren;
 CloudClient cloudClient;
+OtaUpdater otaUpdater;
+// The outcome of an update installed before this boot ("ok" / "rolled_back")
+// is reported once the cloud is reachable — see handleOta().
+bool otaOutcomeReported = false;
+uint8_t otaLastReportedPct = 0;
 LocalWebServer localWebServer;
 
 bool armed = false;
@@ -1180,6 +1187,105 @@ void onNormalOperation() {
 }
 }  // namespace
 
+// Over-the-air firmware update — see ota_updater.h for the whole flow.
+// Called every loop(); cheap when nothing is happening.
+//
+// Runs AFTER pollCc1101()/siren.tick() in loop(), and the download itself is
+// sliced into ~40ms chunks, so the alarm keeps working while an update
+// downloads. The only blind window is the restart at the end, and that is
+// refused while the siren is sounding or held, or an entry delay is counting
+// down — those live only in RAM and a reboot would silently drop them.
+__attribute__((noinline))
+void handleOta(unsigned long now) {
+  // 1. Verify an image installed before this boot, or report its rollback.
+  const bool healthy = cloudClient.isReady() && cloudClient.hasReceivedConfig();
+  if (otaUpdater.verifyTick(now, healthy) ==
+      OtaUpdater::VerifyResult::MarkedValid) {
+    cloudClient.reportOtaStatus("ok", kFirmwareVersion);
+    otaUpdater.clearPending();
+    otaOutcomeReported = true;
+  }
+  if (!otaOutcomeReported && cloudClient.isReady() &&
+      otaUpdater.bootKind() == OtaBootKind::RolledBack) {
+    cloudClient.reportOtaStatus("rolled_back", otaUpdater.pendingVersion(),
+                                "new image failed its health check");
+    otaUpdater.clearPending();
+    otaOutcomeReported = true;
+  }
+
+  // 2. A new request from the web UI.
+  OtaRequest req;
+  if (cloudClient.consumeOtaCommand(&req)) {
+    const bool sirenBusy = siren.isActive() || pendingSirenDeadlineMs != 0 ||
+                           alarmState.isEntryDelayPending();
+    OtaVerdict verdict = otaDecide(
+        req, otaUpdater.hasLastHandledNonce(), otaUpdater.lastHandledNonce(),
+        kFirmwareVersion, (uint32_t)time(nullptr), sirenBusy,
+        otaUpdater.active() || otaUpdater.installed());
+    Serial.printf("[ota] request n=%u %s -> %s\n", (unsigned)req.nonce,
+                  req.version, otaVerdictName(verdict));
+    if (verdict != OtaVerdict::AlreadyHandled) {
+      // Recorded BEFORE downloading, in NVS: if the new image is rolled back,
+      // the old one must not see this same command and install it again.
+      otaUpdater.markHandled(req.nonce);
+    }
+    if (verdict == OtaVerdict::Accept) {
+      String err;
+      if (otaUpdater.start(req, CloudClient::storageBucket(),
+                           cloudClient.idToken(), &err)) {
+        otaLastReportedPct = 0;
+        cloudClient.reportOtaStatus("downloading", req.version, nullptr, 0);
+      } else {
+        cloudClient.reportOtaStatus("failed", req.version, err.c_str());
+      }
+    } else if (verdict != OtaVerdict::AlreadyHandled) {
+      cloudClient.reportOtaStatus("refused", req.version,
+                                  otaVerdictName(verdict));
+    }
+  }
+
+  // 3. Restart into an installed image once the alarm is quiet. The siren
+  // may have started DURING the download; the new image is already the next
+  // boot partition, so waiting costs nothing.
+  if (otaUpdater.installed()) {
+    static bool deferLogged = false;
+    const bool sirenBusy = siren.isActive() || pendingSirenDeadlineMs != 0 ||
+                           alarmState.isEntryDelayPending();
+    if (sirenBusy) {
+      if (!deferLogged) {
+        Serial.println("[ota] installed — restart deferred while alarm busy");
+        deferLogged = true;
+      }
+      return;
+    }
+    cloudClient.reportOtaStatus("rebooting", otaUpdater.activeVersion(),
+                                nullptr, 100);
+    otaUpdater.restartIntoNewImage();
+  }
+
+  // 4. Advance a running download.
+  if (!otaUpdater.active()) return;
+  String err;
+  switch (otaUpdater.tick(&err)) {
+    case OtaUpdater::TickResult::Running: {
+      const uint8_t pct = otaUpdater.progressPct();
+      if (pct >= otaLastReportedPct + 25) {
+        otaLastReportedPct = pct - pct % 25;
+        cloudClient.reportOtaStatus("downloading", otaUpdater.activeVersion(),
+                                    nullptr, otaLastReportedPct);
+      }
+      break;
+    }
+    case OtaUpdater::TickResult::Failed:
+      cloudClient.reportOtaStatus("failed", otaUpdater.activeVersion(),
+                                  err.c_str());
+      break;
+    case OtaUpdater::TickResult::Done:  // restarts on the next pass (step 3)
+    case OtaUpdater::TickResult::Idle:
+      break;
+  }
+}
+
 void setup() {
   // 115200 to match spike_mint — at 9600 the mint-path diagnostics in
   // cloud_client.cpp block long enough to perturb the timings they measure.
@@ -1200,8 +1306,11 @@ void setup() {
 #else
   delay(200);
 #endif
-  Serial.printf("Alarm system device booting... (last reset: %s)\n",
-                platformResetReason());
+  Serial.printf("Alarm system device booting... firmware %s (last reset: %s)\n",
+                kFirmwareVersion, platformResetReason());
+  // Before anything can hang: an image under verification that hangs from
+  // here on is reset by the watchdog, and the bootloader then rolls it back.
+  otaUpdater.beginBoot(kFirmwareVersion);
 
   // Start the watchdog BEFORE anything that can block, so a hang during
   // provisioning or the WiFi connect is caught too. 30s is deliberately
@@ -1545,6 +1654,8 @@ void loop() {
     Serial.printf("[camera] manual capture: %u/%u channel(s) uploaded\n",
                   uploaded, channelCount);
   }
+
+  handleOta(now);
 
   if (localWebEnabled) {
     if (mdnsStarted) platformMdnsUpdate();

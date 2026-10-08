@@ -35,6 +35,7 @@ import { useDeviceState } from "./useDeviceState";
 import { useAlarmState } from "./useAlarmState";
 import { postLocalDisarm, shouldTryLocalDisarm } from "./localDevice";
 import SchedulesPanel from "./SchedulesPanel";
+import FirmwareCard from "./FirmwareCard";
 import { causeLabel } from "./alarmState";
 import { bootSeverity, bootReasonKey, isRecentBoot } from "./bootReason";
 import {
@@ -61,6 +62,7 @@ export default function OperationsPage() {
     armed: deviceArmed,
     sirenActive,
     boot,
+    deviceOnline,
     loading: rtdbLoading,
   } = useDeviceState(projectId);
   const alarm = useAlarmState(projectId);
@@ -582,6 +584,17 @@ export default function OperationsPage() {
               </p>
             )}
           </section>
+
+          {/* Admin maintenance, so last: installing firmware is something you
+              come here to do on purpose, never on the way to the arm grid. */}
+          {role === "admin" && projectId && (
+            <FirmwareCard
+              projectId={projectId}
+              boot={boot}
+              online={online && deviceOnline}
+              sirenActive={sirenActive === true}
+            />
+          )}
       </>
       {toast && <div className="toast">{toast}</div>}
     </div>

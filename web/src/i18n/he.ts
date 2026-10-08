@@ -95,6 +95,35 @@ export const he: Record<TranslationKey, string> = {
   "ops.forceSilence": "השתקה מיידית",
   "ops.offlineCannotArm": "לא מקוון — לא ניתן לדרוך",
 
+  // ---- Firmware (over-the-air update) ----
+  "fw.title": "קושחה",
+  "fw.running": "גרסה פעילה {version}",
+  "fw.runningUnknown": "הבקר עדיין לא דיווח על גרסה",
+  "fw.unsupported":
+    "הקושחה בבקר קודמת לעדכון מרחוק. יש לצרוב אותה פעם אחת דרך USB; כל עדכון אחר כך יותקן מכאן.",
+  "fw.upToDate": "מעודכן",
+  "fw.nonePublished": "טרם פורסמה קושחה",
+  "fw.available": "עדכון זמין: {version}",
+  "fw.publishedAt": "פורסם {time}",
+  "fw.install": "התקן",
+  "fw.installConfirm": "לחץ שוב להתקנה",
+  "fw.installTitle":
+    "הבקר מוריד את העדכון וממשיך לשמור, ואז מופעל מחדש (מספר שניות). אם הקושחה החדשה לא מתחברת לענן תוך 10 דקות, היא חוזרת לגרסה הזו מעצמה.",
+  "fw.offline": "הבקר לא מחובר — אי אפשר להתקין",
+  "fw.sirenBusy": "לא בזמן שהצופר פועל",
+  "fw.requested": "הבקשה נשלחה — ממתין לבקר…",
+  "fw.status.downloading": "מוריד {version} — {progress}%",
+  "fw.status.rebooting": "מופעל מחדש לגרסה {version}…",
+  "fw.status.ok": "עודכן לגרסה {version}",
+  "fw.status.failed": "העדכון לגרסה {version} נכשל",
+  "fw.status.refused": "הבקר דחה את העדכון לגרסה {version}",
+  "fw.status.rolledBack": "גרסה {version} נכשלה בבדיקת התקינות — הבקר חזר לקושחה הקודמת",
+  "fw.refused.siren": "האזעקה הייתה פעילה",
+  "fw.refused.expired": "הבקשה פגה לפני שהבקר קיבל אותה",
+  "fw.refused.sameVersion": "הגרסה כבר מותקנת",
+  "fw.refused.busy": "עדכון אחר היה בתהליך",
+  "fw.refused.badRequest": "הבקשה לא תקינה",
+
   // ---- Configure ----
   "cfg.title": "הגדרות",
   "cfg.tab.general": "כללי",

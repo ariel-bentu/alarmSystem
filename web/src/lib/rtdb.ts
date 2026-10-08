@@ -79,3 +79,13 @@ export const commandsCaptureRef = (projectId: string): DatabaseReference =>
   ref(rtdbSync(), commandsCapturePath(projectId));
 export const stateSirenBaseRef = (projectId: string): DatabaseReference =>
   ref(rtdbSync(), stateSirenBasePath(projectId));
+
+// Over-the-air update: the web UI writes the request, the device reports
+// progress and outcome. See features/operations/firmware.ts.
+export const commandsOtaPath = (projectId: string) =>
+  `${projectId}/commands/ota`;
+export const stateOtaPath = (projectId: string) => `${projectId}/state/ota`;
+export const commandsOtaRef = (projectId: string): DatabaseReference =>
+  ref(rtdbSync(), commandsOtaPath(projectId));
+export const stateOtaRef = (projectId: string): DatabaseReference =>
+  ref(rtdbSync(), stateOtaPath(projectId));

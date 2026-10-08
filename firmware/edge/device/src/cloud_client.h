@@ -22,6 +22,7 @@
 #include "alarm_state.h"
 #include "auth_supervisor.h"
 #include "config_parser.h"
+#include "ota_command.h"
 #include "ssl_client_with_dns.h"
 
 class CloudClient {
@@ -201,6 +202,24 @@ class CloudClient {
   // pattern as pair/fp). ts is the epoch-ms the web UI stamped; the device
   // uses it as the snapshot/event key so the timeline can be joined.
   bool consumeCaptureCommand(uint64_t* tsOut);
+  // Firmware update request: /commands/ota (see ota_command.h for the shape).
+  // Surfaces once per NEW nonce, like pair/capture. Whether to act on it —
+  // including "already handled before the last reboot" — is otaDecide()'s
+  // call in main.cpp, not this class's.
+  bool consumeOtaCommand(OtaRequest* out);
+
+  // Write /{projectId}/state/ota = { status, version, detail, progress, at }.
+  // status: "downloading" | "rebooting" | "ok" | "failed" |
+  // "refused" | "rolled_back". Best-effort, like every other state write.
+  void reportOtaStatus(const char* status, const char* version,
+                       const char* detail = nullptr, int progress = -1);
+
+  // The current Firebase ID token, for the OTA download's Authorization
+  // header — the same identity (role=device, projectId claim) the Storage
+  // SDK path uses, so storage.rules governs it identically.
+  String idToken() const { return app_.getToken(); }
+  static const char* storageBucket();
+
   // Lets callers avoid putting a ~2.4KB Config on the 4KB cont stack unless
   // there is actually an update to take — see main.cpp's loop().
   bool hasPendingConfigUpdate() const { return hasPendingConfig_; }
@@ -435,6 +454,11 @@ class CloudClient {
   bool hadCaptureCommand_ = false;
   uint64_t pendingCaptureCommandTs_ = 0;
   bool hasPendingCapture_ = false;
+
+  uint32_t lastOtaNonce_ = 0;
+  bool hadOtaNonce_ = false;
+  OtaRequest pendingOta_;
+  bool hasPendingOta_ = false;
 
   bool mintCustomToken();
   // Parse a polled /commands or /config payload. Actual config parsing lives
