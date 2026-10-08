@@ -406,9 +406,12 @@ also syncs the non-secret `pushoverConfigured` mirror that the status badge
 and `set:notifyKey` share, and it requires BOTH halves, since Pushover sends
 nothing with one.
 
-**Over-the-air firmware updates (2026-10-08) — FLASHED over USB and rules +
-web DEPLOYED 2026-10-08; no OTA install exercised on hardware yet.** The
-device reports `fw` on `state/boot`. `npm run publish:firmware` builds, uploads
+**Over-the-air firmware updates (2026-10-08) — DEPLOYED and VERIFIED ON
+HARDWARE.** First real install 2026-10-08: `…0619-bd73d51-dirty` →
+`2026.10.08-0623-e6718bb` from the web card — download ~10s, restart
+(`reason: sw_restart`), marked valid and reported `ok` ~46s after boot
+(the 60s gate counts from power-on). Arm state survived. Refusal-while-siren
+and rollback are NOT yet exercised. The device reports `fw` on `state/boot`. `npm run publish:firmware` builds, uploads
 `firmware/{version}/firmware.bin` to Storage and points Firestore
 `firmware/latest` at it. The admin-only **Firmware** card on Operations
 compares that against `state/boot.fw` and offers Install, which writes
@@ -710,10 +713,8 @@ sensor, and the values reach RTDB. Use this to diagnose the intermittent
    can repoint). Neither needs a deploy —
    `npm run set:judgeTuning -- --write`, dry-run by default
 9. Replace the battery in `0x009BFA` and re-check its RSSI spread (`todo.txt`)
-10. **OTA: first install and hardware test.** OTA-capable build is flashed
-    and rules + web are deployed (2026-10-08); next commit, then
-    `npm run publish:firmware -- --write` a newer commit and install it from
-    the Firmware card. Also test: a request while the siren sounds is
+10. **OTA: finish hardware testing.** A normal install is VERIFIED
+    (2026-10-08). Still to test: a request while the siren sounds is
     refused; pulling WiFi right after the restart rolls back within 10 min
     and the old image reports `rolled_back`
 11. Run in parallel with W184
