@@ -314,6 +314,31 @@ void test_entry_delay_disarm_cancels_pending_fire() {
   TEST_ASSERT_FALSE(state.tickEntryDelay(31001)); // cancelled, never fires
 }
 
+void test_entry_delay_pending_is_visible_until_it_fires_or_is_disarmed() {
+  Config config;
+  config.armed = true;
+  config.sensorCount = 1;
+  strcpy(config.sensors[0].familyId, "A1B2C3");
+  config.sensors[0].conditionCount = 1;
+  config.sensors[0].conditions[0].t = 2;
+  config.sensors[0].conditions[0].y = 30;
+
+  AlarmState state;
+  state.setConfig(config);
+  TEST_ASSERT_FALSE(state.isEntryDelayPending());
+
+  state.onSensorEvent("A1B2C3", 1000);
+  TEST_ASSERT_TRUE(state.isEntryDelayPending());
+  TEST_ASSERT_TRUE(state.tickEntryDelay(31001));
+  TEST_ASSERT_FALSE(state.isEntryDelayPending());
+
+  AlarmState other;
+  other.setConfig(config);
+  other.onSensorEvent("A1B2C3", 1000);
+  other.disarm();
+  TEST_ASSERT_FALSE(other.isEntryDelayPending());
+}
+
 void test_multi_sensor_requires_all_participants_within_window() {
   Config config;
   config.armed = true;
@@ -868,6 +893,7 @@ void setup() {
   RUN_TEST(test_count_in_window_min_gap_absent_is_unchanged);
   RUN_TEST(test_entry_delay_does_not_fire_immediately_but_ticks_true_after_delay);
   RUN_TEST(test_entry_delay_disarm_cancels_pending_fire);
+  RUN_TEST(test_entry_delay_pending_is_visible_until_it_fires_or_is_disarmed);
   RUN_TEST(test_multi_sensor_requires_all_participants_within_window);
   RUN_TEST(test_quorum_fires_when_two_of_three_are_satisfied);
   RUN_TEST(test_quorum_does_not_fire_with_only_one_satisfied);

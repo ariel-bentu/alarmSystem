@@ -1,6 +1,7 @@
 #include "cloud_client.h"
 
 #include <ArduinoJson.h>
+#include "fw_version.h"
 #include "platform_compat.h"
 #include "stall_monitor.h"
 #include <WiFiClientSecure.h>
@@ -827,6 +828,22 @@ void CloudClient::applyCommandsJson(const String& json) {
     }
   }
 
+  // Firmware update: /commands/ota — see ota_command.h. Change-only on the
+  // nonce, so re-polling the same command does not re-surface it.
+  if (!doc["ota"].isNull()) {
+    OtaRequest req;
+    if (parseOtaRequest(doc["ota"].as<JsonVariantConst>(), &req)) {
+      if (!hadOtaNonce_ || req.nonce != lastOtaNonce_) {
+        hadOtaNonce_ = true;
+        lastOtaNonce_ = req.nonce;
+        pendingOta_ = req;
+        hasPendingOta_ = true;
+        Serial.printf("cloud: commands.ota -> n=%u version=%s\n",
+                      (unsigned)req.nonce, req.version);
+      }
+    }
+  }
+
   // Manual capture command: /commands/capture = { at: <epoch-ms> }.
   // Surface once per new `at` value — same change-only pattern as pair/fp.
   if (doc["capture"]["at"].is<uint64_t>()) {
@@ -923,6 +940,38 @@ bool CloudClient::consumeCaptureCommand(uint64_t* tsOut) {
   *tsOut = pendingCaptureCommandTs_;
   hasPendingCapture_ = false;
   return true;
+}
+
+bool CloudClient::consumeOtaCommand(OtaRequest* out) {
+  if (!hasPendingOta_) return false;
+  *out = pendingOta_;
+  hasPendingOta_ = false;
+  return true;
+}
+
+const char* CloudClient::storageBucket() { return kStorageBucketId; }
+
+void CloudClient::reportOtaStatus(const char* status, const char* version,
+                                  const char* detail, int progress) {
+  if (!isReady()) return;
+  if (!openDataClient()) return;
+
+  JsonDocument doc;
+  doc["status"] = status;
+  doc["version"] = version ? version : "";
+  doc["running"] = kFirmwareVersion;
+  if (detail) doc["detail"] = detail;
+  if (progress >= 0) doc["progress"] = progress;
+  doc["at"] = (uint64_t)time(nullptr) * 1000ULL;
+  String json;
+  serializeJson(doc, json);
+
+  String path = String("/") + projectId_ + "/state/ota";
+  object_t payload(json.c_str());
+  bool ok = database_.set<object_t>(*dataClient_, path, payload);
+  Serial.printf("cloud: reportOtaStatus %s %s%s%s %s (code %d)\n", status,
+                version ? version : "", detail ? " — " : "", detail ? detail : "",
+                ok ? "ok" : "FAILED", dataClient_->lastError().code());
 }
 
 bool CloudClient::reportEvent(const char* rfId, const char* event, bool batteryLow, int rssi,
@@ -1157,6 +1206,9 @@ void CloudClient::reportBoot() {
 
   JsonDocument doc;
   doc["reason"] = platformResetReason();
+  // Which image is running. The web UI compares this against the published
+  // firmware/latest to decide whether to offer an update.
+  doc["fw"] = kFirmwareVersion;
   // Wall-clock, so this is comparable against event timestamps and against
   // Date.now() in the web UI. NTP may not have synced this early, in which
   // case it is epoch-adjacent — the reason string is the load-bearing part.

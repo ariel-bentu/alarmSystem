@@ -151,3 +151,7 @@ export const timelineCol = (projectId: string) =>
   collection(dbSync(), "projects", projectId, "timeline").withConverter(
     timelineConverter
   ) as CollectionReference<TimelineSnapshotDoc>;
+
+// The published firmware release (not project-scoped: one build serves every
+// device). Read-only for clients — see firestore.rules.
+export const firmwareLatestDoc = () => doc(dbSync(), "firmware", "latest");

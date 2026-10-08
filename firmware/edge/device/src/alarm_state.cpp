@@ -211,6 +211,15 @@ bool AlarmState::tickEntryDelay(unsigned long nowMs, TriggerCause* cause) {
   return false;
 }
 
+bool AlarmState::isEntryDelayPending() const {
+  for (uint8_t s = 0; s < config_.sensorCount; s++) {
+    for (uint8_t c = 0; c < config_.sensors[s].conditionCount; c++) {
+      if (runtime_[s][c].entryDelayPending) return true;
+    }
+  }
+  return false;
+}
+
 void AlarmState::disarm() {
   config_.armed = false;
   for (uint8_t s = 0; s < config_.sensorCount; s++) {

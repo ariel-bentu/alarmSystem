@@ -138,6 +138,20 @@ failure class most suspected historically.
   correct today but are held in sync only by convention, with no
   `static_assert` tying them together.
 
+- **Over-the-air updates trust TLS without certificate pinning, and any
+  signed-in user can request one.** Added 2026-10-08. `/commands` is
+  `.write: auth != null` (the existing posture for every command), so a
+  signed-in user of ANY project can write `commands/ota` for any device.
+  What limits the damage: the device only fetches objects under `firmware/`,
+  which `storage.rules` makes write-never for clients (only the admin SDK —
+  `npm run publish:firmware` — can put an image there), and `Update.end()`
+  refuses to make an image bootable unless it matches the md5 in the request.
+  So the worst a hostile member can do is install a release that was
+  published anyway, or reboot the device into one. Images are **not
+  signed**: whoever holds the service-account key can publish firmware, and
+  the download (like the mint) uses `setInsecure()`. Fix: ESP-IDF secure-boot
+  / signed app images, plus pinning Google's root CA in both TLS paths.
+
 ### By design, not bugs
 
 - **No event buffering.** Events occurring during a cloud outage are lost. The

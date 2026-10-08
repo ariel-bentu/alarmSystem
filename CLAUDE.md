@@ -101,12 +101,14 @@ battery change sounds the siren; silence it with Disarm.
 /{projectId}/state/siren_active         → bool   (latches — see history doc)
 /{projectId}/state/alarm_cause          → { rfId, ct, at } | { label, at }
 /{projectId}/state/last_seen            → device UPTIME seconds, NOT epoch
-/{projectId}/state/boot                 → { reason, at }
-/{projectId}/commands/{armed,siren,pair}
+/{projectId}/state/boot                 → { reason, at, fw }
+/{projectId}/state/ota                  → { status, version, running, detail?, progress?, at }
+/{projectId}/commands/{armed,siren,pair,capture,fp,breach,ota}
 /{projectId}/config                     → { a, d, r, c }  thin, index-based
 ```
 
-Firestore: `/users/{email}`, `/deviceKeys/{apiKeyHash}`, `/projects/{projectId}`
+Firestore: `/firmware/latest` (published OTA manifest, any signed-in user
+reads, no client writes), `/users/{email}`, `/deviceKeys/{apiKeyHash}`, `/projects/{projectId}`
 with `members`, `sensors`, `profiles/{id}/rules`, `schedules`, `events`, and
 `secrets/notify` (Pushover credentials, `read, write: if isAdmin` — off the
 member-readable project doc, editable in Configure → Notifications).
@@ -162,6 +164,10 @@ python3 ../read_serial.py 40 --port /dev/cu.usbmodem101   # --port is REQUIRED
 # Bench testing over LAN
 curl -s http://alarm.local/status
 curl -s -X POST "http://alarm.local/trigger?rfId=0x2E5B73"
+
+# Publish firmware for over-the-air install (dry-run unless --write; builds
+# first, refuses a dirty tree or a version not newer than firmware/latest)
+cd functions && GOOGLE_APPLICATION_CREDENTIALS=../<sa>.json npm run publish:firmware -- --write
 
 # Web / functions
 cd web && npm run lint && npm test && npm run build
@@ -399,6 +405,44 @@ empty inputs then would invite a save that wipes working credentials. Saving
 also syncs the non-secret `pushoverConfigured` mirror that the status badge
 and `set:notifyKey` share, and it requires BOTH halves, since Pushover sends
 nothing with one.
+
+**Over-the-air firmware updates (2026-10-08) — DEPLOYED and VERIFIED ON
+HARDWARE.** First real install 2026-10-08: `…0619-bd73d51-dirty` →
+`2026.10.08-0623-e6718bb` from the web card — download ~10s, restart
+(`reason: sw_restart`), marked valid and reported `ok` ~46s after boot
+(the 60s gate counts from power-on). Arm state survived. Refusal-while-siren
+and rollback are NOT yet exercised. The device reports `fw` on `state/boot`. `npm run publish:firmware` builds, uploads
+`firmware/{version}/firmware.bin` to Storage and points Firestore
+`firmware/latest` at it. The admin-only **Firmware** card on Operations
+compares that against `state/boot.fw` and offers Install, which writes
+`commands/ota = {n, version, path, md5, size, until}`. The device
+(`ota_updater.cpp`, decisions in `ota_command.h`, native-tested) downloads
+**incrementally inside `loop()`** — ~40ms slices, so RF decode and the siren
+keep running — verifies the md5 in `Update.end()`, and restarts. Progress and
+outcome land in `state/ota`.
+
+- **Version** = `YYYY.MM.DD-HHMM-sha7[-dirty]` (UTC), stamped by
+  `fw_version.py` into the gitignored `src/fw_version_gen.cpp` on EVERY
+  esp32s3 build, USB ones included. String order is build order; the UI
+  offers only a strictly newer release, so a newer local build is never
+  offered a "downgrade".
+- **Rollback is real, not aspirational:** the prebuilt bootloader has
+  `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`, and `verifyRollbackLater()` is
+  overridden to return true so Arduino no longer blesses a new image at boot.
+  The image is marked valid only once the cloud is ready AND config received
+  AND uptime ≥ 60s; after 10 min without that it reverts itself, and any
+  crash/twdt before then is reverted by the bootloader. The previous image
+  reads the NVS `ota/pending` record and reports `rolled_back`.
+- **The handled nonce is persisted in NVS before downloading.** Without it,
+  a rolled-back image would poll the same command and reinstall the bad
+  build in a loop.
+- **Refused while the siren is sounding, held, or an entry delay is
+  counting** — all RAM-only, a reboot would drop them. A download that
+  finishes mid-alarm defers the restart until it is quiet.
+- ⚠️ The first OTA-capable build must go on **over USB**; a device whose
+  boot record has no `fw` shows "predates remote updates" instead of Install.
+- Deploy `storage.rules` + `firestore.rules` before the first publish, or the
+  device's download (403) and the web's manifest read both fail.
 
 **Camera snapshots on trigger (2026-10-03) — deployed; judge VERIFIED on hardware 2026-10-04.**
 On every armed trigger the device grabs a JPEG from each live NVR channel via
@@ -669,8 +713,12 @@ sensor, and the values reach RTDB. Use this to diagnose the intermittent
    can repoint). Neither needs a deploy —
    `npm run set:judgeTuning -- --write`, dry-run by default
 9. Replace the battery in `0x009BFA` and re-check its RSSI spread (`todo.txt`)
-10. Run in parallel with W184
-11. Register the Telegram webhook so bot commands work
-12. Decommission W184
+10. **OTA: finish hardware testing.** A normal install is VERIFIED
+    (2026-10-08). Still to test: a request while the siren sounds is
+    refused; pulling WiFi right after the restart rolls back within 10 min
+    and the old image reports `rolled_back`
+11. Run in parallel with W184
+12. Register the Telegram webhook so bot commands work
+13. Decommission W184
 
 See `todo.txt` for smaller known gaps.

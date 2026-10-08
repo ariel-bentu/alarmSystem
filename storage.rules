@@ -22,5 +22,19 @@ service firebase.storage {
                    && request.resource.contentType == 'image/jpeg'
                    && request.resource.size < 2 * 1024 * 1024;
     }
+
+    // Firmware images for over-the-air updates, published by
+    // functions/scripts/publishFirmware.ts through the admin SDK (which
+    // bypasses these rules). The device downloads with its own ID token.
+    //
+    // NO client may write here, ever: /commands/ota is writable by any
+    // signed-in user, and this prefix is the only thing that limits what such
+    // a command can make a device flash to a release that was published.
+    // Not project-scoped — one build serves every device.
+    match /firmware/{allPaths=**} {
+      allow read: if request.auth != null
+                  && request.auth.token.role == 'device';
+      allow write: if false;
+    }
   }
 }

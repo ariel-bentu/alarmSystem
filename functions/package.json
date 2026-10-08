@@ -17,7 +17,8 @@
     "set:judgeKey": "tsx scripts/setJudgeKey.ts",
     "set:notifyKey": "tsx scripts/setNotifyKey.ts",
     "set:judgeTuning": "tsx scripts/setJudgeTuning.ts",
-    "touch:project": "tsx scripts/touchProject.ts"
+    "touch:project": "tsx scripts/touchProject.ts",
+    "publish:firmware": "tsx scripts/publishFirmware.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

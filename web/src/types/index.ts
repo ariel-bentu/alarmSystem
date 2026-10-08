@@ -355,6 +355,50 @@ export interface RtdbBoot {
   // See platformResetReason() in firmware/edge/device/src/platform_compat.h.
   reason: string;
   at: number; // epoch ms; 0-adjacent if NTP had not synced yet
+  // Running firmware version, e.g. "2026.10.08-1432-abc1234". Absent on
+  // firmware that predates over-the-air updates — which cannot install one.
+  fw?: string;
+}
+
+// Published firmware release: Firestore firmware/latest, written by
+// functions/scripts/publishFirmware.ts. Mirrors functions/src/firmwareRelease.ts.
+export interface FirmwareManifest {
+  version: string;
+  path: string; // Storage object, always under firmware/
+  size: number;
+  md5: string;
+  sha256: string;
+  publishedAt: number; // epoch ms
+  notes?: string;
+}
+
+// /{projectId}/commands/ota — the device acts on each new `n` once.
+// See firmware/edge/device/src/ota_command.h.
+export interface RtdbOtaCommand {
+  n: number;
+  version: string;
+  path: string;
+  md5: string;
+  size: number;
+  until: number; // epoch SECONDS
+}
+
+// /{projectId}/state/ota — written by the device as an update progresses.
+export type OtaStatus =
+  | "downloading"
+  | "rebooting"
+  | "ok"
+  | "failed"
+  | "refused"
+  | "rolled_back";
+
+export interface RtdbOtaState {
+  status: OtaStatus;
+  version: string; // the version being (or that was) installed
+  running?: string; // what the device was running when it wrote this
+  detail?: string;
+  progress?: number; // 0-100, while downloading
+  at: number; // epoch ms
 }
 
 export interface RtdbCommands {
