@@ -18,6 +18,7 @@ function deps(secrets: Record<string, string> = {}) {
     loadSecrets: vi.fn(async () => secrets),
     sendTelegramFn: vi.fn(async () => {}),
     sendPushoverFn: vi.fn(async () => {}),
+    claimEmergencyFn: vi.fn(async () => true),
   };
 }
 
@@ -114,9 +115,16 @@ describe("notify", () => {
       url: undefined,
       urlTitle: undefined,
       sound: undefined,
+      device: undefined,
       retrySec: 90,
       expireSec: 600,
     });
+  });
+
+  it("targets the configured Pushover devices", async () => {
+    const d = deps({ ...bothSecrets, pushoverDevices: "iphone,ipad" });
+    await notify("p", project({ notifyChannels: ["pushover"] }), msg, d);
+    expect(d.sendPushoverFn.mock.calls[0][0].device).toBe("iphone,ipad");
   });
 
   it("passes the project's Pushover sound through", async () => {
@@ -208,7 +216,7 @@ describe("notify", () => {
     d.sendPushoverFn.mockRejectedValue(new Error("y"));
     await expect(
       notify("p", project({ notifyChannels: ["telegram", "pushover"] }), msg, d)
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(true);
   });
 
   it("never rejects when the secrets read throws", async () => {
@@ -216,7 +224,7 @@ describe("notify", () => {
     d.loadSecrets.mockRejectedValue(new Error("permission denied"));
     await expect(
       notify("p", project({ notifyChannels: ["telegram", "pushover"] }), msg, d)
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(true);
     // Telegram is unaffected by a Pushover-credential failure.
     expect(d.sendTelegramFn).toHaveBeenCalledTimes(1);
   });
@@ -226,5 +234,40 @@ describe("notify", () => {
     const d = deps();
     await notify("p", project({ notifyChannels: ["telegram"] }), msg, d);
     expect(d.loadSecrets).not.toHaveBeenCalled();
+  });
+});
+
+describe("notify: one emergency per window", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("sends an emergency at full priority when the claim succeeds", async () => {
+    const d = deps(bothSecrets);
+    await notify("p", project({ notifyChannels: ["pushover"] }), { text: "t", severity: "alarm" }, d);
+    expect(d.claimEmergencyFn).toHaveBeenCalledWith("p");
+    expect(d.sendPushoverFn.mock.calls[0][0].severity).toBe("alarm");
+  });
+
+  // 2026-10-09: front door + two judge confirmations = three repeating P2s.
+  it("suppresses a later emergency in the window on every channel", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = { ...deps(bothSecrets), claimEmergencyFn: vi.fn(async () => false) };
+    const sent = await notify(
+      "p",
+      project({ notifyChannels: ["telegram", "pushover"] }),
+      { text: "breach", severity: "alarm", title: "Confirmed breach" },
+      d
+    );
+    expect(sent).toBe(false);
+    expect(d.sendPushoverFn).not.toHaveBeenCalled();
+    expect(d.sendTelegramFn).not.toHaveBeenCalled();
+  });
+
+  it("does not claim the window for non-emergency severities", async () => {
+    const d = deps(bothSecrets);
+    await notify("p", project(), { text: "t", severity: "loud" }, d);
+    await notify("p", project(), { text: "t", severity: "notice" }, d);
+    expect(d.claimEmergencyFn).not.toHaveBeenCalled();
   });
 });

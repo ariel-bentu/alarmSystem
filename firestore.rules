@@ -181,6 +181,12 @@ service cloud.firestore {
       match /pendingAlarms/{pendingId} {
         allow read, write: if false;
       }
+
+      // One-emergency-per-episode marker (emergencyThrottle.ts). Server-only:
+      // a client that could write it could downgrade the next real alarm.
+      match /notifyState/{docId} {
+        allow read, write: if false;
+      }
     }
   }
 }

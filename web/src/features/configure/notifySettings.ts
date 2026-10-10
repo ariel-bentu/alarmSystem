@@ -59,16 +59,29 @@ export interface NotifyForm {
 export interface PushoverCredsForm {
   appToken: string;
   userKey: string;
+  /** Comma-separated device names; blank = every device on the account. */
+  devices: string;
 }
 
 export function credsFromSecrets(secrets: {
   pushoverToken?: string;
   pushoverUserKey?: string;
+  pushoverDevices?: string;
 }): PushoverCredsForm {
   return {
     appToken: secrets.pushoverToken ?? "",
     userKey: secrets.pushoverUserKey ?? "",
+    devices: secrets.pushoverDevices ?? "",
   };
+}
+
+/** "iphone, ipad ,," → "iphone,ipad" — the shape Pushover's `device` takes.
+ *  Mirrors normalizePushoverDevices in functions/src/notifySecrets.ts. */
+export function normalizeDevices(raw: string): string {
+  return raw
+    .split(/[\s,]+/)
+    .filter((d) => d !== "")
+    .join(",");
 }
 
 export function credsDirty(
@@ -77,7 +90,8 @@ export function credsDirty(
 ): boolean {
   return (
     saved.appToken.trim() !== current.appToken.trim() ||
-    saved.userKey.trim() !== current.userKey.trim()
+    saved.userKey.trim() !== current.userKey.trim() ||
+    normalizeDevices(saved.devices) !== normalizeDevices(current.devices)
   );
 }
 

@@ -24,6 +24,24 @@ import type { Firestore } from "firebase-admin/firestore";
 export interface NotifySecrets {
   pushoverToken?: string;
   pushoverUserKey?: string;
+  /**
+   * Comma-separated Pushover device names under that user key. Absent/blank
+   * means EVERY device on the account — Pushover's own default. Kept beside
+   * the user key because the names only mean anything for that account.
+   */
+  pushoverDevices?: string;
+}
+
+/**
+ * "iphone, ipad ,," → "iphone,ipad": Pushover's `device` takes a bare
+ * comma-separated list. Whitespace also separates, since device names
+ * cannot contain it. Empty result = all devices.
+ */
+export function normalizePushoverDevices(raw: string): string {
+  return raw
+    .split(/[\s,]+/)
+    .filter((d) => d !== "")
+    .join(",");
 }
 
 export function notifySecretsPath(projectId: string): string {
@@ -54,6 +72,10 @@ export async function loadNotifySecrets(
       data.pushoverUserKey.trim() !== ""
     ) {
       out.pushoverUserKey = data.pushoverUserKey;
+    }
+    if (typeof data.pushoverDevices === "string") {
+      const devices = normalizePushoverDevices(data.pushoverDevices);
+      if (devices) out.pushoverDevices = devices;
     }
     return out;
   } catch (e) {

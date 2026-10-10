@@ -37,6 +37,16 @@ describe("loadNotifySecrets", () => {
     });
   });
 
+  it("returns the device list normalised, and omits a blank one", async () => {
+    const { db } = fakeDb({
+      exists: true,
+      data: { pushoverToken: "a", pushoverUserKey: "u", pushoverDevices: " iphone, ipad ," },
+    });
+    expect((await loadNotifySecrets(db, "p")).pushoverDevices).toBe("iphone,ipad");
+    const blank = fakeDb({ exists: true, data: { pushoverDevices: " , " } });
+    expect(await loadNotifySecrets(blank.db, "p")).toEqual({});
+  });
+
   it("returns only the field that is present", async () => {
     const { db } = fakeDb({ exists: true, data: { pushoverToken: "atoken" } });
     expect(await loadNotifySecrets(db, "p")).toEqual({ pushoverToken: "atoken" });

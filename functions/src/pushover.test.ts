@@ -121,6 +121,13 @@ describe("pushoverBody", () => {
     expect(pushoverBody(base).get("sound")).toBeNull();
     expect(pushoverBody({ ...base, sound: "" }).get("sound")).toBeNull();
   });
+
+  // Blank = every device on the user key, which is Pushover's default when
+  // the parameter is absent.
+  it("targets devices only when a list is set", () => {
+    expect(pushoverBody({ ...base, device: "iphone,ipad" }).get("device")).toBe("iphone,ipad");
+    expect(pushoverBody(base).get("device")).toBeNull();
+  });
 });
 
 describe("sendPushover", () => {

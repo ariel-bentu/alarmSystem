@@ -16,6 +16,7 @@ import { db, rtdb } from "./admin";
 import { Project, AlarmEvent, Remote } from "./types";
 import { formatArmStateBySource } from "./telegram";
 import { notify } from "./notify";
+import { clearEmergency } from "./emergencyThrottle";
 import {
   shouldSuppressDeviceArmNotification,
   armEventSourceLabel,
@@ -33,6 +34,11 @@ export const onDeviceArmStateChange = onValueWritten(
 
     const projectId = event.params.projectId;
     const armed = after === true;
+
+    // A disarm ends the one-emergency-per-episode window (emergencyThrottle).
+    // Here, on the ECHO channel, because every disarm lands on state/armed
+    // whatever its source — app, schedule, remote, or local web UI.
+    if (!armed) await clearEmergency(db, projectId);
 
     // Read source before anything else: it determines whether the device acted
     // on its own (remote/local) or echoed a cloud command. Written by the

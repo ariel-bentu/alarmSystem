@@ -13,6 +13,7 @@ import {
   credsFromSecrets,
   credsDirty,
   credsComplete,
+  normalizeDevices,
   PUSHOVER_SOUNDS_LONG,
   PUSHOVER_SOUNDS_SHORT,
   JUDGE_WAIT_OFF,
@@ -196,25 +197,26 @@ describe("Pushover credentials", () => {
   it("reads both halves from the secrets doc", () => {
     expect(
       credsFromSecrets({ pushoverToken: "app", pushoverUserKey: "usr" })
-    ).toEqual({ appToken: "app", userKey: "usr" });
+    ).toEqual({ appToken: "app", userKey: "usr", devices: "" });
   });
 
   // An absent doc (or an absent field) must map to "", not undefined: these
   // feed controlled <input> values, and undefined makes React drop to an
   // uncontrolled input that silently ignores later updates.
   it("maps an empty secrets doc to empty strings", () => {
-    expect(credsFromSecrets({})).toEqual({ appToken: "", userKey: "" });
+    expect(credsFromSecrets({})).toEqual({ appToken: "", userKey: "", devices: "" });
   });
 
   it("maps a partially filled doc without inventing the other half", () => {
     expect(credsFromSecrets({ pushoverToken: "app" })).toEqual({
       appToken: "app",
       userKey: "",
+      devices: "",
     });
   });
 
   describe("credsDirty", () => {
-    const saved = { appToken: "app", userKey: "usr" };
+    const saved = { appToken: "app", userKey: "usr", devices: "iphone" };
 
     it("is false when nothing changed", () => {
       expect(credsDirty(saved, { ...saved })).toBe(false);
@@ -228,9 +230,14 @@ describe("Pushover credentials", () => {
     // Save trims, so a trailing space must not enable the button and then
     // write a value identical to the stored one.
     it("ignores surrounding whitespace", () => {
-      expect(credsDirty(saved, { appToken: " app ", userKey: "usr " })).toBe(
-        false
-      );
+      expect(
+        credsDirty(saved, { appToken: " app ", userKey: "usr ", devices: " iphone, " })
+      ).toBe(false);
+    });
+
+    it("detects a change to the device list", () => {
+      expect(credsDirty(saved, { ...saved, devices: "iphone,ipad" })).toBe(true);
+      expect(credsDirty(saved, { ...saved, devices: "" })).toBe(true);
     });
 
     it("detects clearing a credential", () => {
@@ -242,14 +249,14 @@ describe("Pushover credentials", () => {
     // Pushover needs the pair: notify() checks both before dispatching, so
     // one alone is not "configured" and must not set the mirror flag.
     it("requires both halves", () => {
-      expect(credsComplete({ appToken: "app", userKey: "usr" })).toBe(true);
-      expect(credsComplete({ appToken: "app", userKey: "" })).toBe(false);
-      expect(credsComplete({ appToken: "", userKey: "usr" })).toBe(false);
-      expect(credsComplete({ appToken: "", userKey: "" })).toBe(false);
+      expect(credsComplete({ appToken: "app", userKey: "usr", devices: "" })).toBe(true);
+      expect(credsComplete({ appToken: "app", userKey: "", devices: "" })).toBe(false);
+      expect(credsComplete({ appToken: "", userKey: "usr", devices: "" })).toBe(false);
+      expect(credsComplete({ appToken: "", userKey: "", devices: "" })).toBe(false);
     });
 
     it("treats whitespace-only as absent", () => {
-      expect(credsComplete({ appToken: "   ", userKey: "usr" })).toBe(false);
+      expect(credsComplete({ appToken: "   ", userKey: "usr", devices: "" })).toBe(false);
     });
   });
 });
@@ -269,5 +276,14 @@ describe("Pushover sounds", () => {
       (PUSHOVER_SOUNDS_SHORT as readonly string[]).includes(s)
     );
     expect(overlap).toEqual([]);
+  });
+});
+
+describe("normalizeDevices", () => {
+  it("joins names with bare commas, dropping blanks and spaces", () => {
+    expect(normalizeDevices(" iphone, ipad ,,watch ")).toBe("iphone,ipad,watch");
+  });
+  it("is empty (= all devices) for blank input", () => {
+    expect(normalizeDevices("  , ")).toBe("");
   });
 });

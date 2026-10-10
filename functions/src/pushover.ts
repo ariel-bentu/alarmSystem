@@ -46,6 +46,8 @@ export interface PushoverArgs {
   // alarm. Only five are long/looping: alien, climb, persistent, echo,
   // updown. `siren` and `spacealarm` are the alarm-flavoured short ones.
   sound?: string;
+  // Comma-separated device names under `user`. Absent → every device.
+  device?: string;
   retrySec?: number;
   expireSec?: number;
 }
@@ -103,6 +105,7 @@ export function pushoverBody(args: PushoverArgs): URLSearchParams {
   });
   if (args.title) body.set("title", args.title);
   if (args.sound) body.set("sound", args.sound);
+  if (args.device) body.set("device", args.device);
   // url_title without url is meaningless to Pushover, so it is gated on url.
   if (args.url) {
     body.set("url", args.url);

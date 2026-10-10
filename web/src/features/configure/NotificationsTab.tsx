@@ -21,6 +21,7 @@ import {
   type NotifyForm,
   type NotifyChannel,
   type PushoverCredsForm,
+  normalizeDevices,
   formFromProject,
   isDirty,
   credsFromSecrets,
@@ -167,11 +168,16 @@ export default function NotificationsTab() {
       const next: PushoverCredsForm = {
         appToken: creds.appToken.trim(),
         userKey: creds.userKey.trim(),
+        devices: normalizeDevices(creds.devices),
       };
       // merge: the doc may hold fields this form does not model.
       await setDoc(
         notifySecretsDoc(project.id),
-        { pushoverToken: next.appToken, pushoverUserKey: next.userKey },
+        {
+          pushoverToken: next.appToken,
+          pushoverUserKey: next.userKey,
+          pushoverDevices: next.devices,
+        },
         { merge: true }
       );
       // Keep the non-secret mirror in step with the credentials themselves.
@@ -401,6 +407,27 @@ export default function NotificationsTab() {
                       setCredsError(null);
                     }}
                     placeholder="uQiRzpo4DXghDmr9QzzfQu27cmVRsG"
+                  />
+                </div>
+
+                <div className="field">
+                  <label className="field__label" htmlFor="pushover-devices">
+                    {t("settings.pushoverDevices")}
+                    <Help
+                      text={t("settings.pushoverDevicesHelp")}
+                      label={t("settings.help")}
+                    />
+                  </label>
+                  <input
+                    id="pushover-devices"
+                    className="input ltr"
+                    type="text"
+                    value={creds.devices}
+                    onChange={(e) => {
+                      setCreds({ ...creds, devices: e.target.value });
+                      setCredsError(null);
+                    }}
+                    placeholder={t("settings.pushoverDevicesPlaceholder")}
                   />
                 </div>
 

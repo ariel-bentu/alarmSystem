@@ -386,7 +386,7 @@ export async function handleSnapshotUpload(
     // sirenHoldSec: both exist to WAIT for a verdict, and the verdict is what
     // raised this alarm. There is nothing left to wait for, and holding would
     // only delay a confirmed breach.
-    await deps.notify(projectId, project, {
+    const sent = await deps.notify(projectId, project, {
       text: caption,
       severity: raisedByJudge
         ? "alarm"
@@ -394,6 +394,11 @@ export async function handleSnapshotUpload(
       title: raisedByJudge ? "Breach detected" : "Confirmed breach",
       link: true, // the snapshots this breach was judged on are on that page
     });
+
+    // The photo is the same alert by another route: if notify() suppressed
+    // the emergency (one per episode), the photo goes too. `=== false`, not
+    // falsy — an injected notify that resolves undefined still means "sent".
+    if (sent === false) return;
 
     if (!project.telegramBotToken || !project.telegramChatId) {
       console.log(

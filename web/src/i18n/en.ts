@@ -448,6 +448,10 @@ export const en = {
   "settings.pushoverUserKey": "User key",
   "settings.pushoverUserKeyHelp":
     "Your own user key, shown on the Pushover dashboard after signing in. Roughly 30 characters. This is who gets woken up — a group key works here too.",
+  "settings.pushoverDevices": "Devices",
+  "settings.pushoverDevicesHelp":
+    "Which of this user key's devices get the alerts, by their names in the Pushover app (Settings → device name), separated by commas. Leave blank to alert every device on the account.",
+  "settings.pushoverDevicesPlaceholder": "All devices",
   "settings.pushoverCredsIncomplete":
     "Both the app token and the user key are needed — with only one, Pushover sends nothing.",
   "settings.pushoverCredsLoadFailed":

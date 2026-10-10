@@ -189,7 +189,7 @@ function makeDeps(opts: {
     // Injected like every other dep rather than vi.mock'd: notify() reads
     // Firestore for the Pushover credentials, and this file's fakes do not
     // model the secrets subcollection.
-    notify: vi.fn(async () => {}),
+    notify: vi.fn(async () => true),
   };
   return { deps, fs, rtdb };
 }
@@ -334,6 +334,31 @@ describe("handleSnapshotUpload", () => {
     expect(doc?.aiNote).toContain("false positive (AI)");
     expect(doc?.aiNote).toContain("empty yard");
 
+    expect(sendTelegramPhoto).not.toHaveBeenCalled();
+  });
+
+  // One emergency per episode: when notify() suppresses the breach alert,
+  // the Telegram photo (the same alert by another route) is suppressed too.
+  it("skips the breach photo when notify suppressed the emergency", async () => {
+    const stubJudge = { judge: vi.fn(async () => ({ verdict: "breach" as const, reason: "person at door" })) };
+    vi.mocked(judgeFor).mockReturnValue(stubJudge);
+
+    const { deps } = makeDeps({
+      project: {
+        nvrMode: "capture+judge",
+        telegramBotToken: "tok",
+        telegramChatId: "chat",
+      },
+      sensors: { s1: { rfId: RF_ID, familyId: "0x0061D", name: "Front door" } },
+      rtdbSeed: {
+        [`${PROJECT_ID}/state/alarm_cause`]: { rfId: RF_ID, at: TS },
+      },
+    });
+    vi.mocked(deps.notify).mockResolvedValue(false);
+
+    await handleSnapshotUpload(deps, objectName(2));
+
+    expect(deps.notify).toHaveBeenCalledTimes(1);
     expect(sendTelegramPhoto).not.toHaveBeenCalled();
   });
 

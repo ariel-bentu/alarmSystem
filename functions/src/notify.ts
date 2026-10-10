@@ -8,6 +8,10 @@
 // spread across eight Cloud Functions. Adding a second channel to nine
 // separate gates would have guaranteed drift between them.
 //
+// Resolves false only when an emergency was SUPPRESSED by the
+// one-per-episode window (emergencyThrottle.ts), so a caller with a
+// side-channel send (the Telegram breach photo) can suppress that too.
+//
 // CONTRACT: notify() NEVER throws. Callers such as deviceLiveness and
 // deadSensorCheck latch their alert markers only AFTER a successful send, so
 // an escaping exception would silently change their retry behaviour. Each
@@ -19,6 +23,7 @@ import { NotifyChannel, Project } from "./types";
 import { sendTelegram } from "./telegram";
 import { Severity, sendPushover } from "./pushover";
 import { loadNotifySecrets } from "./notifySecrets";
+import { claimEmergency } from "./emergencyThrottle";
 
 export type { Severity };
 
@@ -70,6 +75,8 @@ export interface NotifyDeps {
   loadSecrets: typeof loadNotifySecrets;
   sendTelegramFn: typeof sendTelegram;
   sendPushoverFn: typeof sendPushover;
+  /** See emergencyThrottle.ts. Resolves true when this emergency may go out. */
+  claimEmergencyFn: (projectId: string) => Promise<boolean>;
 }
 
 /**
@@ -91,9 +98,9 @@ export async function notify(
   project: Project,
   msg: NotifyMessage,
   depsOverride: Partial<NotifyDeps> = {}
-): Promise<void> {
+): Promise<boolean> {
   const channels = resolveChannels(project);
-  if (channels.length === 0) return;
+  if (channels.length === 0) return true;
 
   // ./admin is resolved LAZILY, and only when a channel actually needs
   // Firestore. Importing it at module scope initialises the Firebase app,
@@ -107,7 +114,31 @@ export async function notify(
     loadSecrets: depsOverride.loadSecrets ?? loadNotifySecrets,
     sendTelegramFn: depsOverride.sendTelegramFn ?? sendTelegram,
     sendPushoverFn: depsOverride.sendPushoverFn ?? sendPushover,
+    claimEmergencyFn:
+      depsOverride.claimEmergencyFn ??
+      (async (id: string) => {
+        try {
+          return await claimEmergency((await import("./admin")).db, id, Date.now());
+        } catch (err) {
+          // Fail loud, and keep the never-throws contract.
+          console.error(`notify: emergency claim failed for project=${id}`, err);
+          return true;
+        }
+      }),
   };
+
+  // One emergency per episode: a later "alarm" inside the window is NOT
+  // sent at all, on any channel — the owner is already being woken, and the
+  // events page shows what keeps happening. Applied HERE so every path that
+  // can send one (onAlarm, judge verdicts, the pending sweeper,
+  // onSensorEvent) shares a single window.
+  if (msg.severity === "alarm" && !(await deps.claimEmergencyFn(projectId))) {
+    console.log(
+      `notify: project=${projectId} already sent an emergency in this window — ` +
+        `suppressing "${msg.title ?? msg.text}"`
+    );
+    return false;
+  }
 
   const sends: Promise<void>[] = [];
 
@@ -149,6 +180,7 @@ export async function notify(
           url: msg.link ? APP_EVENTS_URL : undefined,
           urlTitle: msg.link ? "Open alarm system" : undefined,
           sound: project.pushoverSound,
+          device: secrets.pushoverDevices,
           retrySec: project.pushoverRetrySec,
           expireSec: project.pushoverExpireSec,
         })
@@ -167,4 +199,5 @@ export async function notify(
       console.error(`notify: a channel failed for project=${projectId}`, r.reason);
     }
   }
+  return true;
 }

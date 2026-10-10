@@ -444,6 +444,19 @@ outcome land in `state/ota`.
 - Deploy `storage.rules` + `firestore.rules` before the first publish, or the
   device's download (403) and the web's manifest read both fail.
 
+**One emergency per episode + Pushover device targeting (2026-10-10) —
+DEPLOYED (rules, functions, web), NOT yet verified on a real alarm.** Prompted by forgetting to disarm on 2026-10-09: front
+door (definite → P2) plus two judge breach confirmations sent three
+repeating emergencies. `notify()` now claims a 5-min window
+(`emergencyThrottle.ts`, Firestore `projects/{id}/notifyState/emergency`,
+transactional, server-only rule) on every `alarm` severity; later ones in
+the window are **not sent at all**, on any channel, including the Telegram
+breach photo (the owner's choice — the events page shows what keeps
+happening). Only `alarm` severity is affected. A disarm (`onDeviceArmStateChange`, the echo channel every disarm
+reaches) clears it. Fails loud: a marker error sends the P2. Separately,
+`secrets/notify.pushoverDevices` (comma-separated, blank = all devices) is
+edited beside the user key and sent as Pushover's `device`.
+
 **Capture while disarmed toggle (2026-10-08) — DEPLOYED, installed by OTA
 (`2026.10.08-0634-af7b527`, the second OTA install, verified `ok`); setting
 turned OFF (`cd: 0` confirmed in RTDB config). Capture gating not yet
@@ -595,8 +608,7 @@ priority 1 and 2 are ordinary notifications and stay silent on mute, which
 is indistinguishable from a broken integration.
 
 Deliberately out of scope: Pushover image attachments (the breach photo
-stays Telegram-only; a text alert goes to both), the `device` parameter
-(omitted so all the owner's devices alert), acknowledgement callbacks, and
+stays Telegram-only; a text alert goes to both), acknowledgement callbacks, and
 deep-linking to a SPECIFIC event — `/explore` reads no query parameter, so
 the link lands on the unfiltered events list.
 

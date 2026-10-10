@@ -433,6 +433,10 @@ export const he: Record<TranslationKey, string> = {
   "settings.pushoverUserKey": "מפתח משתמש",
   "settings.pushoverUserKeyHelp":
     "מפתח המשתמש שלכם, מופיע בלוח הבקרה של Pushover לאחר התחברות. באורך 30 תווים בקירוב. זה מי שיקבל את ההתראה — אפשר להשתמש גם במפתח קבוצה.",
+  "settings.pushoverDevices": "מכשירים",
+  "settings.pushoverDevicesHelp":
+    "אילו מהמכשירים של מפתח המשתמש הזה יקבלו את ההתראות, לפי שמם באפליקציית Pushover (הגדרות ← שם המכשיר), מופרדים בפסיקים. השאירו ריק כדי להתריע בכל המכשירים בחשבון.",
+  "settings.pushoverDevicesPlaceholder": "כל המכשירים",
   "settings.pushoverCredsIncomplete":
     "נדרשים גם מזהה האפליקציה וגם מפתח המשתמש — עם אחד מהם בלבד Pushover לא ישלח כלום.",
   "settings.pushoverCredsLoadFailed":
